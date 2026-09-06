@@ -25,7 +25,8 @@ async function main() {
   const adminPassword = process.env.SEED_ADMIN_PASSWORD
   if (adminEmail && adminPassword) {
     if (adminPassword.length < 12) throw new Error('SEED_ADMIN_PASSWORD must be at least 12 characters.')
-    const admin = await prisma.adminUser.upsert({ where: { email: adminEmail.toLowerCase() }, update: { name: process.env.SEED_ADMIN_NAME ?? 'SkinFox Admin', roleId: roles.get('SUPER_ADMIN') }, create: { email: adminEmail.toLowerCase(), name: process.env.SEED_ADMIN_NAME ?? 'SkinFox Admin', passwordHash: await hashPassword(adminPassword), role: 'SUPER_ADMIN', roleId: roles.get('SUPER_ADMIN'), mustChangePassword: true, mfaRequired: true } })
+    const mfaRequired = Boolean(process.env.SEED_ADMIN_MFA_SECRET)
+    const admin = await prisma.adminUser.upsert({ where: { email: adminEmail.toLowerCase() }, update: { name: process.env.SEED_ADMIN_NAME ?? 'SkinFox Admin', roleId: roles.get('SUPER_ADMIN'), mfaRequired }, create: { email: adminEmail.toLowerCase(), name: process.env.SEED_ADMIN_NAME ?? 'SkinFox Admin', passwordHash: await hashPassword(adminPassword), role: 'SUPER_ADMIN', roleId: roles.get('SUPER_ADMIN'), mustChangePassword: true, mfaRequired } })
     if (process.env.SEED_ADMIN_MFA_SECRET) await prisma.mfaCredential.upsert({ where: { userId: admin.id }, update: { secretEncrypted: encryptSecret(process.env.SEED_ADMIN_MFA_SECRET) }, create: { userId: admin.id, secretEncrypted: encryptSecret(process.env.SEED_ADMIN_MFA_SECRET) } })
   }
   const location = await prisma.inventoryLocation.upsert({ where: { code: 'MAIN' }, update: {}, create: { code: 'MAIN', name: 'SkinFox main warehouse' } })

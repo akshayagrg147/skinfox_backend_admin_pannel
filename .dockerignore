@@ -1,0 +1,12 @@
+node_modules
+dist
+admin/dist
+server/dist
+server/.env
+deploy/*.env
+.git
+.github
+coverage
+*.log
+server/uploads/*
+!server/uploads/.gitkeep
