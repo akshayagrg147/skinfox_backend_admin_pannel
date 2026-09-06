@@ -1,0 +1,35 @@
+name: SkinFox CI
+on:
+  push:
+  pull_request:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: skinfox
+          POSTGRES_USER: skinfox
+          POSTGRES_PASSWORD: skinfox
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U skinfox -d skinfox"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://skinfox:skinfox@localhost:5432/skinfox?schema=public
+      COOKIE_SECRET: ci-cookie-secret-change-this-value-123456789
+      NODE_ENV: test
+      SEED_ADMIN_EMAIL: admin@example.com
+      SEED_ADMIN_PASSWORD: ci-password-change-this
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test:all
+      - run: npm run build:all
+      - run: npm run prisma:generate --workspace server
+      - run: npx prisma validate --schema server/prisma/schema.prisma
+      - run: npm run prisma:deploy --workspace server
