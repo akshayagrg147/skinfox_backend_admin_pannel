@@ -11,7 +11,9 @@ if [ -z "${SKINFOX_ADMIN_EMAIL:-}" ] || [ -z "${SKINFOX_ADMIN_PASSWORD:-}" ]; th
   exit 1
 fi
 
-dnf install -y docker git openssl curl
+# Amazon Linux 2023 includes curl-minimal, which provides the curl binary and
+# conflicts with the full curl package. Install only the packages we need.
+dnf install -y docker git openssl
 systemctl enable --now docker
 
 # A 2 GiB swap file keeps the one-GiB free-tier instance from running out of
