@@ -61,6 +61,8 @@ cat > deploy/server.env <<EOF
 STOREFRONT_ORIGIN=http://$public_ip
 ADMIN_ORIGIN=http://$public_ip:8080
 COOKIE_SECRET=$cookie_secret
+# This free-tier deployment is HTTP-only until a domain/TLS terminator is added.
+COOKIE_SECURE=false
 SESSION_TTL_DAYS=7
 SEED_ADMIN_EMAIL=$SKINFOX_ADMIN_EMAIL
 SEED_ADMIN_PASSWORD=$SKINFOX_ADMIN_PASSWORD
