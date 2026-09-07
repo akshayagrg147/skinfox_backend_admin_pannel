@@ -1,98 +1,195 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { Check, LockKeyhole } from 'lucide-react'
-import { FormEvent, useState } from 'react'
+import { Check, LockKeyhole, Smartphone } from 'lucide-react'
+import { FormEvent, useEffect, useState } from 'react'
 import { formatPrice, formatProductPrice } from '../data/products'
 import type { CartLine } from '../types'
+import { getStorefront, postStorefront } from '../lib/storefrontApi'
 import { ModalShell } from './ModalShell'
-import { postStorefront } from '../lib/storefrontApi'
+
+type Customer = { id: string; fullName: string; email?: string | null; phone: string }
+type SavedAddress = { id: string; label: string; fullName: string; addressLine1: string; addressLine2?: string | null; landmark?: string | null; city: string; state: string; pincode: string; isDefault: boolean }
+type AddressForm = { fullName: string; email: string; addressLine1: string; addressLine2: string; landmark: string; city: string; state: string; pincode: string; saveAddress: boolean; saveAsDefault: boolean }
+
+const emptyAddress: AddressForm = { fullName: '', email: '', addressLine1: '', addressLine2: '', landmark: '', city: '', state: '', pincode: '', saveAddress: true, saveAsDefault: false }
+const customerCsrfHeaders = (): Record<string, string> => {
+  const csrf = document.cookie.split('; ').find((entry) => entry.startsWith('sf_customer_csrf='))?.split('=').slice(1).join('=')
+  return csrf ? { 'x-customer-csrf-token': decodeURIComponent(csrf) } : {}
+}
 
 export function CheckoutModal({ open, lines, onClose, onComplete, cartToken = '' }: { open: boolean; lines: CartLine[]; onClose: () => void; onComplete: () => void; cartToken?: string }) {
-  const [complete, setComplete] = useState(false)
+  const [stage, setStage] = useState<'loading' | 'phone' | 'otp' | 'address' | 'complete'>('loading')
+  const [customer, setCustomer] = useState<Customer | null>(null)
+  const [addresses, setAddresses] = useState<SavedAddress[]>([])
+  const [selectedAddressId, setSelectedAddressId] = useState('')
+  const [phone, setPhone] = useState('')
+  const [otp, setOtp] = useState('')
+  const [challengeId, setChallengeId] = useState('')
+  const [testOtpCode, setTestOtpCode] = useState('')
+  const [form, setForm] = useState<AddressForm>(emptyAddress)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const hasPendingPrice = lines.some((line) => line.product.price === null)
   const subtotal = lines.reduce((sum, line) => sum + (line.product.price ?? 0) * line.quantity, 0)
 
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const form = event.currentTarget
-    if (!form.checkValidity()) {
-      form.reportValidity()
-      return
-    }
+  const loadAddresses = async (signedInCustomer: Customer) => {
+    const saved = await getStorefront<SavedAddress[]>('/customer/addresses')
+    setAddresses(saved)
+    const preferred = saved.find((address) => address.isDefault) ?? saved[0]
+    setForm((current) => ({ ...current, fullName: current.fullName || signedInCustomer.fullName, email: current.email || signedInCustomer.email || '', ...(preferred ? { addressLine1: preferred.addressLine1, addressLine2: preferred.addressLine2 ?? '', landmark: preferred.landmark ?? '', city: preferred.city, state: preferred.state, pincode: preferred.pincode } : {}) }))
+    if (preferred) setSelectedAddressId(preferred.id)
+  }
 
-    const data = new FormData(form)
-    const pincode = String(data.get('pincode') ?? '')
-    if (!/^[1-9]\d{5}$/.test(pincode)) {
-      setError('Enter a valid six-digit pincode that does not start with zero.')
-      return
-    }
+  useEffect(() => {
+    if (!open) return
+    let active = true
     setError('')
+    setSubmitting(false)
+    setStage(hasPendingPrice ? 'address' : 'loading')
+    if (hasPendingPrice || import.meta.env.MODE === 'test') return
+    void getStorefront<{ customer: Customer | null }>('/customer/auth/me').then(async ({ customer: signedInCustomer }) => {
+      if (!active) return
+      if (!signedInCustomer) { setStage('phone'); return }
+      setCustomer(signedInCustomer)
+      await loadAddresses(signedInCustomer)
+      if (active) setStage('address')
+    }).catch(() => { if (active) setStage('phone') })
+    return () => { active = false }
+  }, [open, hasPendingPrice])
+
+  const requestOtp = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
     setSubmitting(true)
-    if (import.meta.env.MODE !== 'test' && cartToken) {
-      try {
-        const payload = { fullName: String(data.get('name') ?? ''), email: String(data.get('email') ?? ''), phone: String(data.get('phone') ?? ''), addressLine1: String(data.get('addressLine1') ?? ''), addressLine2: String(data.get('addressLine2') ?? ''), city: String(data.get('city') ?? ''), state: String(data.get('state') ?? ''), pincode, billingSameAsShipping: true, marketingConsent: Boolean(data.get('marketingConsent')), paymentMethod: String(data.get('payment') ?? 'razorpay') }
-        if (hasPendingPrice) await postStorefront('/launch-interest', { productIds: lines.map((line) => line.product.id), cartSnapshot: lines.map((line) => ({ id: line.product.id, quantity: line.quantity })), name: payload.fullName, email: payload.email, phone: payload.phone || undefined, pincode, consent: true, privacyPolicyVersion: '2026-01' })
-        else { const session = await postStorefront<any>('/checkout/sessions', payload, { 'x-cart-token': cartToken, 'Idempotency-Key': `checkout-${Date.now()}` }); if (payload.paymentMethod === 'cod') await postStorefront(`/checkout/sessions/${session.checkoutSessionId}/confirm-cod`, {}, { 'x-cart-token': cartToken, 'Idempotency-Key': `cod-${Date.now()}` }); else { const paymentOrder = await postStorefront<any>(`/checkout/sessions/${session.checkoutSessionId}/payment-order`, {}, { 'x-cart-token': cartToken }); await postStorefront('/payments/razorpay/verify', { checkoutSessionId: session.checkoutSessionId, razorpayOrderId: paymentOrder.orderId, razorpayPaymentId: `pay_local_${Date.now()}`, razorpaySignature: 'test-signature' }) } }
-        setComplete(true); onComplete()
-      } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to complete checkout. Please try again.') } finally { setSubmitting(false) }
+    setError('')
+    try {
+      const response = await postStorefront<{ challengeId: string; phone: string; testOtpCode?: string }>('/customer/auth/request-otp', { phone })
+      setPhone(response.phone)
+      setChallengeId(response.challengeId)
+      setTestOtpCode(response.testOtpCode ?? '')
+      setOtp('')
+      setStage('otp')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to send an OTP. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const verifyOtp = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setSubmitting(true)
+    setError('')
+    try {
+      const response = await postStorefront<{ customer: Customer }>('/customer/auth/verify-otp', { challengeId, phone, code: otp, ...(cartToken ? { cartToken } : {}) })
+      setCustomer(response.customer)
+      setForm((current) => ({ ...current, fullName: response.customer.fullName === 'SkinFox customer' ? '' : response.customer.fullName, email: response.customer.email ?? '' }))
+      await loadAddresses(response.customer)
+      setStage('address')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to verify that OTP. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const chooseAddress = (id: string) => {
+    setSelectedAddressId(id)
+    if (!id) { setForm((current) => ({ ...current, saveAddress: true })); return }
+    const selected = addresses.find((address) => address.id === id)
+    if (selected) setForm((current) => ({ ...current, fullName: selected.fullName, addressLine1: selected.addressLine1, addressLine2: selected.addressLine2 ?? '', landmark: selected.landmark ?? '', city: selected.city, state: selected.state, pincode: selected.pincode, saveAddress: false }))
+  }
+
+  const submitCheckout = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (hasPendingPrice) {
+      setError('This selection is not purchasable until a selling price is published in the admin panel.')
       return
     }
-    setComplete(true)
-    onComplete()
-    setSubmitting(false)
+    if (!customer || !cartToken) { setStage('phone'); return }
+    if (!/^[1-9]\d{5}$/.test(form.pincode)) { setError('Enter a valid six-digit pincode that does not start with zero.'); return }
+    setSubmitting(true)
+    setError('')
+    try {
+      const headers = { 'x-cart-token': cartToken, 'Idempotency-Key': `checkout-${Date.now()}`, ...customerCsrfHeaders() }
+      const session = await postStorefront<{ checkoutSessionId: string; orderNumber: string }>('/checkout/sessions', { ...form, addressId: selectedAddressId || undefined, paymentMethod: 'cod', billingSameAsShipping: true }, headers)
+      await postStorefront(`/checkout/sessions/${session.checkoutSessionId}/confirm-cod`, {}, { 'x-cart-token': cartToken, 'Idempotency-Key': `cod-${Date.now()}`, ...customerCsrfHeaders() })
+      setStage('complete')
+      onComplete()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to complete checkout. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const close = () => {
-    setComplete(false)
     setError('')
     setSubmitting(false)
+    setStage('loading')
     onClose()
   }
 
+  const updateForm = (key: keyof AddressForm, value: string | boolean) => setForm((current) => ({ ...current, [key]: value }))
+
   return (
-    <ModalShell open={open} onClose={close} title="SkinFox launch preview" className="checkout-modal">
-      {complete ? (
+    <ModalShell open={open} onClose={close} title="Secure SkinFox checkout" className="checkout-modal">
+      {stage === 'complete' ? (
         <div className="checkout-success">
           <span><Check size={26} /></span>
-          <p className="eyebrow">{hasPendingPrice ? 'Launch interest noted' : 'Demo order confirmed'}</p>
-          <h2>{hasPendingPrice ? 'You’re on the SkinFox launch list.' : 'Your SkinFox edit is complete.'}</h2>
-          <p>{hasPendingPrice ? 'We saved your launch interest. We will contact you when approved prices and pack details are ready.' : 'Your order was accepted by the server-side checkout adapter. Payment credentials are never stored by SkinFox.'}</p>
+          <p className="eyebrow">Cash on delivery confirmed</p>
+          <h2>Your SkinFox edit is confirmed.</h2>
+          <p>Your order has been created. You will pay only when the order is delivered.</p>
           <button className="button button--dark" onClick={close}>Return to SkinFox</button>
         </div>
       ) : (
         <div className="checkout-grid">
-          <form onSubmit={submit} noValidate>
-            <span className="eyebrow">{hasPendingPrice ? 'Private launch preview' : 'Secure checkout preview'}</span>
-            <h2>{hasPendingPrice ? 'Where should we send your launch update?' : 'Where should we send your ritual?'}</h2>
-            <div className="field-grid">
-              <label><span>Full name</span><input name="name" required placeholder="Your name" /></label>
-              <label><span>Email</span><input name="email" type="email" required placeholder="you@example.com" /></label>
-              <label><span>Phone</span><input name="phone" inputMode="tel" pattern="[6-9][0-9]{9}" required placeholder="10-digit mobile" /></label>
-              {!hasPendingPrice && <label className="field-grid__wide"><span>Address line 1</span><input name="addressLine1" required placeholder="Street and locality" /></label>}
-              {!hasPendingPrice && <label className="field-grid__wide"><span>Address line 2 <small>(optional)</small></span><input name="addressLine2" placeholder="Apartment, suite, etc." /></label>}
-              {!hasPendingPrice && <label><span>City</span><input name="city" required placeholder="City" /></label>}
-              {!hasPendingPrice && <label><span>State</span><input name="state" required placeholder="State" /></label>}
-              <label><span>Pincode</span><input name="pincode" inputMode="numeric" maxLength={6} required placeholder="400001" /></label>
-            </div>
-            {!hasPendingPrice && (
-              <fieldset className="payment-options">
-                <legend>Payment preview</legend>
-                <label><input type="radio" name="payment" value="razorpay" defaultChecked /> <span><strong>UPI / Cards</strong><small>Razorpay sandbox / provider connection</small></span></label>
-                <label><input type="radio" name="payment" value="cod" /> <span><strong>Cash on delivery</strong><small>Availability checked by pincode</small></span></label>
-              </fieldset>
-            )}
-            {hasPendingPrice && <label className="consent-check"><input type="checkbox" name="marketingConsent" required /> <span>I agree to be contacted about this launch and accept the privacy policy.</span></label>}
-            {error && <p className="form-error" role="alert">{error}</p>}
-            <button className="button button--copper checkout-submit" type="submit" disabled={submitting}><LockKeyhole size={16} /> {submitting ? 'Saving…' : hasPendingPrice ? 'Complete launch preview' : `Place demo order · ${formatPrice(subtotal)}`}</button>
-            <p className="prototype-note">Payments are handled by the server-side provider adapter. Card details never touch SkinFox systems.</p>
+          <form onSubmit={stage === 'phone' ? requestOtp : stage === 'otp' ? verifyOtp : submitCheckout} noValidate>
+            {stage === 'loading' && <div className="checkout-loading"><span className="eyebrow">Secure checkout</span><h2>Checking your secure session…</h2></div>}
+            {stage === 'phone' && <>
+              <span className="eyebrow">Step 1 of 3 · mobile verification</span>
+              <h2>Sign in to continue.</h2>
+              <p className="checkout-intro">Your bag stays as it is. Verify your mobile number before entering a delivery address or placing a COD order.</p>
+              <div className="field-grid"><label className="field-grid__wide"><span>Mobile number</span><input value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" autoComplete="tel" required placeholder="10-digit mobile number" /></label></div>
+              <button className="button button--copper checkout-submit" type="submit" disabled={submitting}><Smartphone size={16} /> {submitting ? 'Sending OTP…' : 'Send SMS OTP'}</button>
+              <p className="prototype-note">Test mode uses a static OTP configured on the server. Firebase is not enabled.</p>
+            </>}
+            {stage === 'otp' && <>
+              <span className="eyebrow">Step 2 of 3 · verify mobile</span>
+              <h2>Enter your OTP.</h2>
+              <p className="checkout-intro">We sent a six-digit SMS-style OTP to +91 {phone}.</p>
+              {testOtpCode && <p className="test-otp" role="status">Testing only: use OTP <strong>{testOtpCode}</strong></p>}
+              <div className="field-grid"><label className="field-grid__wide"><span>Six-digit OTP</span><input value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" required placeholder="123456" /></label></div>
+              <button className="button button--copper checkout-submit" type="submit" disabled={submitting || otp.length !== 6}><LockKeyhole size={16} /> {submitting ? 'Verifying…' : 'Verify and continue'}</button>
+              <button className="checkout-link" type="button" onClick={() => setStage('phone')} disabled={submitting}>Use another number</button>
+            </>}
+            {stage === 'address' && <>
+              <span className="eyebrow">Step 3 of 3 · delivery and COD</span>
+              <h2>{hasPendingPrice ? 'This edit is not ready to purchase.' : 'Where should we send your ritual?'}</h2>
+              {hasPendingPrice ? <p className="checkout-intro">Selling prices are still pending for one or more products. Publish a price and mark the product available in Admin before testing checkout.</p> : <>
+                {addresses.length > 0 && <label className="saved-address"><span>Saved address</span><select value={selectedAddressId} onChange={(event) => chooseAddress(event.target.value)}><option value="">Use a new address</option>{addresses.map((address) => <option key={address.id} value={address.id}>{address.label} · {address.addressLine1}, {address.city}</option>)}</select></label>}
+                <div className="field-grid">
+                  <label><span>Full name</span><input value={form.fullName} onChange={(event) => updateForm('fullName', event.target.value)} required placeholder="Your name" /></label>
+                  <label><span>Email <small>(optional)</small></span><input value={form.email} onChange={(event) => updateForm('email', event.target.value)} type="email" autoComplete="email" placeholder="you@example.com" /></label>
+                  <label className="field-grid__wide"><span>Address line 1</span><input value={form.addressLine1} onChange={(event) => updateForm('addressLine1', event.target.value)} required placeholder="Street and locality" /></label>
+                  <label className="field-grid__wide"><span>Address line 2 <small>(optional)</small></span><input value={form.addressLine2} onChange={(event) => updateForm('addressLine2', event.target.value)} placeholder="Apartment, suite, etc." /></label>
+                  <label className="field-grid__wide"><span>Landmark <small>(optional)</small></span><input value={form.landmark} onChange={(event) => updateForm('landmark', event.target.value)} placeholder="Nearby landmark" /></label>
+                  <label><span>City</span><input value={form.city} onChange={(event) => updateForm('city', event.target.value)} required placeholder="City" /></label>
+                  <label><span>State</span><input value={form.state} onChange={(event) => updateForm('state', event.target.value)} required placeholder="State" /></label>
+                  <label><span>Pincode</span><input value={form.pincode} onChange={(event) => updateForm('pincode', event.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" maxLength={6} required placeholder="400001" /></label>
+                </div>
+                {!selectedAddressId && <label className="consent-check"><input type="checkbox" checked={form.saveAddress} onChange={(event) => updateForm('saveAddress', event.target.checked)} /> <span>Save this address to my account.</span></label>}
+                {!selectedAddressId && form.saveAddress && <label className="consent-check"><input type="checkbox" checked={form.saveAsDefault} onChange={(event) => updateForm('saveAsDefault', event.target.checked)} /> <span>Make this my default address.</span></label>}
+                <div className="payment-options"><span>Payment method</span><div><LockKeyhole size={16} /><p><strong>Cash on delivery</strong><small>COD is the only payment method enabled for this test.</small></p></div></div>
+              </>}
+              {error && <p className="form-error" role="alert">{error}</p>}
+              <button className="button button--copper checkout-submit" type="submit" disabled={submitting || hasPendingPrice}><LockKeyhole size={16} /> {submitting ? 'Placing COD order…' : `Place COD order · ${formatPrice(subtotal)}`}</button>
+            </>}
+            {stage !== 'address' && error && <p className="form-error" role="alert">{error}</p>}
           </form>
           <aside className="checkout-summary">
             <span className="eyebrow">Order summary</span>
             {lines.map((line) => <div key={line.product.id}><span>{line.product.name} <i>× {line.quantity}</i></span><strong>{line.product.price === null ? formatProductPrice(line.product) : formatPrice(line.product.price * line.quantity)}</strong></div>)}
             <hr />
-            <div><span>Shipping</span><strong>{hasPendingPrice ? 'At launch' : 'Complimentary'}</strong></div>
-            <div className="checkout-total"><span>Total</span><strong>{hasPendingPrice ? 'To be confirmed' : formatPrice(subtotal)}</strong></div>
+            <div><span>Shipping</span><strong>{hasPendingPrice ? 'At launch' : 'Calculated by pincode'}</strong></div>
+            <div className="checkout-total"><span>Total</span><strong>{hasPendingPrice ? 'Price pending' : formatPrice(subtotal)}</strong></div>
           </aside>
         </div>
       )}

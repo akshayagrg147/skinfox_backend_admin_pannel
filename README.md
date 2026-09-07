@@ -34,7 +34,13 @@ The JSON document behind the interactive API reference is available at `http://l
 
 ### Environment variables
 
-The complete templates are [server/.env.example](/Users/akshay/Documents/ChatGPT/skinfox/server/.env.example), [admin/.env.example](/Users/akshay/Documents/ChatGPT/skinfox/admin/.env.example), and [.env.example](/Users/akshay/Documents/ChatGPT/skinfox/.env.example). The server template covers PostgreSQL/Redis (`DATABASE_URL`, `REDIS_URL`), origins and session security (`STOREFRONT_ORIGIN`, `ADMIN_ORIGIN`, `COOKIE_SECRET`, `SESSION_TTL_DAYS`), first-admin bootstrap (`SEED_ADMIN_*`), and optional Razorpay, S3-compatible storage, and Mailpit provider settings. Keep real values in an ignored `.env` or deployment secret manager.
+The complete templates are [server/.env.example](/Users/akshay/Documents/ChatGPT/skinfox/server/.env.example), [admin/.env.example](/Users/akshay/Documents/ChatGPT/skinfox/admin/.env.example), and [.env.example](/Users/akshay/Documents/ChatGPT/skinfox/.env.example). The server template covers PostgreSQL/Redis (`DATABASE_URL`, `REDIS_URL`), origins and session security (`STOREFRONT_ORIGIN`, `ADMIN_ORIGIN`, `COOKIE_SECRET`, `SESSION_TTL_DAYS`), test customer OTP (`CUSTOMER_OTP_*`), first-admin bootstrap (`SEED_ADMIN_*`), and optional Razorpay, S3-compatible storage, and Mailpit provider settings. Keep real values in an ignored `.env` or deployment secret manager.
+
+### Customer OTP and COD test flow
+
+The customer flow is deliberately configured for local testing: a shopper may add products to a guest cart, then must verify a mobile number before delivery addresses or checkout are available. The default local static OTP is `123456`; it is hashed in the database and expires after ten minutes. The value is shown in the browser only when `CUSTOMER_OTP_EXPOSE_TEST_CODE=true` is explicitly set.
+
+Only COD is available in this release. To exercise the full flow, publish a product with a non-null selling price and `available` purchase state in Admin, then add it to the bag. Firebase and Razorpay are intentionally not configured. Before a real launch, replace the static provider with a real SMS provider, disable test-code exposure, configure a domain and HTTPS, and complete payment-provider integration.
 
 ### API and database
 
@@ -64,7 +70,7 @@ Provider adapters are deliberately local-safe. Set Razorpay, S3/R2, email and sh
 
 For a PostgreSQL backup, run `pg_dump --format=custom --file=skinfox-$(date +%F).dump "$DATABASE_URL"`; restore with `pg_restore --clean --if-exists --dbname="$DATABASE_URL" skinfox-YYYY-MM-DD.dump` during a maintenance window. Retain encrypted backups according to the deployment retention policy and test restores before launch.
 
-Security defaults include Argon2id passwords, HttpOnly/SameSite admin sessions, a separate CSRF cookie/header, origin-restricted CORS, global and login-specific rate limits, encrypted-at-rest TOTP secrets, request IDs with redacted structured logs, server-side paise pricing, transactional stock reservations, append-only audit records, signed webhook verification, and idempotency-key replay protection.
+Security defaults include Argon2id passwords, HttpOnly/SameSite admin and customer sessions, separate CSRF cookie/headers, OTP expiry, resend and attempt limits, origin-restricted CORS, global and login-specific rate limits, encrypted-at-rest TOTP secrets, request IDs with redacted structured logs, server-side paise pricing, transactional stock reservations, append-only audit records, signed webhook verification, and idempotency-key replay protection.
 
 ## What is included
 
@@ -77,7 +83,7 @@ Security defaults include Argon2id passwords, HttpOnly/SameSite admin sessions, 
 - A single-product Save Data and reduced-motion fallback for the motion chapter, while the hero and catalogue remain multi-product
 - Search, local cart persistence, quantity controls, and explicit pending-price states
 - Three-step routine finder with tailored recommendations
-- Local launch-interest/checkout preview, form validation, and completion state
+- Guest carts with mandatory customer SMS-style OTP verification, saved delivery addresses, customer sessions and COD-only checkout
 - Responsive navigation, front-label transparency, editorial product notes, FAQ, and newsletter sections
 - Unit and interaction tests with Vitest and Testing Library
 

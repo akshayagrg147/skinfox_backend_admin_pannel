@@ -67,7 +67,7 @@ export function CartDrawer({ open, lines, onClose, onQuantity, onRemove, onCheck
             <div><span>{hasPendingPrice ? 'Pricing status' : 'Subtotal'}</span><strong>{hasPendingPrice ? 'Confirm at launch' : formatPrice(subtotal)}</strong></div>
             <p>{hasPendingPrice ? 'No price or payment is collected in this preview.' : 'Taxes included. Shipping calculated at checkout.'}</p>
             <button className="button button--copper" onClick={() => { onClose(); onCheckout() }}>
-              Continue to launch preview <ArrowRight size={17} />
+              {hasPendingPrice ? 'Continue to launch preview' : 'Secure checkout'} <ArrowRight size={17} />
             </button>
           </div>
         </>

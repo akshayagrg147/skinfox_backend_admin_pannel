@@ -495,14 +495,18 @@ model InventoryMovement {
 model Cart {
   id               String            @id @default(cuid())
   tokenHash        String            @unique
+  customerId       String?
   currency         String            @default("INR")
   couponId         String?
   coupon           Coupon?           @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  customer         Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
   expiresAt        DateTime
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   items            CartItem[]
   checkoutSessions CheckoutSession[]
+
+  @@index([customerId, updatedAt])
 }
 
 model CartItem {
@@ -567,9 +571,9 @@ model ShippingQuote {
 
 model Customer {
   id        String            @id @default(cuid())
-  email     String            @unique
+  email     String?           @unique
   fullName  String
-  phone     String?
+  phone     String?           @unique
   createdAt DateTime          @default(now())
   updatedAt DateTime          @updatedAt
   addresses Address[]
@@ -577,6 +581,9 @@ model Customer {
   orders    Order[]
   checkouts CheckoutSession[]
   notes     CustomerNote[]
+  carts     Cart[]
+  sessions  CustomerSession[]
+  otpChallenges CustomerOtpChallenge[]
 }
 
 model Address {
@@ -590,8 +597,43 @@ model Address {
   city         String
   state        String
   pincode      String
+  label        String   @default("Home")
+  isDefault    Boolean  @default(false)
   customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([customerId, isDefault])
+}
+
+model CustomerOtpChallenge {
+  id        String   @id @default(cuid())
+  customerId String?
+  phone     String
+  codeHash  String
+  attempts  Int      @default(0)
+  expiresAt DateTime
+  verifiedAt DateTime?
+  createdAt DateTime @default(now())
+  customer  Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([phone, createdAt])
+  @@index([expiresAt, verifiedAt])
+}
+
+model CustomerSession {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  customerId String
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  lastSeenAt DateTime @default(now())
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, expiresAt])
 }
 
 model CustomerConsent {

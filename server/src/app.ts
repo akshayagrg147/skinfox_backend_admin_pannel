@@ -15,6 +15,7 @@ import { authenticator } from 'otplib'
 import { prisma } from './lib/prisma.js'
 import { ApiError, forbidden, notFound, validationError } from './lib/errors.js'
 import { decryptSecret, encryptSecret, hashPassword, hashToken, randomToken, safeEqual, signHmac, verifyPassword } from './lib/crypto.js'
+import { customerOtpConfig, hashCustomerOtp, normalizeIndianPhone, staticOtpIsConfigured } from './lib/customerAuth.js'
 import { calculateCart, isValidPincode } from './lib/pricing.js'
 import { LocalEmailAdapter, LocalStorageAdapter, ManualShippingAdapter, RazorpayAdapter } from './lib/providers.js'
 
@@ -31,7 +32,8 @@ const variantPatchSchema = z.object({ sku: z.string().min(2).optional(), name: z
 const productSnapshotFields = ['slug', 'name', 'subtitle', 'type', 'packaging', 'category', 'categoryId', 'concern', 'concerns', 'benefit', 'description', 'pricePaise', 'mrpPaise', 'size', 'usage', 'routineStep', 'highlights', 'color', 'accent', 'tint', 'image', 'storyImage', 'imageAlt', 'imagePosition', 'imageScale', 'badge', 'purchaseState', 'status', 'publishedAt', 'scheduledAt', 'archivedAt'] as const
 const mediaSnapshotFields = ['type', 'src', 'mobileSrc', 'poster', 'alt', 'sortOrder', 'width', 'height', 'aspectRatio', 'fitMode', 'objectPosition', 'imageScale', 'focalPointX', 'focalPointY', 'mediaAssetId'] as const
 const productSnapshot = (product: any) => ({ ...Object.fromEntries(productSnapshotFields.filter((key) => product[key] !== undefined).map((key) => [key, product[key]])), media: Array.isArray(product.media) ? product.media.map((media: any) => Object.fromEntries(mediaSnapshotFields.filter((key) => media[key] !== undefined).map((key) => [key, media[key]]))) : [] })
-const checkoutSchema = z.object({ fullName: z.string().min(2), email: z.string().email(), phone: z.string().regex(/^[6-9]\d{9}$/), addressLine1: z.string().min(5), addressLine2: z.string().optional(), landmark: z.string().optional(), city: z.string().min(2), state: z.string().min(2), pincode: z.string().regex(/^[1-9]\d{5}$/), billingSameAsShipping: z.boolean().default(true), marketingConsent: z.boolean().default(false), paymentMethod: z.enum(['razorpay', 'cod']).default('razorpay'), couponCode: z.string().optional() })
+const checkoutSchema = z.object({ fullName: z.string().min(2), email: z.union([z.string().email(), z.literal('')]).optional().transform((value) => value || undefined), addressId: z.string().optional(), addressLine1: z.string().min(5), addressLine2: z.string().optional(), landmark: z.string().optional(), city: z.string().min(2), state: z.string().min(2), pincode: z.string().regex(/^[1-9]\d{5}$/), saveAddress: z.boolean().default(true), saveAsDefault: z.boolean().default(false), billingSameAsShipping: z.boolean().default(true), marketingConsent: z.boolean().default(false), paymentMethod: z.literal('cod').default('cod'), couponCode: z.string().optional() })
+const addressSchema = z.object({ label: z.string().trim().min(2).max(30).default('Home'), fullName: z.string().trim().min(2).max(120), addressLine1: z.string().trim().min(5).max(200), addressLine2: z.string().trim().max(200).optional(), landmark: z.string().trim().max(120).optional(), city: z.string().trim().min(2).max(80), state: z.string().trim().min(2).max(80), pincode: z.string().regex(/^[1-9]\d{5}$/), isDefault: z.boolean().default(false) })
 const rolePermissions: Record<AdminRole, string[]> = {
   SUPER_ADMIN: ['*'], CATALOG_MANAGER: ['catalog:read', 'catalog:write', 'inventory:read', 'inventory:write', 'content:read'], CONTENT_EDITOR: ['content:read', 'content:write', 'catalog:read'], ORDER_MANAGER: ['orders:read', 'orders:write', 'customers:read', 'catalog:read'], SUPPORT_AGENT: ['orders:read', 'customers:read', 'customers:write', 'leads:read'], ANALYST: ['analytics:read', 'dashboard:read'],
 }
@@ -80,6 +82,7 @@ const documentPath = (path: string, methods: string[], summary: string) => {
   ['/campaign-slides', ['get'], 'List campaign slides'], ['/faqs', ['get'], 'List FAQs'], ['/pages/home', ['get'], 'Get home page'], ['/pages/{slug}', ['get'], 'Get page'], ['/navigation/{location}', ['get'], 'Get navigation'],
   ['/care-finder', ['get'], 'Get care finder'], ['/care-finder/recommendations', ['post'], 'Get care recommendations'], ['/care-finder/events', ['post'], 'Record care finder event'],
   ['/carts', ['post'], 'Create cart'], ['/carts/{cartId}', ['get', 'delete'], 'Get or delete cart'], ['/carts/{cartId}/items', ['post'], 'Add cart item'], ['/carts/{cartId}/items/{itemId}', ['patch', 'delete'], 'Update or remove cart item'], ['/carts/{cartId}/apply-coupon', ['post'], 'Apply coupon'], ['/carts/{cartId}/coupon', ['delete'], 'Remove coupon'],
+  ['/customer/auth/request-otp', ['post'], 'Request customer OTP'], ['/customer/auth/verify-otp', ['post'], 'Verify customer OTP'], ['/customer/auth/me', ['get'], 'Get current customer'], ['/customer/auth/logout', ['post'], 'Log out customer'], ['/customer/addresses', ['get', 'post'], 'List or save customer addresses'], ['/customer/addresses/{id}', ['patch', 'delete'], 'Update or delete customer address'], ['/customer/orders', ['get'], 'List customer orders'], ['/customer/orders/{publicToken}', ['get'], 'Get customer order'],
   ['/shipping/serviceability', ['get'], 'Check shipping serviceability'], ['/checkout/quote', ['post'], 'Calculate checkout quote'], ['/checkout/sessions', ['post'], 'Create checkout session'], ['/checkout/sessions/{id}', ['get'], 'Get checkout session'], ['/checkout/sessions/{id}/payment-order', ['post'], 'Create payment order'], ['/checkout/sessions/{id}/confirm-cod', ['post'], 'Confirm cash on delivery'],
   ['/payments/razorpay/verify', ['post'], 'Verify Razorpay payment'], ['/webhooks/payments/razorpay', ['post'], 'Receive Razorpay webhook'], ['/payments/{publicToken}/status', ['get'], 'Get payment status'], ['/orders/{publicToken}', ['get'], 'Get public order'], ['/orders/{publicToken}/tracking', ['get'], 'Get order tracking'], ['/orders/{publicToken}/cancel-request', ['post'], 'Request order cancellation'], ['/orders/{publicToken}/return-request', ['post'], 'Request return'],
   ['/launch-interest', ['post'], 'Capture launch interest'], ['/newsletter/subscriptions', ['post'], 'Subscribe to newsletter'], ['/newsletter/confirm', ['post'], 'Confirm newsletter subscription'], ['/newsletter/subscriptions/{token}', ['delete'], 'Unsubscribe from newsletter'], ['/contact', ['post'], 'Submit contact form'], ['/events', ['post'], 'Record analytics event'], ['/events/batch', ['post'], 'Record analytics events'],
@@ -153,6 +156,30 @@ export function buildApp(): FastifyInstance {
     }
     return user
   }
+  const publicCustomer = (customer: any) => ({ id: customer.id, fullName: customer.fullName, email: customer.email, phone: customer.phone, createdAt: customer.createdAt })
+  const currentCustomer = async (request: any, required = true) => {
+    const token = request.cookies.sf_customer_session
+    if (!token) {
+      if (required) throw new ApiError(401, 'CUSTOMER_AUTH_REQUIRED', 'Sign in with your mobile OTP to continue.')
+      return null
+    }
+    const session = await prisma.customerSession.findUnique({ where: { tokenHash: hashToken(token) }, include: { customer: true } })
+    if (!session || session.revokedAt || session.expiresAt < new Date()) {
+      if (required) throw new ApiError(401, 'CUSTOMER_AUTH_REQUIRED', 'Your customer session has expired. Please sign in again.')
+      return null
+    }
+    await prisma.customerSession.update({ where: { id: session.id }, data: { lastSeenAt: new Date() } })
+    return session.customer
+  }
+  const requireCustomer = async (request: any, csrfRequired = false) => {
+    const customer = await currentCustomer(request)
+    if (csrfRequired) {
+      const csrfCookie = request.cookies.sf_customer_csrf
+      const csrfHeader = request.headers['x-customer-csrf-token']
+      if (!csrfCookie || csrfHeader !== csrfCookie) throw new ApiError(403, 'CSRF_REQUIRED', 'A customer CSRF token is required for this action.')
+    }
+    return customer
+  }
   const audit = async (user: any, request: any, action: string, entityType: string, entityId: string | null, beforeSummary: unknown, afterSummary: unknown, reason?: string) => prisma.auditLog.create({ data: { actorId: user?.id, action, entityType, entityId, beforeSummary: beforeSummary as Prisma.InputJsonValue ?? undefined, afterSummary: afterSummary as Prisma.InputJsonValue ?? undefined, reason, requestId: request.id, ip: request.ip, userAgent: request.headers['user-agent'], result: 'success' } })
   const getCart = async (request: any) => {
     const token = request.headers['x-cart-token'] ?? request.cookies.sf_cart_token ?? request.params?.cartId
@@ -184,7 +211,7 @@ export function buildApp(): FastifyInstance {
   routes.get('/api/v1/storefront/bootstrap', async (_, reply) => {
     const settings = await prisma.storeSetting.findMany({ where: { key: { in: ['storefront', 'seo'] } } })
     const values = Object.fromEntries(settings.map((setting) => [setting.key, setting.value])) as any
-    return data(reply, { storeName: 'SkinFox', logo: '/brand/skinfox-logo.png', currency: 'INR', announcement: values.storefront?.announcement ?? 'New collection preview', navigation: [{ label: 'Shop', href: '#shop' }, { label: 'Care finder', href: '#care-finder' }], footerLinks: [{ label: 'FAQ', href: '#faq' }], socialLinks: [{ label: 'Instagram', href: '#story' }], freeShippingThresholdPaise: values.storefront?.freeShippingThresholdPaise ?? 99900, featureFlags: {}, supportContact: { email: values.storefront?.supportEmail ?? 'hello@skinfox.example' }, enabledPaymentMethods: ['razorpay', 'cod'], seo: values.seo ?? {} })
+    return data(reply, { storeName: 'SkinFox', logo: '/brand/skinfox-logo.png', currency: 'INR', announcement: values.storefront?.announcement ?? 'New collection preview', navigation: [{ label: 'Shop', href: '#shop' }, { label: 'Care finder', href: '#care-finder' }], footerLinks: [{ label: 'FAQ', href: '#faq' }], socialLinks: [{ label: 'Instagram', href: '#story' }], freeShippingThresholdPaise: values.storefront?.freeShippingThresholdPaise ?? 99900, featureFlags: { customerOtp: staticOtpIsConfigured(customerOtpConfig()), paymentMode: 'cod' }, supportContact: { email: values.storefront?.supportEmail ?? 'hello@skinfox.example' }, enabledPaymentMethods: ['cod'], seo: values.seo ?? {} })
   })
   routes.get('/api/v1/products', async (request, reply) => {
     const params = pageParams(request)
@@ -222,6 +249,91 @@ export function buildApp(): FastifyInstance {
   routes.post('/api/v1/care-finder/recommendations', async (request, reply) => { const answers = z.record(z.string()).parse(request.body?.answers ?? request.body ?? {}); const finder = await prisma.careFinder.findFirstOrThrow({ where: { active: true }, include: { rules: { include: { product: { include: { media: true } } } } } }); const scores = new Map<string, { product: any; score: number }>(); finder.rules.forEach((rule) => { if (answers[rule.answerKey] === rule.answerValue) { const current = scores.get(rule.productId) ?? { product: rule.product, score: 0 }; current.score += rule.weight; scores.set(rule.productId, current) } }); const ranked = [...scores.values()].sort((a, b) => b.score - a.score).map((item) => item.product); const recommendations = ranked.length ? ranked : (await prisma.product.findMany({ where: { status: PublicationStatus.published }, include: { media: true }, take: 2 })); return data(reply, { primary: publicProduct(recommendations[0]), alternatives: recommendations.slice(1, 3).map(publicProduct), explanation: 'Matched to the care focus you selected. This is cosmetic product discovery, not a diagnosis.', routineOrder: recommendations.map((product: any) => product.routineStep), disclaimer: 'For persistent or concerning symptoms, consult a qualified professional.' }) })
   routes.post('/api/v1/care-finder/events', async (request, reply) => data(reply, { accepted: true, event: request.body?.event }))
 
+  routes.post('/api/v1/customer/auth/request-otp', { config: { rateLimit: { max: 5, timeWindow: '15 minutes' } } }, async (request, reply) => {
+    const phone = normalizeIndianPhone(z.object({ phone: z.string().min(1) }).parse(request.body).phone)
+    if (!phone) throw validationError('Enter a valid Indian 10-digit mobile number.', { phone: 'Use a mobile number beginning with 6, 7, 8, or 9.' })
+    const config = customerOtpConfig()
+    if (!staticOtpIsConfigured(config)) throw new ApiError(503, 'OTP_PROVIDER_NOT_CONFIGURED', 'Customer OTP is not configured on this server.')
+    const latest = await prisma.customerOtpChallenge.findFirst({ where: { phone }, orderBy: { createdAt: 'desc' } })
+    if (latest && latest.createdAt.getTime() > Date.now() - config.resendSeconds * 1000) throw new ApiError(429, 'OTP_RESEND_TOO_SOON', `Please wait ${config.resendSeconds} seconds before requesting another OTP.`)
+    const challenge = await prisma.customerOtpChallenge.create({ data: { phone, codeHash: hashCustomerOtp(config.code), expiresAt: new Date(Date.now() + config.ttlMinutes * 60 * 1000) } })
+    return data(reply, { challengeId: challenge.id, phone, expiresAt: challenge.expiresAt, retryAfterSeconds: config.resendSeconds, ...(config.exposeTestCode ? { testOtpCode: config.code } : {}) })
+  })
+  routes.post('/api/v1/customer/auth/verify-otp', { config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } }, async (request, reply) => {
+    const input = z.object({ challengeId: z.string().min(1), phone: z.string().min(1), code: z.string().regex(/^\d{6}$/), cartToken: z.string().min(16).optional() }).parse(request.body)
+    const phone = normalizeIndianPhone(input.phone)
+    if (!phone) throw validationError('Enter a valid Indian 10-digit mobile number.', { phone: 'Use a mobile number beginning with 6, 7, 8, or 9.' })
+    const config = customerOtpConfig()
+    const challenge = await prisma.customerOtpChallenge.findFirst({ where: { id: input.challengeId, phone } })
+    if (!challenge || challenge.verifiedAt) throw new ApiError(401, 'OTP_INVALID', 'That OTP is no longer valid. Request a new one.')
+    if (challenge.expiresAt < new Date()) throw new ApiError(401, 'OTP_EXPIRED', 'That OTP has expired. Request a new one.')
+    if (challenge.attempts >= config.maxAttempts) throw new ApiError(429, 'OTP_ATTEMPTS_EXCEEDED', 'Too many incorrect OTP attempts. Request a new code.')
+    if (!safeEqual(challenge.codeHash, hashCustomerOtp(input.code))) {
+      await prisma.customerOtpChallenge.update({ where: { id: challenge.id }, data: { attempts: { increment: 1 } } })
+      throw new ApiError(401, 'OTP_INVALID', 'The OTP is incorrect. Please try again.')
+    }
+    const token = randomToken(32)
+    const csrf = randomToken(18)
+    const result = await prisma.$transaction(async (tx) => {
+      const customer = await tx.customer.upsert({ where: { phone }, update: {}, create: { phone, fullName: 'SkinFox customer' } })
+      await tx.customerOtpChallenge.update({ where: { id: challenge.id }, data: { customerId: customer.id, verifiedAt: new Date(), attempts: { increment: 1 } } })
+      let cartLinked = false
+      if (input.cartToken) {
+        const cart = await tx.cart.findUnique({ where: { tokenHash: hashToken(input.cartToken) } })
+        if (cart && cart.expiresAt > new Date() && (!cart.customerId || cart.customerId === customer.id)) {
+          await tx.cart.update({ where: { id: cart.id }, data: { customerId: customer.id } })
+          cartLinked = true
+        }
+      }
+      const session = await tx.customerSession.create({ data: { tokenHash: hashToken(token), customerId: customer.id, expiresAt: new Date(Date.now() + config.sessionTtlDays * 86400000), ip: request.ip, userAgent: request.headers['user-agent'] } })
+      return { customer, session, cartLinked }
+    })
+    reply.setCookie('sf_customer_session', token, { httpOnly: true, sameSite: 'lax', secure: secureCookies(), maxAge: config.sessionTtlDays * 86400, path: '/' }).setCookie('sf_customer_csrf', csrf, { httpOnly: false, sameSite: 'lax', secure: secureCookies(), maxAge: config.sessionTtlDays * 86400, path: '/' })
+    return data(reply, { customer: publicCustomer(result.customer), cartLinked: result.cartLinked, sessionExpiresAt: result.session.expiresAt })
+  })
+  routes.get('/api/v1/customer/auth/me', async (request, reply) => { const customer = await currentCustomer(request, false); return data(reply, { customer: customer ? publicCustomer(customer) : null }) })
+  routes.post('/api/v1/customer/auth/logout', async (request, reply) => { await requireCustomer(request, true); const token = request.cookies.sf_customer_session; if (token) await prisma.customerSession.updateMany({ where: { tokenHash: hashToken(token) }, data: { revokedAt: new Date() } }); reply.clearCookie('sf_customer_session', { path: '/' }).clearCookie('sf_customer_csrf', { path: '/' }); return data(reply, { loggedOut: true }) })
+
+  routes.get('/api/v1/customer/addresses', async (request, reply) => { const customer = await requireCustomer(request); return data(reply, await prisma.address.findMany({ where: { customerId: customer.id }, orderBy: [{ isDefault: 'desc' }, { updatedAt: 'desc' }] })) })
+  routes.post('/api/v1/customer/addresses', async (request, reply) => {
+    const customer = await requireCustomer(request, true)
+    const input = addressSchema.parse(request.body)
+    if (!customer.phone) throw new ApiError(400, 'CUSTOMER_PHONE_REQUIRED', 'A verified mobile number is required to save an address.')
+    const address = await prisma.$transaction(async (tx) => {
+      const count = await tx.address.count({ where: { customerId: customer.id } })
+      const isDefault = input.isDefault || count === 0
+      if (isDefault) await tx.address.updateMany({ where: { customerId: customer.id }, data: { isDefault: false } })
+      return tx.address.create({ data: { ...input, isDefault, phone: customer.phone!, customerId: customer.id } })
+    })
+    return reply.status(201).send({ data: address, meta: { requestId: request.id } })
+  })
+  routes.patch('/api/v1/customer/addresses/:id', async (request, reply) => {
+    const customer = await requireCustomer(request, true)
+    const input = addressSchema.partial().parse(request.body)
+    const address = await prisma.address.findFirst({ where: { id: request.params.id, customerId: customer.id } })
+    if (!address) throw notFound('Address not found.')
+    const updated = await prisma.$transaction(async (tx) => {
+      if (input.isDefault) await tx.address.updateMany({ where: { customerId: customer.id, id: { not: address.id } }, data: { isDefault: false } })
+      return tx.address.update({ where: { id: address.id }, data: input })
+    })
+    return data(reply, updated)
+  })
+  routes.delete('/api/v1/customer/addresses/:id', async (request, reply) => {
+    const customer = await requireCustomer(request, true)
+    const address = await prisma.address.findFirst({ where: { id: request.params.id, customerId: customer.id } })
+    if (!address) throw notFound('Address not found.')
+    await prisma.$transaction(async (tx) => {
+      await tx.address.delete({ where: { id: address.id } })
+      if (address.isDefault) {
+        const replacement = await tx.address.findFirst({ where: { customerId: customer.id }, orderBy: { updatedAt: 'desc' } })
+        if (replacement) await tx.address.update({ where: { id: replacement.id }, data: { isDefault: true } })
+      }
+    })
+    return data(reply, { deleted: true })
+  })
+  routes.get('/api/v1/customer/orders', async (request, reply) => { const customer = await requireCustomer(request); return data(reply, await prisma.order.findMany({ where: { customerId: customer.id }, orderBy: { createdAt: 'desc' }, include: { items: true, payments: true } })) })
+  routes.get('/api/v1/customer/orders/:publicToken', async (request, reply) => { const customer = await requireCustomer(request); const order = await prisma.order.findFirst({ where: { publicToken: request.params.publicToken, customerId: customer.id }, include: { items: true, payments: true, shipments: { include: { events: { orderBy: { createdAt: 'asc' } } } }, statusEvents: { orderBy: { createdAt: 'asc' } } } }); if (!order) throw notFound('Order not found.'); return data(reply, order) })
+
   routes.post('/api/v1/carts', async (request, reply) => { const token = randomToken(32); const cart = await prisma.cart.create({ data: { tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) } }); reply.header('x-cart-token', token).setCookie('sf_cart_token', token, { httpOnly: true, sameSite: 'lax', secure: secureCookies(), maxAge: 30 * 24 * 60 * 60, path: '/' }); const empty = await cartResponse({ ...cart, items: [], coupon: null }); return data(reply, { ...empty, cartId: token, token }) })
   routes.get('/api/v1/carts/:cartId', async (request, reply) => data(reply, await cartResponse(await getCart(request))))
   routes.post('/api/v1/carts/:cartId/items', async (request, reply) => { const input = cartItemSchema.parse(request.body); const cart = await getCart(request); const product = await prisma.product.findFirst({ where: { OR: [{ id: input.productId }, { slug: input.productId }], status: { in: [PublicationStatus.published, PublicationStatus.approved] } }, include: { variants: true } }); if (!product) throw notFound('Product is not available.'); const variantId = input.variantId ?? product.variants[0]?.id; const existing = await prisma.cartItem.findFirst({ where: { cartId: cart.id, productId: product.id, ...(variantId ? { variantId } : { variantId: null }) } }); if (existing) await prisma.cartItem.update({ where: { id: existing.id }, data: { quantity: Math.min(50, existing.quantity + input.quantity) } }); else await prisma.cartItem.create({ data: { cartId: cart.id, productId: product.id, variantId, quantity: input.quantity } }); return data(reply, await cartResponse(await getCart(request))) })
@@ -232,13 +344,71 @@ export function buildApp(): FastifyInstance {
   routes.delete('/api/v1/carts/:cartId/coupon', async (request, reply) => { const cart = await getCart(request); await prisma.cart.update({ where: { id: cart.id }, data: { couponId: null } }); return data(reply, await cartResponse(await getCart(request))) })
 
   routes.get('/api/v1/shipping/serviceability', async (request, reply) => { const pincode = String(request.query?.pincode ?? ''); if (!isValidPincode(pincode)) throw validationError('Enter a valid six-digit pincode.'); return data(reply, { pincode, serviceable: await shipping.serviceable(pincode), codAvailable: Boolean(await prisma.serviceablePincode.findUnique({ where: { pincode, active: true } })) }) })
-  const makeQuote = async (request: any, sessionInput?: any) => { const cart = await getCart(request); const bodyValue = sessionInput ?? request.body; const parsed = checkoutSchema.parse(bodyValue); const serviceable = await shipping.serviceable(parsed.pincode); const response = await cartResponse(cart, parsed.paymentMethod === 'cod', serviceable); return { ...response, serviceability: serviceable, estimatedDeliveryFrom: serviceable ? new Date(Date.now() + 3 * 86400000).toISOString() : null, estimatedDeliveryTo: serviceable ? new Date(Date.now() + 7 * 86400000).toISOString() : null, quoteExpiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(), checkout: parsed } }
-  routes.post('/api/v1/checkout/quote', async (request, reply) => data(reply, await makeQuote(request)))
-  routes.post('/api/v1/checkout/sessions', async (request, reply) => { const replay = await idemReplay(request, 'checkout-session'); if (replay) return reply.status(replay.status).send(replay.body); const quote = await makeQuote(request); if (!quote.purchaseEligible) throw validationError('Your cart is not eligible for payment.', { cart: quote.validationMessages.join(' ') }); const cart = await getCart(request); const token = randomToken(24); const result = await prisma.$transaction(async (tx) => { const customer = await tx.customer.upsert({ where: { email: quote.checkout.email }, update: { fullName: quote.checkout.fullName, phone: quote.checkout.phone }, create: { email: quote.checkout.email, fullName: quote.checkout.fullName, phone: quote.checkout.phone } }); const session = await tx.checkoutSession.create({ data: { publicToken: token, cartId: cart.id, customerId: customer.id, paymentMethod: quote.checkout.paymentMethod, quote: quote as any, expiresAt: new Date(Date.now() + 15 * 60 * 1000) } }); await tx.checkoutQuote.create({ data: { checkoutSessionId: session.id, subtotalPaise: quote.subtotalPaise, discountPaise: quote.discountPaise, taxPaise: quote.taxPaise, shippingPaise: quote.shippingPaise, codPaise: quote.codPaise, totalPaise: quote.totalPaise, serviceable: quote.serviceability, payload: quote as any, expiresAt: new Date(Date.now() + 15 * 60 * 1000) } }); const order = await tx.order.create({ data: { publicToken: randomToken(24), orderNumber: `SF-${new Date().getFullYear()}-${randomToken(4).toUpperCase()}`, checkoutSessionId: session.id, customerId: customer.id, status: OrderStatus.pending_payment, subtotalPaise: quote.subtotalPaise, discountPaise: quote.discountPaise, taxPaise: quote.taxPaise, shippingPaise: quote.shippingPaise, codPaise: quote.codPaise, totalPaise: quote.totalPaise, shippingAddress: quote.checkout as any, items: { create: quote.lines.map((line: any) => ({ productId: line.productId, variantId: line.variantId, productName: line.product.name, variantName: line.product.size, sku: line.variantId ?? line.product.slug, size: line.product.size, primaryImage: line.product.image, unitSellingPricePaise: line.unitPricePaise ?? 0, mrpPaise: line.product.mrpPaise, discountPaise: 0, taxRateBps: 1800, taxPaise: Math.floor((line.unitPricePaise ?? 0) * line.quantity * 18 / 118), finalLineTotalPaise: (line.unitPricePaise ?? 0) * line.quantity, quantity: line.quantity })) } } }); for (const line of quote.lines) { if (!line.variantId) continue; const inventory = await tx.inventoryItem.findFirst({ where: { variantId: line.variantId }, orderBy: { availableQty: 'desc' } }); if (!inventory || inventory.availableQty - inventory.reservedQty < line.quantity) throw validationError('Stock changed while checking out. Please refresh your cart.'); await tx.inventoryItem.update({ where: { id: inventory.id }, data: { reservedQty: { increment: line.quantity } } }); await tx.inventoryReservation.create({ data: { variantId: line.variantId, locationId: inventory.locationId, checkoutSessionId: session.id, quantity: line.quantity, expiresAt: new Date(Date.now() + 15 * 60 * 1000) } }); await tx.inventoryMovement.create({ data: { variantId: line.variantId, locationId: inventory.locationId, type: 'reservation_hold', quantity: line.quantity, reason: 'Checkout reservation' } }) } return { session, order } }); const response = { checkoutSessionId: result.session.publicToken, orderPublicToken: result.order.publicToken, orderNumber: result.order.orderNumber, quote }; await idemStore(request, 'checkout-session', 201, { data: response, meta: { requestId: request.id } }); return reply.status(201).send({ data: response, meta: { requestId: request.id } }) })
-  routes.get('/api/v1/checkout/sessions/:id', async (request, reply) => { const session = await prisma.checkoutSession.findUnique({ where: { publicToken: request.params.id }, include: { order: true, quotes: { orderBy: { createdAt: 'desc' }, take: 1 } } }); if (!session) throw notFound('Checkout session not found.'); return data(reply, session) })
-  routes.post('/api/v1/checkout/sessions/:id/payment-order', async (request, reply) => { const scope = `payment-order:${request.params.id}`; const replay = await idemReplay(request, scope); if (replay) return reply.status(replay.status).send(replay.body); const session = await prisma.checkoutSession.findUnique({ where: { publicToken: request.params.id }, include: { order: true } }); if (!session?.order) throw notFound('Checkout session not found.'); const providerOrder = await payment.createOrder({ amountPaise: session.order.totalPaise, receipt: session.order.orderNumber }); const paymentRecord = await prisma.payment.create({ data: { orderId: session.order.id, provider: 'razorpay', providerOrderId: providerOrder.providerOrderId, amountPaise: session.order.totalPaise } }); const response = { provider: 'razorpay', keyId: process.env.RAZORPAY_KEY_ID ?? 'rzp_test_local', orderId: providerOrder.providerOrderId, paymentId: paymentRecord.id, amountPaise: session.order.totalPaise, currency: 'INR' }; const envelope = { data: response, meta: { requestId: request.id } }; await idemStore(request, scope, 200, envelope); return reply.send(envelope) })
-  routes.post('/api/v1/checkout/sessions/:id/confirm-cod', async (request, reply) => { const replay = await idemReplay(request, 'confirm-cod'); if (replay) return reply.status(replay.status).send(replay.body); const session = await prisma.checkoutSession.findUnique({ where: { publicToken: request.params.id }, include: { order: true } }); if (!session?.order || session.paymentMethod !== 'cod') throw validationError('This checkout session is not a COD session.'); const order = await prisma.$transaction(async (tx) => { const updated = await tx.order.update({ where: { id: session.order!.id }, data: { status: OrderStatus.confirmed, payments: { create: { provider: 'cod', amountPaise: session.order!.totalPaise, status: PaymentStatus.authorised } }, statusEvents: { create: { fromStatus: OrderStatus.pending_payment, toStatus: OrderStatus.confirmed, reason: 'COD confirmed' } } } }); await tx.checkoutSession.update({ where: { id: session.id }, data: { status: 'confirmed' } }); return updated }); const response = { orderPublicToken: order.publicToken, orderNumber: order.orderNumber, status: order.status }; await idemStore(request, 'confirm-cod', 200, { data: response, meta: { requestId: request.id } }); return data(reply, response) })
-  routes.post('/api/v1/payments/razorpay/verify', async (request, reply) => { const replay = await idemReplay(request, 'payment-verify'); if (replay) return reply.status(replay.status).send(replay.body); const input = z.object({ checkoutSessionId: z.string(), razorpayOrderId: z.string(), razorpayPaymentId: z.string(), razorpaySignature: z.string() }).parse(request.body); const session = await prisma.checkoutSession.findUnique({ where: { publicToken: input.checkoutSessionId }, include: { order: true } }); if (!session?.order) throw notFound('Checkout session not found.'); if (!payment.verifyPayment({ orderId: input.razorpayOrderId, paymentId: input.razorpayPaymentId, signature: input.razorpaySignature })) throw new ApiError(400, 'PAYMENT_SIGNATURE_INVALID', 'Payment verification failed.'); const order = await prisma.$transaction(async (tx) => { const paymentRecord = await tx.payment.findFirst({ where: { orderId: session.order!.id, providerOrderId: input.razorpayOrderId } }) ?? await tx.payment.create({ data: { orderId: session.order!.id, provider: 'razorpay', providerOrderId: input.razorpayOrderId, amountPaise: session.order!.totalPaise } }); await tx.payment.update({ where: { id: paymentRecord.id }, data: { providerPaymentId: input.razorpayPaymentId, status: PaymentStatus.captured, capturedPaise: paymentRecord.amountPaise } }); return tx.order.update({ where: { id: session.order!.id }, data: { status: OrderStatus.confirmed, statusEvents: { create: { fromStatus: session.order!.status, toStatus: OrderStatus.confirmed, reason: 'Customer verification' } } } }) }); const response = { orderPublicToken: order.publicToken, status: order.status }; const envelope = { data: response, meta: { requestId: request.id } }; await idemStore(request, 'payment-verify', 200, envelope); return reply.send(envelope) })
+  const makeQuote = async (request: any, sessionInput?: any, customer?: any) => { const cart = await getCart(request); const bodyValue = sessionInput ?? request.body; const parsed = checkoutSchema.parse(bodyValue); if (!customer?.phone) throw new ApiError(400, 'CUSTOMER_PHONE_REQUIRED', 'A verified mobile number is required to check out.'); const serviceable = await shipping.serviceable(parsed.pincode); const response = await cartResponse(cart, true, serviceable); return { ...response, serviceability: serviceable, estimatedDeliveryFrom: serviceable ? new Date(Date.now() + 3 * 86400000).toISOString() : null, estimatedDeliveryTo: serviceable ? new Date(Date.now() + 7 * 86400000).toISOString() : null, quoteExpiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(), checkout: { ...parsed, phone: customer.phone, email: parsed.email ?? customer.email ?? undefined } } }
+  routes.post('/api/v1/checkout/quote', async (request, reply) => { const customer = await requireCustomer(request); return data(reply, await makeQuote(request, undefined, customer)) })
+  routes.post('/api/v1/checkout/sessions', async (request, reply) => {
+    const customer = await requireCustomer(request, true)
+    const idempotencyScope = `checkout-session:${customer.id}`
+    const replay = await idemReplay(request, idempotencyScope)
+    if (replay) return reply.status(replay.status).send(replay.body)
+    const quote = await makeQuote(request, undefined, customer)
+    if (!quote.purchaseEligible) throw validationError('Your cart is not eligible for COD.', { cart: quote.validationMessages.join(' ') })
+    const cart = await getCart(request)
+    if (cart.customerId && cart.customerId !== customer.id) throw forbidden('This cart belongs to a different customer session.')
+    const token = randomToken(24)
+    const result = await prisma.$transaction(async (tx) => {
+      const selectedAddress = quote.checkout.addressId ? await tx.address.findFirst({ where: { id: quote.checkout.addressId, customerId: customer.id } }) : null
+      if (quote.checkout.addressId && !selectedAddress) throw notFound('Saved address not found.')
+      const updatedCustomer = await tx.customer.update({ where: { id: customer.id }, data: { fullName: quote.checkout.fullName, ...(quote.checkout.email ? { email: quote.checkout.email.toLowerCase() } : {}) } })
+      const shippingAddress = selectedAddress
+        ? { label: selectedAddress.label, fullName: selectedAddress.fullName, email: quote.checkout.email ?? updatedCustomer.email ?? undefined, phone: selectedAddress.phone, addressLine1: selectedAddress.addressLine1, addressLine2: selectedAddress.addressLine2, landmark: selectedAddress.landmark, city: selectedAddress.city, state: selectedAddress.state, pincode: selectedAddress.pincode }
+        : { fullName: quote.checkout.fullName, email: quote.checkout.email ?? updatedCustomer.email ?? undefined, phone: updatedCustomer.phone, addressLine1: quote.checkout.addressLine1, addressLine2: quote.checkout.addressLine2, landmark: quote.checkout.landmark, city: quote.checkout.city, state: quote.checkout.state, pincode: quote.checkout.pincode }
+      if (!selectedAddress && quote.checkout.saveAddress) {
+        const addressCount = await tx.address.count({ where: { customerId: customer.id } })
+        const isDefault = quote.checkout.saveAsDefault || addressCount === 0
+        if (isDefault) await tx.address.updateMany({ where: { customerId: customer.id }, data: { isDefault: false } })
+        await tx.address.create({ data: { customerId: customer.id, phone: updatedCustomer.phone!, label: 'Home', fullName: quote.checkout.fullName, addressLine1: quote.checkout.addressLine1, addressLine2: quote.checkout.addressLine2, landmark: quote.checkout.landmark, city: quote.checkout.city, state: quote.checkout.state, pincode: quote.checkout.pincode, isDefault } })
+      }
+      await tx.cart.update({ where: { id: cart.id }, data: { customerId: customer.id } })
+      const storedQuote = { ...quote, checkout: shippingAddress }
+      const session = await tx.checkoutSession.create({ data: { publicToken: token, cartId: cart.id, customerId: customer.id, paymentMethod: 'cod', quote: storedQuote as any, expiresAt: new Date(Date.now() + 15 * 60 * 1000) } })
+      await tx.checkoutQuote.create({ data: { checkoutSessionId: session.id, subtotalPaise: quote.subtotalPaise, discountPaise: quote.discountPaise, taxPaise: quote.taxPaise, shippingPaise: quote.shippingPaise, codPaise: quote.codPaise, totalPaise: quote.totalPaise, serviceable: quote.serviceability, payload: storedQuote as any, expiresAt: new Date(Date.now() + 15 * 60 * 1000) } })
+      const order = await tx.order.create({ data: { publicToken: randomToken(24), orderNumber: `SF-${new Date().getFullYear()}-${randomToken(4).toUpperCase()}`, checkoutSessionId: session.id, customerId: customer.id, status: OrderStatus.pending_payment, subtotalPaise: quote.subtotalPaise, discountPaise: quote.discountPaise, taxPaise: quote.taxPaise, shippingPaise: quote.shippingPaise, codPaise: quote.codPaise, totalPaise: quote.totalPaise, shippingAddress: shippingAddress as any, items: { create: quote.lines.map((line: any) => ({ productId: line.productId, variantId: line.variantId, productName: line.product.name, variantName: line.product.size, sku: line.variantId ?? line.product.slug, size: line.product.size, primaryImage: line.product.image, unitSellingPricePaise: line.unitPricePaise ?? 0, mrpPaise: line.product.mrpPaise, discountPaise: 0, taxRateBps: 1800, taxPaise: Math.floor((line.unitPricePaise ?? 0) * line.quantity * 18 / 118), finalLineTotalPaise: (line.unitPricePaise ?? 0) * line.quantity, quantity: line.quantity })) } } })
+      for (const line of quote.lines) {
+        if (!line.variantId) continue
+        const inventory = await tx.inventoryItem.findFirst({ where: { variantId: line.variantId }, orderBy: { availableQty: 'desc' } })
+        if (!inventory || inventory.availableQty - inventory.reservedQty < line.quantity) throw validationError('Stock changed while checking out. Please refresh your cart.')
+        await tx.inventoryItem.update({ where: { id: inventory.id }, data: { reservedQty: { increment: line.quantity } } })
+        await tx.inventoryReservation.create({ data: { variantId: line.variantId, locationId: inventory.locationId, checkoutSessionId: session.id, quantity: line.quantity, expiresAt: new Date(Date.now() + 15 * 60 * 1000) } })
+        await tx.inventoryMovement.create({ data: { variantId: line.variantId, locationId: inventory.locationId, type: 'reservation_hold', quantity: line.quantity, reason: 'Checkout reservation' } })
+      }
+      return { session, order }
+    })
+    const response = { checkoutSessionId: result.session.publicToken, orderPublicToken: result.order.publicToken, orderNumber: result.order.orderNumber, quote }
+    await idemStore(request, idempotencyScope, 201, { data: response, meta: { requestId: request.id } })
+    return reply.status(201).send({ data: response, meta: { requestId: request.id } })
+  })
+  routes.get('/api/v1/checkout/sessions/:id', async (request, reply) => { const customer = await requireCustomer(request); const session = await prisma.checkoutSession.findUnique({ where: { publicToken: request.params.id }, include: { order: true, quotes: { orderBy: { createdAt: 'desc' }, take: 1 } } }); if (!session || session.customerId !== customer.id) throw notFound('Checkout session not found.'); return data(reply, session) })
+  routes.post('/api/v1/checkout/sessions/:id/payment-order', async (request) => { await requireCustomer(request, true); throw new ApiError(410, 'PAYMENT_METHOD_DISABLED', 'Online payment is not enabled. Use cash on delivery for this test release.') })
+  routes.post('/api/v1/checkout/sessions/:id/confirm-cod', async (request, reply) => {
+    const customer = await requireCustomer(request, true)
+    const idempotencyScope = `confirm-cod:${request.params.id}`
+    const replay = await idemReplay(request, idempotencyScope)
+    if (replay) return reply.status(replay.status).send(replay.body)
+    const session = await prisma.checkoutSession.findUnique({ where: { publicToken: request.params.id }, include: { order: true } })
+    if (!session?.order || session.customerId !== customer.id) throw notFound('Checkout session not found.')
+    if (session.paymentMethod !== 'cod' || session.status !== 'open') throw validationError('This checkout session cannot be confirmed as COD.')
+    const order = await prisma.$transaction(async (tx) => {
+      const updated = await tx.order.update({ where: { id: session.order!.id }, data: { status: OrderStatus.confirmed, payments: { create: { provider: 'cod', amountPaise: session.order!.totalPaise, status: PaymentStatus.authorised } }, statusEvents: { create: { fromStatus: OrderStatus.pending_payment, toStatus: OrderStatus.confirmed, reason: 'COD confirmed' } } } })
+      await tx.checkoutSession.update({ where: { id: session.id }, data: { status: 'confirmed' } })
+      await tx.cartItem.deleteMany({ where: { cartId: session.cartId } })
+      return updated
+    })
+    const response = { orderPublicToken: order.publicToken, orderNumber: order.orderNumber, status: order.status }
+    await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
+    return data(reply, response)
+  })
+  routes.post('/api/v1/payments/razorpay/verify', async (request) => { await requireCustomer(request, true); throw new ApiError(410, 'PAYMENT_METHOD_DISABLED', 'Razorpay is not enabled for this COD-only test release.') })
   routes.post('/api/v1/webhooks/payments/razorpay', async (request, reply) => { const signature = String(request.headers['x-razorpay-signature'] ?? ''); const rawBody = JSON.stringify(request.body ?? {}); const secret = process.env.RAZORPAY_WEBHOOK_SECRET; if (secret ? !safeEqual(signHmac(rawBody, secret), signature) : process.env.NODE_ENV === 'production') throw new ApiError(400, 'WEBHOOK_SIGNATURE_INVALID', 'Webhook signature verification failed.'); const payload: any = request.body ?? {}; const eventId = String(payload.id ?? request.headers['x-webhook-id'] ?? randomToken(10)); const existing = await prisma.webhookEvent.findUnique({ where: { provider_externalId: { provider: 'razorpay', externalId: eventId } } }); if (existing) return data(reply, { accepted: true, replay: true }); const event = await prisma.webhookEvent.create({ data: { provider: 'razorpay', externalId: eventId, eventType: String(payload.event ?? 'unknown'), payload } }); if (payload.payload?.payment?.entity?.order_id) { const providerOrderId = payload.payload.payment.entity.order_id; const paymentRecord = await prisma.payment.findFirst({ where: { providerOrderId } }); if (paymentRecord) await prisma.$transaction([prisma.payment.update({ where: { id: paymentRecord.id }, data: { providerPaymentId: payload.payload.payment.entity.id, status: payload.event === 'payment.captured' ? PaymentStatus.captured : PaymentStatus.authorised, capturedPaise: payload.payload.payment.entity.amount ?? paymentRecord.capturedPaise } }), prisma.paymentEvent.create({ data: { paymentId: paymentRecord.id, externalId: eventId, type: String(payload.event ?? 'unknown'), payload } }), prisma.order.update({ where: { id: paymentRecord.orderId }, data: { status: payload.event === 'payment.captured' ? OrderStatus.confirmed : OrderStatus.pending_payment } })]) } await prisma.webhookEvent.update({ where: { id: event.id }, data: { processedAt: new Date() } }); return data(reply, { accepted: true }) })
   routes.get('/api/v1/payments/:publicToken/status', async (request, reply) => { const order = await prisma.order.findUnique({ where: { publicToken: request.params.publicToken }, include: { payments: true } }); if (!order) throw notFound('Payment status not found.'); return data(reply, { orderStatus: order.status, payments: order.payments.map((p) => ({ provider: p.provider, status: p.status, amountPaise: p.amountPaise })) }) })
   routes.get('/api/v1/orders/:publicToken', async (request, reply) => { const order = await prisma.order.findUnique({ where: { publicToken: request.params.publicToken }, include: { items: true, payments: true, shipments: true, statusEvents: { orderBy: { createdAt: 'asc' } } } }); if (!order) throw notFound('Order not found.'); return data(reply, order) })
