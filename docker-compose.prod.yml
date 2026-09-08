@@ -53,6 +53,10 @@ services:
     ports:
       - "80:80"
       - "8080:8080"
+    volumes:
+      # Kept outside Git: Certbot stores account material and issued certificates here.
+      - ./deploy/certbot-webroot:/var/www/certbot:ro
+      - ./deploy/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - api
 
