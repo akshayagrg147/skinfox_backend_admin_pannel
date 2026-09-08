@@ -1716,18 +1716,21 @@ blockquote {
   letter-spacing: 0;
 }
 
-.product-card__title > .product-price--offer {
+.product-card__title > .product-price--offer,
+.product-card__title > .product-price--comparison {
   display: grid;
   grid-template-columns: auto auto;
   gap: 1px 5px;
 }
 
 .product-card__title > .product-price--offer .product-price__label,
-.product-card__title > .product-price--offer .product-price__saving {
+.product-card__title > .product-price--offer .product-price__saving,
+.product-card__title > .product-price--comparison .product-price__label {
   grid-column: 1 / -1;
 }
 
-.product-card__title > .product-price--offer .product-price__mrp {
+.product-card__title > .product-price--offer .product-price__mrp,
+.product-card__title > .product-price--comparison .product-price__mrp {
   font-size: 0.52rem;
 }
 
@@ -5250,7 +5253,8 @@ blockquote {
   background: #faf6f8;
 }
 
-.quick-view__pricing .product-price--offer {
+.quick-view__pricing .product-price--offer,
+.quick-view__pricing .product-price--comparison {
   align-items: center;
 }
 
@@ -5532,14 +5536,16 @@ blockquote {
   text-align: right;
 }
 
-.cart-line__price.product-price--offer {
+.cart-line__price.product-price--offer,
+.cart-line__price.product-price--comparison {
   display: grid;
   grid-template-columns: auto auto;
   gap: 1px 4px;
 }
 
 .cart-line__price.product-price--offer .product-price__label,
-.cart-line__price.product-price--offer .product-price__saving {
+.cart-line__price.product-price--offer .product-price__saving,
+.cart-line__price.product-price--comparison .product-price__label {
   grid-column: 1 / -1;
 }
 
@@ -6125,7 +6131,8 @@ blockquote {
   text-align: right;
 }
 
-.checkout-line-price.product-price--offer {
+.checkout-line-price.product-price--offer,
+.checkout-line-price.product-price--comparison {
   max-width: 150px;
   display: grid;
   grid-template-columns: auto auto;
@@ -6133,7 +6140,8 @@ blockquote {
 }
 
 .checkout-line-price.product-price--offer .product-price__label,
-.checkout-line-price.product-price--offer .product-price__saving {
+.checkout-line-price.product-price--offer .product-price__saving,
+.checkout-line-price.product-price--comparison .product-price__label {
   grid-column: 1 / -1;
 }
 

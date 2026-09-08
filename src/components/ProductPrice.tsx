@@ -38,19 +38,19 @@ export function ProductPrice({ product, quantity = 1, compact = false, className
     return <span className={classes}>{formatProductPrice(product)}</span>
   }
 
-  if (!details.hasOffer) {
+  if (details.mrp === null) {
     return <span className={classes}><strong>{formatPrice(details.offerPrice)}</strong></span>
   }
 
   return (
     <span
-      className={`${classes} product-price--offer`}
-      aria-label={`Offer price ${formatPrice(details.offerPrice)}. MRP ${formatPrice(details.mrp ?? details.offerPrice)}. You save ${formatPrice(details.savings)}.`}
+      className={`${classes} ${details.hasOffer ? 'product-price--offer' : 'product-price--comparison'}`}
+      aria-label={`Offer price ${formatPrice(details.offerPrice)}. MRP ${formatPrice(details.mrp)}.${details.hasOffer ? ` You save ${formatPrice(details.savings)}.` : ''}`}
     >
       <span className="product-price__label">Offer price</span>
       <strong>{formatPrice(details.offerPrice)}</strong>
-      <span className="product-price__mrp">MRP <s>{formatPrice(details.mrp ?? details.offerPrice)}</s></span>
-      <span className="product-price__saving">Save {formatPrice(details.savings)} · {details.discountPercent}% off</span>
+      <span className="product-price__mrp">MRP {details.hasOffer ? <s>{formatPrice(details.mrp)}</s> : formatPrice(details.mrp)}</span>
+      {details.hasOffer && <span className="product-price__saving">Save {formatPrice(details.savings)} · {details.discountPercent}% off</span>}
     </span>
   )
 }
