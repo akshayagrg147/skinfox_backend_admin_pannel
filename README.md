@@ -52,7 +52,7 @@ An approved partner shares `http://localhost:4173/?ref=SFX-…`. The storefront 
 
 The production Compose stack serves the storefront at `/`, the Admin panel on port `8080`, and the affiliate dashboard at `/affiliate/`. On a single HTTP-only EC2 instance, set `STOREFRONT_ORIGIN` in the deployment `.env` to the public origin; the Docker build uses it to generate each affiliate referral link. The bootstrap script sets `AFFILIATE_ORIGIN` to the same origin. Attach an Elastic IP and configure a domain with HTTPS before sharing live customer or affiliate links.
 
-When DNS is ready, the production nginx configuration is prepared for `skinfox.com`, `www.skinfox.com`, `affiliate.skinfox.com`, and `admin.skinfox.com` on the same Elastic IP. It also mounts a Certbot webroot for Let’s Encrypt HTTP challenges. Do not switch cookies to secure-only or remove public port `8080` until certificates have been issued and each hostname has been verified over HTTPS.
+When DNS is ready, the production nginx configuration is prepared for `skinfox.in`, `www.skinfox.in`, `affiliate.skinfox.in`, and `admin.skinfox.in` on the same Elastic IP. It also mounts a Certbot webroot for Let’s Encrypt HTTP challenges. Do not switch cookies to secure-only or remove public port `8080` until certificates have been issued and each hostname has been verified over HTTPS.
 
 ### API and database
 
