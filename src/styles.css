@@ -396,6 +396,7 @@ blockquote {
 
 .mobile-menu__panel {
   width: min(88vw, 430px);
+  height: 100dvh;
   min-height: 100%;
   background: var(--bone);
   padding: 22px 24px 36px;
@@ -403,6 +404,8 @@ blockquote {
   z-index: 1;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .mobile-menu__top {
@@ -414,6 +417,7 @@ blockquote {
 .mobile-menu nav {
   margin-block: auto;
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   align-items: flex-start;
   gap: 22px;
@@ -431,6 +435,7 @@ blockquote {
 
 .mobile-menu__panel > p {
   margin: 0;
+  flex: 0 0 auto;
   color: #74756f;
   font-size: 0.74rem;
 }
@@ -8754,6 +8759,43 @@ blockquote {
   .order-card__bottom > span {
     max-width: 65%;
     line-height: 1.45;
+  }
+}
+
+/* Mobile readability baseline: keeps labels legible without changing desktop type. */
+@media (max-width: 560px) {
+  .announcement,
+  .hero__eyebrow,
+  .campaign-slideshow__eyebrow,
+  .campaign-slideshow__caption-label,
+  .campaign-slideshow__details-heading,
+  .campaign-slideshow__media-topline,
+  .campaign-slideshow__status,
+  .hero-collection__card figcaption span,
+  .hero-collection__card figcaption small,
+  .hero-collection__count-label,
+  .product-card__badge,
+  .product-card__index,
+  .product-card__meta,
+  .product-price__label,
+  .product-price__mrp,
+  .product-price__saving {
+    font-size: 0.625rem;
+  }
+
+  .campaign-slideshow__selectors button > span,
+  .campaign-slideshow__selectors button strong,
+  .campaign-slideshow__selectors button em {
+    font-size: 0.625rem;
+  }
+
+  .hero-collection__card figcaption {
+    min-height: 64px;
+    padding: 9px 5px 4px;
+  }
+
+  .hero-collection__card figcaption strong {
+    font-size: clamp(0.95rem, 4.45vw, 1.05rem);
   }
 }
 

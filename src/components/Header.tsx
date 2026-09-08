@@ -23,6 +23,21 @@ export function Header({ cartCount, onCart, onQuiz, onSearch, onAccount, custome
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
+  useEffect(() => {
+    if (!mobileOpen) return
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileOpen(false)
+    }
+
+    document.body.classList.add('is-locked')
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.body.classList.remove('is-locked')
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [mobileOpen])
+
   const navigate = () => setMobileOpen(false)
 
   return (
