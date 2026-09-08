@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { formatPrice, formatProductPrice, getQuizRecommendation, products } from './products'
-import { getOfferPriceDetails } from '../components/ProductPrice'
+import { getOfferPriceDetails } from '../utils/productPricing'
 
 describe('product catalogue', () => {
   it('contains a scalable set of uniquely identified actual products with visible pack sizes', () => {

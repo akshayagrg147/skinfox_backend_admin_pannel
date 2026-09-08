@@ -2,7 +2,8 @@ import { Check, Minus, Play, Plus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { Product, ProductMedia } from '../types'
 import { ModalShell } from './ModalShell'
-import { ProductPrice, getOfferPriceDetails } from './ProductPrice'
+import { ProductPrice } from './ProductPrice'
+import { getOfferPriceDetails } from '../utils/productPricing'
 
 type QuickViewProps = {
   product: Product | null
