@@ -22,6 +22,11 @@ RUN apt-get update \
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/server/package.json ./server/package.json
+# npm keeps firebase-admin and its Google Cloud dependencies in the server
+# workspace (rather than hoisting them to the root). Keep that workspace
+# module tree in the runtime image so the API can resolve Firebase Admin at
+# startup.
+COPY --from=build /app/server/node_modules ./server/node_modules
 COPY --from=build /app/server/dist ./server/dist
 COPY --from=build /app/server/prisma ./server/prisma
 COPY --from=build /app/server/src ./server/src
