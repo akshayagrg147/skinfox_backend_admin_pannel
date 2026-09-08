@@ -1635,10 +1635,7 @@ blockquote {
   margin-top: 16px;
   border: 0;
   padding: 0;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
+  display: block;
   text-align: left;
   background: transparent;
   cursor: pointer;
@@ -1660,19 +1657,6 @@ blockquote {
 .product-card__title small {
   color: #646761;
   font-size: 0.7rem;
-}
-
-.product-card__title > .product-price {
-  min-height: 28px;
-  padding: 6px 9px;
-  max-width: 108px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--card-tint) 42%, #f3eee8);
-  color: var(--copper-dark);
-  font-size: 0.74rem;
-  font-weight: 600;
-  line-height: 1.35;
-  text-align: right;
 }
 
 .product-price {
@@ -1710,37 +1694,90 @@ blockquote {
   font-weight: 700;
 }
 
-.product-card__title > .product-price {
-  justify-content: flex-end;
+.product-card__price {
+  width: 100%;
+  min-height: 64px;
+  margin-top: 15px;
+  padding: 11px 13px 11px 17px;
+  border: 1px solid color-mix(in srgb, var(--card-tint) 60%, rgba(53, 35, 58, 0.14));
+  border-radius: 14px;
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(110deg, color-mix(in srgb, var(--card-tint) 28%, #fff) 0%, rgba(255,255,255,.78) 100%);
+  color: var(--ink);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.7);
 }
 
-.product-card__title > .product-price strong {
-  font-family: inherit;
-  font-size: 0.74rem;
-  font-weight: 700;
-  letter-spacing: 0;
+.product-card__price::before {
+  content: '';
+  width: 4px;
+  position: absolute;
+  inset: 9px auto 9px 0;
+  border-radius: 0 999px 999px 0;
+  background: var(--copper);
 }
 
-.product-card__title > .product-price--offer,
-.product-card__title > .product-price--comparison {
+.product-card__price strong {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.025em;
+}
+
+.product-card__price.product-price--offer,
+.product-card__price.product-price--comparison {
   display: grid;
-  grid-template-columns: auto auto;
-  gap: 1px 5px;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 14px;
+  row-gap: 4px;
 }
 
-.product-card__title > .product-price--offer .product-price__label,
-.product-card__title > .product-price--offer .product-price__saving,
-.product-card__title > .product-price--comparison .product-price__label {
-  grid-column: 1 / -1;
+.product-card__price .product-price__label {
+  grid-column: 1;
+  grid-row: 1;
+  color: #76536a;
+  font-size: 0.58rem;
+  line-height: 1;
 }
 
-.product-card__title > .product-price--offer .product-price__mrp,
-.product-card__title > .product-price--comparison .product-price__mrp {
-  font-size: 0.52rem;
+.product-card__price > strong {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.product-card__price .product-price__mrp {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  color: #757771;
+  font-size: 0.62rem;
+  letter-spacing: 0.01em;
+}
+
+.product-card__price.product-price--comparison .product-price__mrp {
+  grid-row: 1 / 3;
+  align-self: center;
+}
+
+.product-card__price .product-price__saving {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: end;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #e4efe6;
+  color: #315b3d;
+  font-size: 0.58rem;
+  line-height: 1;
+  letter-spacing: 0.015em;
 }
 
 .product-card__content > p {
-  margin: 16px 0 20px;
+  margin: 14px 0 20px;
   color: #6d7069;
   font-size: 0.72rem;
   line-height: 1.6;

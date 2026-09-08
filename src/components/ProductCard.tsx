@@ -40,8 +40,8 @@ export function ProductCard({ product, index, onView, onAdd }: ProductCardProps)
         </div>
         <button className="product-card__title" onClick={() => onView(product)}>
           <span><strong>{product.name}</strong><small>{product.subtitle}</small></span>
-          <ProductPrice product={product} compact />
         </button>
+        <ProductPrice product={product} compact className="product-card__price" />
         <p>{product.benefit}</p>
         <button className="quick-add" onClick={() => onAdd(product)}>
           Add to launch bag <Plus size={17} />
