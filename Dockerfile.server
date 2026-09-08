@@ -3,6 +3,7 @@ FROM node:20-bookworm-slim AS build
 WORKDIR /app
 COPY package*.json ./
 COPY admin/package.json admin/package.json
+COPY affiliate/package.json affiliate/package.json
 COPY server/package.json server/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 RUN npm ci

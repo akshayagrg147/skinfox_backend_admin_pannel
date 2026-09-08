@@ -3,14 +3,20 @@ FROM node:20-bookworm-slim AS build
 WORKDIR /app
 COPY package*.json ./
 COPY admin/package.json admin/package.json
+COPY affiliate/package.json affiliate/package.json
 COPY server/package.json server/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 RUN npm ci
 
 COPY . .
-RUN npm run build && npm run build --workspace admin
+ARG VITE_AFFILIATE_BASE=/affiliate/
+ARG VITE_STOREFRONT_URL
+ENV VITE_AFFILIATE_BASE=$VITE_AFFILIATE_BASE
+ENV VITE_STOREFRONT_URL=$VITE_STOREFRONT_URL
+RUN npm run build && npm run build --workspace admin && npm run build --workspace affiliate
 
 FROM nginx:1.27-alpine
 COPY --from=build /app/dist /usr/share/nginx/html/storefront
 COPY --from=build /app/admin/dist /usr/share/nginx/html/admin
+COPY --from=build /app/affiliate/dist /usr/share/nginx/html/affiliate
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf

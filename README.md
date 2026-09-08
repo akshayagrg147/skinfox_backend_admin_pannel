@@ -20,7 +20,7 @@ npm run build
 npm run preview
 ```
 
-The storefront is at `http://localhost:4173`, the API at `http://localhost:4000`, the OpenAPI UI at `http://localhost:4000/api/docs`, and the admin panel at `http://localhost:4174`.
+The storefront is at `http://localhost:4173`, the API at `http://localhost:4000`, the OpenAPI UI at `http://localhost:4000/api/docs`, the admin panel at `http://localhost:4174`, and the affiliate dashboard at `http://localhost:4175`.
 
 Quick API smoke checks:
 
@@ -34,13 +34,23 @@ The JSON document behind the interactive API reference is available at `http://l
 
 ### Environment variables
 
-The complete templates are [server/.env.example](/Users/akshay/Documents/ChatGPT/skinfox/server/.env.example), [admin/.env.example](/Users/akshay/Documents/ChatGPT/skinfox/admin/.env.example), and [.env.example](/Users/akshay/Documents/ChatGPT/skinfox/.env.example). The server template covers PostgreSQL/Redis (`DATABASE_URL`, `REDIS_URL`), origins and session security (`STOREFRONT_ORIGIN`, `ADMIN_ORIGIN`, `COOKIE_SECRET`, `SESSION_TTL_DAYS`), test customer OTP (`CUSTOMER_OTP_*`), first-admin bootstrap (`SEED_ADMIN_*`), and optional Razorpay, S3-compatible storage, and Mailpit provider settings. Keep real values in an ignored `.env` or deployment secret manager.
+The complete templates are [server/.env.example](/Users/akshay/Documents/ChatGPT/skinfox/server/.env.example), [admin/.env.example](/Users/akshay/Documents/ChatGPT/skinfox/admin/.env.example), [affiliate/.env.example](/Users/akshay/Documents/ChatGPT/skinfox/affiliate/.env.example), and [.env.example](/Users/akshay/Documents/ChatGPT/skinfox/.env.example). The server template covers PostgreSQL/Redis (`DATABASE_URL`, `REDIS_URL`), origins and session security (`STOREFRONT_ORIGIN`, `ADMIN_ORIGIN`, `AFFILIATE_ORIGIN`, `COOKIE_SECRET`, `SESSION_TTL_DAYS`), test customer OTP (`CUSTOMER_OTP_*`), first-admin bootstrap (`SEED_ADMIN_*`), and optional Razorpay, S3-compatible storage, and Mailpit provider settings. Keep real values in an ignored `.env` or deployment secret manager.
 
 ### Customer OTP and COD test flow
 
 The customer flow is deliberately configured for local testing: a shopper may add products to a guest cart, then must verify a mobile number before delivery addresses or checkout are available. The default local static OTP is `123456`; it is hashed in the database and expires after ten minutes. The value is shown in the browser only when `CUSTOMER_OTP_EXPOSE_TEST_CODE=true` is explicitly set.
 
 Only COD is available in this release. To exercise the full flow, publish a product with a non-null selling price and `available` purchase state in Admin, then add it to the bag. Firebase and Razorpay are intentionally not configured. Before a real launch, replace the static provider with a real SMS provider, disable test-code exposure, configure a domain and HTTPS, and complete payment-provider integration.
+
+### Affiliate programme
+
+The affiliate dashboard is available at `http://localhost:4175`. An applicant submits their contact, PAN and optional UPI details, then signs in by OTP to see their review state. PAN is encrypted at rest and all dashboards/admin views reveal only the last four characters. A Super Admin approves the application in **Affiliates & payouts** before its referral code becomes active.
+
+An approved partner shares `http://localhost:4173/?ref=SFX-…`. The storefront persists the first valid referral to the server-side cart. When the COD order is confirmed, the API creates one immutable attribution and a 10% wallet credit based on product selling value after discounts, excluding tax, shipping and COD fee. A wallet redemption requires at least ₹500 and becomes an internal payout request; marking it paid in Admin does not transfer money. Configure a real OTP provider, an audited payout provider, retention controls and your applicable tax/privacy notices before production.
+
+### AWS EC2 deployment
+
+The production Compose stack serves the storefront at `/`, the Admin panel on port `8080`, and the affiliate dashboard at `/affiliate/`. On a single HTTP-only EC2 instance, set `STOREFRONT_ORIGIN` in the deployment `.env` to the public origin; the Docker build uses it to generate each affiliate referral link. The bootstrap script sets `AFFILIATE_ORIGIN` to the same origin. Attach an Elastic IP and configure a domain with HTTPS before sharing live customer or affiliate links.
 
 ### API and database
 
@@ -84,6 +94,7 @@ Security defaults include Argon2id passwords, HttpOnly/SameSite admin and custom
 - Search, local cart persistence, quantity controls, and explicit pending-price states
 - Three-step routine finder with tailored recommendations
 - Guest carts with mandatory customer SMS-style OTP verification, saved delivery addresses, customer sessions and COD-only checkout
+- An affiliate dashboard with OTP sign-in, encrypted PAN application details, admin approval, referral-link attribution, 10% commission wallet credits and ₹500+ payout requests
 - Responsive navigation, front-label transparency, editorial product notes, FAQ, and newsletter sections
 - Unit and interaction tests with Vitest and Testing Library
 

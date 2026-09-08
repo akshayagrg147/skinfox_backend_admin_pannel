@@ -53,6 +53,7 @@ cookie_secret="$(openssl rand -hex 32)"
 cat > .env <<EOF
 POSTGRES_PASSWORD=$postgres_password
 SEED_DATABASE=true
+STOREFRONT_ORIGIN=http://$public_ip
 EOF
 chmod 600 .env
 
@@ -60,6 +61,7 @@ mkdir -p deploy
 cat > deploy/server.env <<EOF
 STOREFRONT_ORIGIN=http://$public_ip
 ADMIN_ORIGIN=http://$public_ip:8080
+AFFILIATE_ORIGIN=http://$public_ip
 COOKIE_SECRET=$cookie_secret
 # This free-tier deployment is HTTP-only until a domain/TLS terminator is added.
 COOKIE_SECURE=false
@@ -88,7 +90,7 @@ docker compose -f docker-compose.prod.yml up -d
 
 for attempt in $(seq 1 30); do
   if curl -fsS http://127.0.0.1/api/v1/health >/dev/null; then
-    echo "SkinFox is ready: http://$public_ip/ (storefront), http://$public_ip:8080/ (admin)"
+    echo "SkinFox is ready: http://$public_ip/ (storefront), http://$public_ip:8080/ (admin), http://$public_ip/affiliate/ (affiliate dashboard)"
     exit 0
   fi
   sleep 5

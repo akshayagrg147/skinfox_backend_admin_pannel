@@ -81,6 +81,25 @@ enum MovementType {
   return
 }
 
+enum AffiliateStatus {
+  pending
+  approved
+  rejected
+  suspended
+}
+
+enum AffiliateWalletEntryType {
+  commission
+  redemption_request
+  redemption_reversal
+}
+
+enum AffiliateRedemptionStatus {
+  requested
+  paid
+  rejected
+}
+
 enum ClaimReviewStatus {
   pending
   approved
@@ -114,6 +133,8 @@ model AdminUser {
   mfaCredential      MfaCredential?
   auditLogs          AuditLog[]
   revisions          ProductRevision[]
+  approvedAffiliates Affiliate[] @relation("AffiliateApprover")
+  affiliateRedemptionReviews AffiliateRedemptionRequest[] @relation("AffiliateRedemptionReviewer")
 }
 
 model Role {
@@ -496,10 +517,12 @@ model Cart {
   id               String            @id @default(cuid())
   tokenHash        String            @unique
   customerId       String?
+  affiliateId      String?
   currency         String            @default("INR")
   couponId         String?
   coupon           Coupon?           @relation(fields: [couponId], references: [id], onDelete: SetNull)
   customer         Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  affiliate        Affiliate?        @relation(fields: [affiliateId], references: [id], onDelete: SetNull)
   expiresAt        DateTime
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
@@ -507,6 +530,7 @@ model Cart {
   checkoutSessions CheckoutSession[]
 
   @@index([customerId, updatedAt])
+  @@index([affiliateId, updatedAt])
 }
 
 model CartItem {
@@ -680,10 +704,133 @@ model Order {
   refunds           Refund[]
   shipments         Shipment[]
   returns           ReturnRequest[]
+  affiliateAttribution AffiliateAttribution?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
   @@index([status, createdAt])
+}
+
+model Affiliate {
+  id                  String                       @id @default(cuid())
+  fullName            String
+  email               String?                      @unique
+  phone               String                       @unique
+  panEncrypted        String
+  panLast4            String
+  whatsappNumber      String?
+  city                String?
+  state               String?
+  payoutUpiId         String?
+  status              AffiliateStatus              @default(pending)
+  referralCode        String                       @unique
+  approvedAt          DateTime?
+  approvedById        String?
+  rejectionReason     String?
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+  approvedBy          AdminUser?                   @relation("AffiliateApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  carts               Cart[]
+  sessions            AffiliateSession[]
+  otpChallenges       AffiliateOtpChallenge[]
+  clicks              AffiliateReferralClick[]
+  attributions        AffiliateAttribution[]
+  walletEntries       AffiliateWalletEntry[]
+  redemptionRequests  AffiliateRedemptionRequest[]
+
+  @@index([status, createdAt])
+}
+
+model AffiliateSession {
+  id          String    @id @default(cuid())
+  tokenHash   String    @unique
+  affiliateId String
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  lastSeenAt  DateTime  @default(now())
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime  @default(now())
+  affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  @@index([affiliateId, expiresAt])
+}
+
+model AffiliateOtpChallenge {
+  id          String     @id @default(cuid())
+  affiliateId String?
+  phone       String
+  codeHash    String
+  attempts    Int        @default(0)
+  expiresAt   DateTime
+  verifiedAt  DateTime?
+  createdAt   DateTime   @default(now())
+  affiliate   Affiliate? @relation(fields: [affiliateId], references: [id], onDelete: SetNull)
+
+  @@index([phone, createdAt])
+  @@index([expiresAt, verifiedAt])
+}
+
+model AffiliateReferralClick {
+  id          String    @id @default(cuid())
+  affiliateId String
+  cartId      String?
+  referralCode String
+  visitorHash String?
+  landingPath String?
+  createdAt   DateTime  @default(now())
+  affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  @@index([affiliateId, createdAt])
+  @@index([cartId, createdAt])
+}
+
+model AffiliateAttribution {
+  id              String    @id @default(cuid())
+  affiliateId     String
+  orderId         String    @unique
+  referralCode    String
+  commissionPaise Int
+  createdAt       DateTime  @default(now())
+  affiliate       Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Restrict)
+  order           Order     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  walletEntry     AffiliateWalletEntry?
+
+  @@index([affiliateId, createdAt])
+}
+
+model AffiliateWalletEntry {
+  id              String                   @id @default(cuid())
+  affiliateId     String
+  type            AffiliateWalletEntryType
+  amountPaise     Int
+  description     String
+  attributionId   String?                  @unique
+  redemptionId    String?
+  createdAt       DateTime                 @default(now())
+  affiliate       Affiliate                @relation(fields: [affiliateId], references: [id], onDelete: Restrict)
+  attribution     AffiliateAttribution?    @relation(fields: [attributionId], references: [id], onDelete: SetNull)
+  redemption      AffiliateRedemptionRequest? @relation(fields: [redemptionId], references: [id], onDelete: SetNull)
+
+  @@index([affiliateId, createdAt])
+}
+
+model AffiliateRedemptionRequest {
+  id          String                    @id @default(cuid())
+  affiliateId String
+  amountPaise Int
+  status      AffiliateRedemptionStatus @default(requested)
+  payoutUpiId String?
+  reviewedAt  DateTime?
+  reviewedById String?
+  note        String?
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+  affiliate   Affiliate                 @relation(fields: [affiliateId], references: [id], onDelete: Restrict)
+  reviewedBy  AdminUser?                @relation("AffiliateRedemptionReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  walletEntries AffiliateWalletEntry[]
+
+  @@index([affiliateId, status, createdAt])
 }
 
 model OrderItem {

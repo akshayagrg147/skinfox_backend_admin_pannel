@@ -122,6 +122,14 @@ export default function App() {
   }, [cartToken, storefront.apiMode])
 
   useEffect(() => {
+    if (!storefront.apiMode) return
+    const referralCode = new URL(window.location.href).searchParams.get('ref')?.trim().toUpperCase()
+    if (!referralCode) return
+    localStorage.setItem('skinfox-affiliate-referral', referralCode)
+    void postStorefront('/affiliate/referrals/track', { code: referralCode, landingPath: `${window.location.pathname}${window.location.search}` }).catch(() => undefined)
+  }, [storefront.apiMode])
+
+  useEffect(() => {
     if (storefront.apiMode) return
     localStorage.setItem(
       'skinfox-launch-cart-v2',
@@ -148,6 +156,16 @@ export default function App() {
     : collectionProducts.filter((product) => product.concerns.includes(activeFilter))
 
   const applyCartResponse = (response: any) => setCart((response.lines ?? []).map((line: any) => ({ product: mapProduct(line.product), quantity: line.quantity })))
+  const trackAffiliateReferral = async (token: string) => {
+    const referralCode = localStorage.getItem('skinfox-affiliate-referral')
+    if (!referralCode || localStorage.getItem('skinfox-affiliate-referral-cart') === token) return
+    await postStorefront('/affiliate/referrals/track', { code: referralCode, landingPath: `${window.location.pathname}${window.location.search}` }, { 'x-cart-token': token })
+    localStorage.setItem('skinfox-affiliate-referral-cart', token)
+  }
+  useEffect(() => {
+    if (!storefront.apiMode || !cartToken) return
+    void trackAffiliateReferral(cartToken).catch(() => undefined)
+  }, [cartToken, storefront.apiMode])
   const ensureCartToken = async () => {
     if (cartToken) return cartToken
     const response = await postStorefront<any>('/carts', {})

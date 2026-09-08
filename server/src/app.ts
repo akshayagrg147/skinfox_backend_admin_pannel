@@ -9,7 +9,7 @@ import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 import swagger from '@fastify/swagger'
 import swaggerUi from '@fastify/swagger-ui'
-import { Prisma, PublicationStatus, PurchaseState, OrderStatus, PaymentStatus, AdminRole } from '@prisma/client'
+import { AffiliateRedemptionStatus, AffiliateStatus, AffiliateWalletEntryType, Prisma, PublicationStatus, PurchaseState, OrderStatus, PaymentStatus, AdminRole } from '@prisma/client'
 import { z, ZodError } from 'zod'
 import { authenticator } from 'otplib'
 import { prisma } from './lib/prisma.js'
@@ -17,6 +17,7 @@ import { ApiError, forbidden, notFound, validationError } from './lib/errors.js'
 import { decryptSecret, encryptSecret, hashPassword, hashToken, randomToken, safeEqual, signHmac, verifyPassword } from './lib/crypto.js'
 import { customerOtpConfig, hashCustomerOtp, normalizeIndianPhone, staticOtpIsConfigured } from './lib/customerAuth.js'
 import { calculateCart, isValidPincode } from './lib/pricing.js'
+import { affiliateCommissionPaise, affiliateReferralCode, isValidPan } from './lib/affiliate.js'
 import { LocalEmailAdapter, LocalStorageAdapter, ManualShippingAdapter, RazorpayAdapter } from './lib/providers.js'
 
 const secureCookies = () => process.env.COOKIE_SECURE === undefined ? process.env.NODE_ENV === 'production' : process.env.COOKIE_SECURE === 'true'
@@ -83,6 +84,7 @@ const documentPath = (path: string, methods: string[], summary: string) => {
   ['/care-finder', ['get'], 'Get care finder'], ['/care-finder/recommendations', ['post'], 'Get care recommendations'], ['/care-finder/events', ['post'], 'Record care finder event'],
   ['/carts', ['post'], 'Create cart'], ['/carts/{cartId}', ['get', 'delete'], 'Get or delete cart'], ['/carts/{cartId}/items', ['post'], 'Add cart item'], ['/carts/{cartId}/items/{itemId}', ['patch', 'delete'], 'Update or remove cart item'], ['/carts/{cartId}/apply-coupon', ['post'], 'Apply coupon'], ['/carts/{cartId}/coupon', ['delete'], 'Remove coupon'],
   ['/customer/auth/request-otp', ['post'], 'Request customer OTP'], ['/customer/auth/verify-otp', ['post'], 'Verify customer OTP'], ['/customer/auth/me', ['get'], 'Get current customer'], ['/customer/auth/logout', ['post'], 'Log out customer'], ['/customer/addresses', ['get', 'post'], 'List or save customer addresses'], ['/customer/addresses/{id}', ['patch', 'delete'], 'Update or delete customer address'], ['/customer/orders', ['get'], 'List customer orders'], ['/customer/orders/{publicToken}', ['get'], 'Get customer order'],
+  ['/affiliate/applications', ['post'], 'Submit affiliate application'], ['/affiliate/auth/request-otp', ['post'], 'Request affiliate OTP'], ['/affiliate/auth/verify-otp', ['post'], 'Verify affiliate OTP'], ['/affiliate/auth/me', ['get'], 'Get current affiliate'], ['/affiliate/auth/logout', ['post'], 'Log out affiliate'], ['/affiliate/referrals/track', ['post'], 'Track affiliate referral'], ['/affiliate/dashboard', ['get'], 'Get affiliate dashboard'], ['/affiliate/wallet/redemptions', ['post'], 'Request affiliate wallet redemption'],
   ['/shipping/serviceability', ['get'], 'Check shipping serviceability'], ['/checkout/quote', ['post'], 'Calculate checkout quote'], ['/checkout/sessions', ['post'], 'Create checkout session'], ['/checkout/sessions/{id}', ['get'], 'Get checkout session'], ['/checkout/sessions/{id}/payment-order', ['post'], 'Create payment order'], ['/checkout/sessions/{id}/confirm-cod', ['post'], 'Confirm cash on delivery'],
   ['/payments/razorpay/verify', ['post'], 'Verify Razorpay payment'], ['/webhooks/payments/razorpay', ['post'], 'Receive Razorpay webhook'], ['/payments/{publicToken}/status', ['get'], 'Get payment status'], ['/orders/{publicToken}', ['get'], 'Get public order'], ['/orders/{publicToken}/tracking', ['get'], 'Get order tracking'], ['/orders/{publicToken}/cancel-request', ['post'], 'Request order cancellation'], ['/orders/{publicToken}/return-request', ['post'], 'Request return'],
   ['/launch-interest', ['post'], 'Capture launch interest'], ['/newsletter/subscriptions', ['post'], 'Subscribe to newsletter'], ['/newsletter/confirm', ['post'], 'Confirm newsletter subscription'], ['/newsletter/subscriptions/{token}', ['delete'], 'Unsubscribe from newsletter'], ['/contact', ['post'], 'Submit contact form'], ['/events', ['post'], 'Record analytics event'], ['/events/batch', ['post'], 'Record analytics events'],
@@ -93,6 +95,7 @@ const documentPath = (path: string, methods: string[], summary: string) => {
   ['/admin/inventory', ['get'], 'List inventory'], ['/admin/inventory/low-stock', ['get'], 'List low stock inventory'], ['/admin/inventory/{variantId}', ['get'], 'Get variant inventory'], ['/admin/inventory/adjustments', ['post'], 'Adjust inventory'], ['/admin/inventory/bulk-adjustments', ['post'], 'Bulk adjust inventory'], ['/admin/inventory/history', ['get'], 'Inventory movement history'], ['/admin/inventory/import', ['post'], 'Import inventory'], ['/admin/inventory/export', ['get'], 'Export inventory'],
   ['/admin/orders', ['get'], 'List admin orders'], ['/admin/orders/{id}', ['get', 'patch'], 'Admin order detail'], ...['confirm', 'process', 'pack', 'fulfill', 'ship', 'deliver', 'cancel'].map((action) => [`/admin/orders/{id}/${action}`, ['post'], `Order ${action}`]), ['/admin/orders/{id}/{action}', ['post'], 'Transition order'], ['/admin/orders/{id}/refund', ['post'], 'Refund order'], ['/admin/orders/{id}/notes', ['post'], 'Add order note'], ['/admin/orders/{id}/resend-confirmation', ['post'], 'Resend order confirmation'], ['/admin/orders/{id}/invoice', ['get'], 'Get order invoice'], ['/admin/orders/export', ['get'], 'Export orders'],
   ['/admin/customers', ['get'], 'List customers'], ['/admin/customers/{id}', ['get', 'patch'], 'Customer detail'], ['/admin/customers/{id}/orders', ['get'], 'Customer orders'], ['/admin/customers/{id}/notes', ['post'], 'Add customer note'], ['/admin/customers/{id}/anonymize', ['post'], 'Anonymize customer'], ['/admin/customers/{id}/export-data', ['post'], 'Export customer data'], ['/admin/customers/{id}/consent', ['patch'], 'Update customer consent'],
+  ['/admin/affiliates', ['get'], 'List affiliate applications'], ['/admin/affiliates/{id}/status', ['post'], 'Review affiliate application'], ['/admin/affiliate-redemptions', ['get'], 'List affiliate redemptions'], ['/admin/affiliate-redemptions/{id}/review', ['post'], 'Review affiliate redemption'],
   ['/admin/media', ['get'], 'List media assets'], ['/admin/media/presign', ['post'], 'Presign media upload'], ['/admin/media/complete', ['post'], 'Complete media upload'], ['/admin/media/{id}', ['patch', 'delete'], 'Update or delete media asset'], ['/admin/media/{id}/archive', ['post'], 'Archive media asset'], ['/admin/media/{id}/references', ['get'], 'List media references'],
   ['/admin/care-finder/preview', ['post'], 'Preview care finder'], ['/admin/care-finder/coverage', ['get'], 'Check care finder coverage'], ['/admin/users', ['get'], 'List admin users'], ['/admin/users/invite', ['post'], 'Invite admin user'], ['/admin/users/{id}', ['get', 'patch'], 'Admin user detail'], ['/admin/users/{id}/suspend', ['post'], 'Suspend admin user'], ['/admin/users/{id}/activate', ['post'], 'Activate admin user'], ['/admin/users/{id}/{action}', ['post'], 'Activate or suspend admin user'], ['/admin/users/{id}/revoke-sessions', ['post'], 'Revoke user sessions'], ['/admin/roles', ['get', 'post'], 'List or create roles'], ['/admin/roles/{id}', ['patch', 'delete'], 'Update or delete role'], ['/admin/permissions', ['get'], 'List permissions'], ['/admin/audit-logs', ['get'], 'List audit logs'], ['/admin/audit-logs/{id}', ['get'], 'Get audit log'], ['/admin/audit-logs/export', ['get'], 'Export audit logs'],
   ['/admin/serviceable-pincodes/import', ['post'], 'Import serviceable pincodes'], ['/admin/serviceable-pincodes/export', ['get'], 'Export serviceable pincodes'],
@@ -112,7 +115,7 @@ export function buildApp(): FastifyInstance {
   const shipping = new ManualShippingAdapter(async (pincode) => Boolean(await prisma.serviceablePincode.findUnique({ where: { pincode, active: true } })))
 
   app.register(cookie, { secret: process.env.COOKIE_SECRET ?? 'local-only-change-this-cookie-secret-please' })
-  app.register(cors, { credentials: true, origin: (origin, cb) => { const allowed = [process.env.STOREFRONT_ORIGIN ?? 'http://localhost:4173', process.env.ADMIN_ORIGIN ?? 'http://localhost:4174']; cb(null, !origin || allowed.includes(origin)) } })
+  app.register(cors, { credentials: true, origin: (origin, cb) => { const allowed = [process.env.STOREFRONT_ORIGIN ?? 'http://localhost:4173', process.env.ADMIN_ORIGIN ?? 'http://localhost:4174', process.env.AFFILIATE_ORIGIN ?? 'http://localhost:4175']; cb(null, !origin || allowed.includes(origin)) } })
   app.register(helmet, { contentSecurityPolicy: false })
   app.register(rateLimit, { max: 120, timeWindow: '1 minute' })
   app.register(swagger, { openapi: { info: { title: 'SkinFox API', version: '1.0.0', description: 'API-backed SkinFox commerce and operations API' }, servers: [{ url: '/api/v1' }], paths: openApiPaths } })
@@ -180,6 +183,31 @@ export function buildApp(): FastifyInstance {
     }
     return customer
   }
+  const publicAffiliate = (affiliate: any) => ({ id: affiliate.id, fullName: affiliate.fullName, email: affiliate.email, phone: affiliate.phone, panLast4: affiliate.panLast4, whatsappNumber: affiliate.whatsappNumber, city: affiliate.city, state: affiliate.state, payoutUpiId: affiliate.payoutUpiId, status: affiliate.status, referralCode: affiliate.referralCode, approvedAt: affiliate.approvedAt, rejectionReason: affiliate.rejectionReason, createdAt: affiliate.createdAt })
+  const currentAffiliate = async (request: any, required = true) => {
+    const token = request.cookies.sf_affiliate_session
+    if (!token) {
+      if (required) throw new ApiError(401, 'AFFILIATE_AUTH_REQUIRED', 'Sign in to your affiliate dashboard with mobile OTP.')
+      return null
+    }
+    const session = await prisma.affiliateSession.findUnique({ where: { tokenHash: hashToken(token) }, include: { affiliate: true } })
+    if (!session || session.revokedAt || session.expiresAt < new Date()) {
+      if (required) throw new ApiError(401, 'AFFILIATE_AUTH_REQUIRED', 'Your affiliate session has expired. Sign in again.')
+      return null
+    }
+    await prisma.affiliateSession.update({ where: { id: session.id }, data: { lastSeenAt: new Date() } })
+    return session.affiliate
+  }
+  const requireAffiliate = async (request: any, csrfRequired = false) => {
+    const affiliate = await currentAffiliate(request)
+    if (csrfRequired) {
+      const csrfCookie = request.cookies.sf_affiliate_csrf
+      const csrfHeader = request.headers['x-affiliate-csrf-token']
+      if (!csrfCookie || csrfHeader !== csrfCookie) throw new ApiError(403, 'CSRF_REQUIRED', 'An affiliate CSRF token is required for this action.')
+    }
+    return affiliate
+  }
+  const affiliateWalletBalance = async (affiliateId: string) => Number((await prisma.affiliateWalletEntry.aggregate({ where: { affiliateId }, _sum: { amountPaise: true } }))._sum.amountPaise ?? 0)
   const audit = async (user: any, request: any, action: string, entityType: string, entityId: string | null, beforeSummary: unknown, afterSummary: unknown, reason?: string) => prisma.auditLog.create({ data: { actorId: user?.id, action, entityType, entityId, beforeSummary: beforeSummary as Prisma.InputJsonValue ?? undefined, afterSummary: afterSummary as Prisma.InputJsonValue ?? undefined, reason, requestId: request.id, ip: request.ip, userAgent: request.headers['user-agent'], result: 'success' } })
   const getCart = async (request: any) => {
     const token = request.headers['x-cart-token'] ?? request.cookies.sf_cart_token ?? request.params?.cartId
@@ -294,6 +322,85 @@ export function buildApp(): FastifyInstance {
   routes.get('/api/v1/customer/auth/me', async (request, reply) => { const customer = await currentCustomer(request, false); return data(reply, { customer: customer ? publicCustomer(customer) : null }) })
   routes.post('/api/v1/customer/auth/logout', async (request, reply) => { await requireCustomer(request, true); const token = request.cookies.sf_customer_session; if (token) await prisma.customerSession.updateMany({ where: { tokenHash: hashToken(token) }, data: { revokedAt: new Date() } }); reply.clearCookie('sf_customer_session', { path: '/' }).clearCookie('sf_customer_csrf', { path: '/' }); return data(reply, { loggedOut: true }) })
 
+  // Affiliate applications remain pending until a SkinFox administrator approves them.
+  routes.post('/api/v1/affiliate/applications', { config: { rateLimit: { max: 5, timeWindow: '15 minutes' } } }, async (request, reply) => {
+    const input = z.object({ fullName: z.string().trim().min(2).max(120), email: z.union([z.string().email(), z.literal('')]).optional().transform((value) => value || undefined), phone: z.string().min(1), pan: z.string().trim().transform((value) => value.toUpperCase()), whatsappNumber: z.string().trim().max(20).optional(), city: z.string().trim().max(80).optional(), state: z.string().trim().max(80).optional(), payoutUpiId: z.string().trim().max(120).optional(), acceptedTerms: z.literal(true) }).parse(request.body)
+    const phone = normalizeIndianPhone(input.phone)
+    if (!phone) throw validationError('Enter a valid Indian 10-digit mobile number.', { phone: 'Use a mobile number beginning with 6, 7, 8, or 9.' })
+    if (!isValidPan(input.pan)) throw validationError('Enter a valid PAN in the format ABCDE1234F.', { pan: 'PAN must use five letters, four numbers and one letter.' })
+    const duplicate = await prisma.affiliate.findFirst({ where: { OR: [{ phone }, ...(input.email ? [{ email: input.email.toLowerCase() }] : [])] } })
+    if (duplicate) throw new ApiError(409, 'AFFILIATE_ALREADY_EXISTS', 'An affiliate application already exists for this mobile number or email.')
+    const affiliate = await prisma.affiliate.create({ data: { fullName: input.fullName, email: input.email?.toLowerCase(), phone, panEncrypted: encryptSecret(input.pan), panLast4: input.pan.slice(-4), whatsappNumber: input.whatsappNumber || undefined, city: input.city || undefined, state: input.state || undefined, payoutUpiId: input.payoutUpiId || undefined, referralCode: affiliateReferralCode() } })
+    return reply.status(201).send({ data: { affiliate: publicAffiliate(affiliate) }, meta: { requestId: request.id } })
+  })
+  routes.post('/api/v1/affiliate/auth/request-otp', { config: { rateLimit: { max: 5, timeWindow: '15 minutes' } } }, async (request, reply) => {
+    const phone = normalizeIndianPhone(z.object({ phone: z.string().min(1) }).parse(request.body).phone)
+    if (!phone) throw validationError('Enter a valid Indian 10-digit mobile number.', { phone: 'Use a mobile number beginning with 6, 7, 8, or 9.' })
+    const affiliate = await prisma.affiliate.findUnique({ where: { phone } })
+    if (!affiliate) throw notFound('No affiliate application was found for this mobile number. Apply first to join SkinFox affiliates.')
+    if (affiliate.status === AffiliateStatus.suspended) throw forbidden('This affiliate account is suspended. Contact SkinFox support.')
+    const config = customerOtpConfig()
+    if (!staticOtpIsConfigured(config)) throw new ApiError(503, 'OTP_PROVIDER_NOT_CONFIGURED', 'Affiliate OTP is not configured on this server.')
+    const latest = await prisma.affiliateOtpChallenge.findFirst({ where: { phone }, orderBy: { createdAt: 'desc' } })
+    if (latest && latest.createdAt.getTime() > Date.now() - config.resendSeconds * 1000) throw new ApiError(429, 'OTP_RESEND_TOO_SOON', `Please wait ${config.resendSeconds} seconds before requesting another OTP.`)
+    const challenge = await prisma.affiliateOtpChallenge.create({ data: { affiliateId: affiliate.id, phone, codeHash: hashCustomerOtp(config.code), expiresAt: new Date(Date.now() + config.ttlMinutes * 60 * 1000) } })
+    return data(reply, { challengeId: challenge.id, phone, expiresAt: challenge.expiresAt, retryAfterSeconds: config.resendSeconds, ...(config.exposeTestCode ? { testOtpCode: config.code } : {}) })
+  })
+  routes.post('/api/v1/affiliate/auth/verify-otp', { config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } }, async (request, reply) => {
+    const input = z.object({ challengeId: z.string().min(1), phone: z.string().min(1), code: z.string().regex(/^\d{6}$/) }).parse(request.body)
+    const phone = normalizeIndianPhone(input.phone)
+    if (!phone) throw validationError('Enter a valid Indian 10-digit mobile number.')
+    const config = customerOtpConfig()
+    const challenge = await prisma.affiliateOtpChallenge.findFirst({ where: { id: input.challengeId, phone }, include: { affiliate: true } })
+    if (!challenge || challenge.verifiedAt || !challenge.affiliate) throw new ApiError(401, 'OTP_INVALID', 'That OTP is no longer valid. Request a new one.')
+    if (challenge.expiresAt < new Date()) throw new ApiError(401, 'OTP_EXPIRED', 'That OTP has expired. Request a new code.')
+    if (challenge.attempts >= config.maxAttempts) throw new ApiError(429, 'OTP_ATTEMPTS_EXCEEDED', 'Too many incorrect OTP attempts. Request a new code.')
+    if (!safeEqual(challenge.codeHash, hashCustomerOtp(input.code))) { await prisma.affiliateOtpChallenge.update({ where: { id: challenge.id }, data: { attempts: { increment: 1 } } }); throw new ApiError(401, 'OTP_INVALID', 'The OTP is incorrect. Please try again.') }
+    if (challenge.affiliate.status === AffiliateStatus.suspended) throw forbidden('This affiliate account is suspended. Contact SkinFox support.')
+    const token = randomToken(32)
+    const csrf = randomToken(18)
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.affiliateOtpChallenge.update({ where: { id: challenge.id }, data: { verifiedAt: new Date(), attempts: { increment: 1 } } })
+      return tx.affiliateSession.create({ data: { tokenHash: hashToken(token), affiliateId: challenge.affiliate!.id, expiresAt: new Date(Date.now() + config.sessionTtlDays * 86400000), ip: request.ip, userAgent: request.headers['user-agent'] } })
+    })
+    reply.setCookie('sf_affiliate_session', token, { httpOnly: true, sameSite: 'lax', secure: secureCookies(), maxAge: config.sessionTtlDays * 86400, path: '/' }).setCookie('sf_affiliate_csrf', csrf, { httpOnly: false, sameSite: 'lax', secure: secureCookies(), maxAge: config.sessionTtlDays * 86400, path: '/' })
+    return data(reply, { affiliate: publicAffiliate(challenge.affiliate), sessionExpiresAt: result.expiresAt })
+  })
+  routes.post('/api/v1/affiliate/auth/logout', async (request, reply) => { await requireAffiliate(request, true); const token = request.cookies.sf_affiliate_session; if (token) await prisma.affiliateSession.updateMany({ where: { tokenHash: hashToken(token) }, data: { revokedAt: new Date() } }); reply.clearCookie('sf_affiliate_session', { path: '/' }).clearCookie('sf_affiliate_csrf', { path: '/' }); return data(reply, { loggedOut: true }) })
+  routes.get('/api/v1/affiliate/auth/me', async (request, reply) => { const affiliate = await currentAffiliate(request, false); return data(reply, { affiliate: affiliate ? publicAffiliate(affiliate) : null }) })
+  routes.post('/api/v1/affiliate/referrals/track', { config: { rateLimit: { max: 60, timeWindow: '15 minutes' } } }, async (request, reply) => {
+    const input = z.object({ code: z.string().trim().min(4).max(32), landingPath: z.string().max(500).optional() }).parse(request.body)
+    const affiliate = await prisma.affiliate.findUnique({ where: { referralCode: input.code.toUpperCase() } })
+    if (!affiliate || affiliate.status !== AffiliateStatus.approved) throw notFound('This referral link is not active.')
+    const cartToken = String(request.headers['x-cart-token'] ?? '')
+    if (!cartToken) {
+      await prisma.affiliateReferralClick.create({ data: { affiliateId: affiliate.id, referralCode: affiliate.referralCode, landingPath: input.landingPath } })
+      return data(reply, { tracked: true, attributionSaved: false, referralCode: affiliate.referralCode })
+    }
+    const cart = await getCart(request)
+    if (cart.affiliateId && cart.affiliateId !== affiliate.id) return data(reply, { tracked: false, reason: 'cart_already_attributed' })
+    if (!cart.affiliateId) await prisma.cart.update({ where: { id: cart.id }, data: { affiliateId: affiliate.id } })
+    return data(reply, { tracked: true, attributionSaved: true, referralCode: affiliate.referralCode })
+  })
+  routes.get('/api/v1/affiliate/dashboard', async (request, reply) => {
+    const affiliate = await requireAffiliate(request)
+    const [balancePaise, clicks, attributionCount, walletEntries, redemptionRequests] = await Promise.all([affiliateWalletBalance(affiliate.id), prisma.affiliateReferralClick.count({ where: { affiliateId: affiliate.id } }), prisma.affiliateAttribution.count({ where: { affiliateId: affiliate.id } }), prisma.affiliateWalletEntry.findMany({ where: { affiliateId: affiliate.id }, orderBy: { createdAt: 'desc' }, take: 20, include: { attribution: { include: { order: { select: { orderNumber: true, createdAt: true } } } }, redemption: true } }), prisma.affiliateRedemptionRequest.findMany({ where: { affiliateId: affiliate.id }, orderBy: { createdAt: 'desc' }, take: 20 })])
+    return data(reply, { affiliate: publicAffiliate(affiliate), wallet: { balancePaise, minimumRedemptionPaise: 50_000, commissionRatePercent: 10 }, referral: { code: affiliate.referralCode, clicks, confirmedOrders: attributionCount }, walletEntries, redemptionRequests })
+  })
+  routes.post('/api/v1/affiliate/wallet/redemptions', async (request, reply) => {
+    const affiliate = await requireAffiliate(request, true)
+    if (affiliate.status !== AffiliateStatus.approved) throw forbidden('Only approved affiliates can request a wallet redemption.')
+    const input = z.object({ amountPaise: z.number().int().min(50_000), payoutUpiId: z.string().trim().max(120).optional() }).parse(request.body)
+    const requestRecord = await prisma.$transaction(async (tx) => {
+      const balance = Number((await tx.affiliateWalletEntry.aggregate({ where: { affiliateId: affiliate.id }, _sum: { amountPaise: true } }))._sum.amountPaise ?? 0)
+      if (balance < input.amountPaise) throw validationError('Your available wallet balance is lower than this redemption amount.')
+      const redemption = await tx.affiliateRedemptionRequest.create({ data: { affiliateId: affiliate.id, amountPaise: input.amountPaise, payoutUpiId: input.payoutUpiId || affiliate.payoutUpiId || undefined } })
+      await tx.affiliateWalletEntry.create({ data: { affiliateId: affiliate.id, type: AffiliateWalletEntryType.redemption_request, amountPaise: -input.amountPaise, description: `Redemption request ${redemption.id}`, redemptionId: redemption.id } })
+      return redemption
+    })
+    return reply.status(201).send({ data: requestRecord, meta: { requestId: request.id } })
+  })
+
   routes.get('/api/v1/customer/addresses', async (request, reply) => { const customer = await requireCustomer(request); return data(reply, await prisma.address.findMany({ where: { customerId: customer.id }, orderBy: [{ isDefault: 'desc' }, { updatedAt: 'desc' }] })) })
   routes.post('/api/v1/customer/addresses', async (request, reply) => {
     const customer = await requireCustomer(request, true)
@@ -400,6 +507,15 @@ export function buildApp(): FastifyInstance {
     if (session.paymentMethod !== 'cod' || session.status !== 'open') throw validationError('This checkout session cannot be confirmed as COD.')
     const order = await prisma.$transaction(async (tx) => {
       const updated = await tx.order.update({ where: { id: session.order!.id }, data: { status: OrderStatus.confirmed, payments: { create: { provider: 'cod', amountPaise: session.order!.totalPaise, status: PaymentStatus.authorised } }, statusEvents: { create: { fromStatus: OrderStatus.pending_payment, toStatus: OrderStatus.confirmed, reason: 'COD confirmed' } } } })
+      const cart = await tx.cart.findUnique({ where: { id: session.cartId }, include: { affiliate: true } })
+      // A cart keeps its first approved referral. Self-referrals never generate a wallet credit.
+      if (cart?.affiliate && cart.affiliate.status === AffiliateStatus.approved && cart.affiliate.phone !== customer.phone) {
+        const commissionPaise = affiliateCommissionPaise(updated.subtotalPaise, updated.discountPaise)
+        if (commissionPaise > 0) {
+          const attribution = await tx.affiliateAttribution.upsert({ where: { orderId: updated.id }, update: {}, create: { affiliateId: cart.affiliate.id, orderId: updated.id, referralCode: cart.affiliate.referralCode, commissionPaise } })
+          await tx.affiliateWalletEntry.upsert({ where: { attributionId: attribution.id }, update: {}, create: { affiliateId: cart.affiliate.id, type: AffiliateWalletEntryType.commission, amountPaise: commissionPaise, description: `10% commission for ${updated.orderNumber}`, attributionId: attribution.id } })
+        }
+      }
       await tx.checkoutSession.update({ where: { id: session.id }, data: { status: 'confirmed' } })
       await tx.cartItem.deleteMany({ where: { cartId: session.cartId } })
       return updated
@@ -436,6 +552,40 @@ export function buildApp(): FastifyInstance {
   routes.delete('/api/v1/admin/auth/sessions/:sessionId', async (request, reply) => { const user = await requireAdmin()(request); await prisma.adminSession.updateMany({ where: { id: request.params.sessionId, userId: user.id }, data: { revokedAt: new Date() } }); return data(reply, { revoked: true }) })
   routes.post('/api/v1/admin/auth/mfa/setup', async (request, reply) => { const user = await requireAdmin()(request); const secret = authenticator.generateSecret(); await prisma.mfaCredential.upsert({ where: { userId: user.id }, update: { secretEncrypted: encryptSecret(secret), verifiedAt: null }, create: { userId: user.id, secretEncrypted: encryptSecret(secret) } }); return data(reply, { secret, provisioningUri: authenticator.keyuri(user.email, 'SkinFox', secret) }) })
   routes.post('/api/v1/admin/auth/mfa/verify', async (request, reply) => { const user = await requireAdmin()(request); const code = z.string().regex(/^\d{6}$/).parse(request.body?.code); const credential = await prisma.mfaCredential.findUnique({ where: { userId: user.id } }); const valid = credential ? authenticator.check(code, decryptSecret(credential.secretEncrypted)) || (process.env.NODE_ENV !== 'production' && code === '000000') : false; if (!valid) throw validationError('Invalid MFA code.'); await prisma.$transaction([prisma.mfaCredential.update({ where: { userId: user.id }, data: { verifiedAt: new Date(), enrolledAt: new Date() } }), prisma.adminUser.update({ where: { id: user.id }, data: { mfaRequired: true } })]); return data(reply, { enrolled: true }) })
+
+  routes.get('/api/v1/admin/affiliates', async (request, reply) => {
+    await requireAdmin([AdminRole.SUPER_ADMIN])(request)
+    const affiliates = await prisma.affiliate.findMany({ orderBy: { createdAt: 'desc' }, include: { _count: { select: { attributions: true, redemptionRequests: true, clicks: true } } } })
+    return data(reply, affiliates.map((affiliate) => ({ ...publicAffiliate(affiliate), referralClicks: affiliate._count.clicks, confirmedReferralOrders: affiliate._count.attributions, redemptionRequests: affiliate._count.redemptionRequests })))
+  })
+  routes.post('/api/v1/admin/affiliates/:id/status', async (request, reply) => {
+    const user = await requireAdmin([AdminRole.SUPER_ADMIN])(request)
+    const input = z.object({ status: z.nativeEnum(AffiliateStatus), reason: z.string().trim().max(500).optional() }).parse(request.body)
+    const before = await prisma.affiliate.findUnique({ where: { id: request.params.id } })
+    if (!before) throw notFound('Affiliate not found.')
+    const updated = await prisma.affiliate.update({ where: { id: before.id }, data: { status: input.status, approvedAt: input.status === AffiliateStatus.approved ? new Date() : before.approvedAt, approvedById: input.status === AffiliateStatus.approved ? user.id : before.approvedById, rejectionReason: input.status === AffiliateStatus.rejected ? (input.reason || 'Application was not approved.') : null } })
+    await audit(user, request, 'affiliate_status_updated', 'Affiliate', before.id, publicAffiliate(before), publicAffiliate(updated), input.reason)
+    return data(reply, publicAffiliate(updated))
+  })
+  routes.get('/api/v1/admin/affiliate-redemptions', async (request, reply) => {
+    await requireAdmin([AdminRole.SUPER_ADMIN])(request)
+    const requests = await prisma.affiliateRedemptionRequest.findMany({ orderBy: { createdAt: 'desc' }, include: { affiliate: true } })
+    return data(reply, requests.map((item) => ({ ...item, affiliate: publicAffiliate(item.affiliate) })))
+  })
+  routes.post('/api/v1/admin/affiliate-redemptions/:id/review', async (request, reply) => {
+    const user = await requireAdmin([AdminRole.SUPER_ADMIN])(request)
+    const input = z.object({ status: z.enum([AffiliateRedemptionStatus.paid, AffiliateRedemptionStatus.rejected]), note: z.string().trim().max(500).optional() }).parse(request.body)
+    const updated = await prisma.$transaction(async (tx) => {
+      const redemption = await tx.affiliateRedemptionRequest.findUnique({ where: { id: request.params.id } })
+      if (!redemption) throw notFound('Affiliate redemption request not found.')
+      if (redemption.status !== AffiliateRedemptionStatus.requested) throw validationError('This redemption request has already been reviewed.')
+      const reviewed = await tx.affiliateRedemptionRequest.update({ where: { id: redemption.id }, data: { status: input.status, note: input.note || undefined, reviewedAt: new Date(), reviewedById: user.id } })
+      if (input.status === AffiliateRedemptionStatus.rejected) await tx.affiliateWalletEntry.create({ data: { affiliateId: redemption.affiliateId, type: AffiliateWalletEntryType.redemption_reversal, amountPaise: redemption.amountPaise, description: `Redemption request ${redemption.id} was rejected`, redemptionId: redemption.id } })
+      return reviewed
+    })
+    await audit(user, request, 'affiliate_redemption_reviewed', 'AffiliateRedemptionRequest', updated.id, null, updated, input.note)
+    return data(reply, updated)
+  })
 
   const getAdminCrudModel = (delegateName: string) => {
     const model = Prisma.dmmf.datamodel.models.find((candidate) => `${candidate.name[0].toLowerCase()}${candidate.name.slice(1)}` === delegateName)

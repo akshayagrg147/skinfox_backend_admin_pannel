@@ -46,6 +46,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.web
+      args:
+        VITE_AFFILIATE_BASE: /affiliate/
+        VITE_STOREFRONT_URL: ${STOREFRONT_ORIGIN:?STOREFRONT_ORIGIN is required}
     restart: unless-stopped
     ports:
       - "80:80"
