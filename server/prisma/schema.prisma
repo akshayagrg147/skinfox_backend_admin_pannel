@@ -594,12 +594,14 @@ model ShippingQuote {
 }
 
 model Customer {
-  id        String            @id @default(cuid())
-  email     String?           @unique
-  fullName  String
-  phone     String?           @unique
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
+  id                String            @id @default(cuid())
+  email             String?           @unique
+  fullName          String
+  phone             String?           @unique
+  phoneVerifiedAt   DateTime?
+  emailVerifiedAt   DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
   addresses Address[]
   consents  CustomerConsent[]
   orders    Order[]
@@ -608,6 +610,21 @@ model Customer {
   carts     Cart[]
   sessions  CustomerSession[]
   otpChallenges CustomerOtpChallenge[]
+  identities CustomerIdentity[]
+}
+
+model CustomerIdentity {
+  id         String   @id @default(cuid())
+  customerId String
+  provider   String
+  providerUid String
+  email      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUid])
+  @@index([customerId])
 }
 
 model Address {

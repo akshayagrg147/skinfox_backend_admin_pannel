@@ -1,12 +1,13 @@
 import { Check, LockKeyhole, Smartphone } from 'lucide-react'
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
 import { formatPrice } from '../data/products'
 import type { CartLine } from '../types'
 import { getStorefront, postStorefront } from '../lib/storefrontApi'
 import { ModalShell } from './ModalShell'
 import { ProductPrice } from './ProductPrice'
+import { exchangeFirebaseUser, firebaseAuthConfigured, signInWithGoogle, startFirebasePhoneSignIn } from '../lib/firebaseAuth'
 
-type Customer = { id: string; fullName: string; email?: string | null; phone: string }
+type Customer = { id: string; fullName: string; email?: string | null; phone?: string | null; phoneVerified?: boolean; emailVerified?: boolean }
 type SavedAddress = { id: string; label: string; fullName: string; addressLine1: string; addressLine2?: string | null; landmark?: string | null; city: string; state: string; pincode: string; isDefault: boolean }
 type AddressForm = { fullName: string; email: string; addressLine1: string; addressLine2: string; landmark: string; city: string; state: string; pincode: string; saveAddress: boolean; saveAsDefault: boolean }
 
@@ -16,7 +17,7 @@ const customerCsrfHeaders = (): Record<string, string> => {
   return csrf ? { 'x-customer-csrf-token': decodeURIComponent(csrf) } : {}
 }
 
-export function CheckoutModal({ open, lines, onClose, onComplete, cartToken = '' }: { open: boolean; lines: CartLine[]; onClose: () => void; onComplete: () => void; cartToken?: string }) {
+export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChange, cartToken = '' }: { open: boolean; lines: CartLine[]; onClose: () => void; onComplete: () => void; onCustomerChange?: (customer: Customer | null) => void; cartToken?: string }) {
   const [stage, setStage] = useState<'loading' | 'phone' | 'otp' | 'address' | 'complete'>('loading')
   const [customer, setCustomer] = useState<Customer | null>(null)
   const [addresses, setAddresses] = useState<SavedAddress[]>([])
@@ -28,6 +29,8 @@ export function CheckoutModal({ open, lines, onClose, onComplete, cartToken = ''
   const [form, setForm] = useState<AddressForm>(emptyAddress)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const confirmationRef = useRef<Awaited<ReturnType<typeof startFirebasePhoneSignIn>> | null>(null)
+  const [linkingPhone, setLinkingPhone] = useState(false)
   const hasPendingPrice = lines.some((line) => line.product.price === null)
   const subtotal = lines.reduce((sum, line) => sum + (line.product.price ?? 0) * line.quantity, 0)
 
@@ -61,6 +64,13 @@ export function CheckoutModal({ open, lines, onClose, onComplete, cartToken = ''
     setSubmitting(true)
     setError('')
     try {
+      if (firebaseAuthConfigured) {
+        confirmationRef.current = await startFirebasePhoneSignIn('+91' + phone.replace(/\D/g, ''), 'checkout-recaptcha')
+        setOtp('')
+        setTestOtpCode('')
+        setStage('otp')
+        return
+      }
       const response = await postStorefront<{ challengeId: string; phone: string; testOtpCode?: string }>('/customer/auth/request-otp', { phone })
       setPhone(response.phone)
       setChallengeId(response.challengeId)
@@ -79,13 +89,52 @@ export function CheckoutModal({ open, lines, onClose, onComplete, cartToken = ''
     setSubmitting(true)
     setError('')
     try {
+      if (firebaseAuthConfigured && confirmationRef.current) {
+        const credential = await confirmationRef.current.confirm(otp)
+        const response = await exchangeFirebaseUser<{ customer: Customer }>(credential.user, cartToken || undefined, linkingPhone)
+        confirmationRef.current = null
+        setLinkingPhone(false)
+        setCustomer(response.customer)
+        onCustomerChange?.(response.customer)
+        setForm((current) => ({ ...current, fullName: response.customer.fullName === 'SkinFox customer' ? '' : response.customer.fullName, email: response.customer.email ?? '' }))
+        await loadAddresses(response.customer)
+        setStage('address')
+        return
+      }
       const response = await postStorefront<{ customer: Customer }>('/customer/auth/verify-otp', { challengeId, phone, code: otp, ...(cartToken ? { cartToken } : {}) })
       setCustomer(response.customer)
+      onCustomerChange?.(response.customer)
       setForm((current) => ({ ...current, fullName: response.customer.fullName === 'SkinFox customer' ? '' : response.customer.fullName, email: response.customer.email ?? '' }))
       await loadAddresses(response.customer)
       setStage('address')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to verify that OTP. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const googleSignIn = async () => {
+    setSubmitting(true)
+    setError('')
+    try {
+      if (!firebaseAuthConfigured) throw new Error('Google sign-in is not configured for this storefront yet.')
+      const credential = await signInWithGoogle()
+      const response = await exchangeFirebaseUser<{ customer: Customer }>(credential.user, cartToken || undefined)
+      setCustomer(response.customer)
+      onCustomerChange?.(response.customer)
+      if (!response.customer.phoneVerified) {
+        setPhone('')
+        setLinkingPhone(true)
+        setError('Google is connected. Verify your mobile number before checkout.')
+        setStage('phone')
+        return
+      }
+      setForm((current) => ({ ...current, fullName: response.customer.fullName === 'SkinFox customer' ? '' : response.customer.fullName, email: response.customer.email ?? '' }))
+      await loadAddresses(response.customer)
+      setStage('address')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to sign in with Google. Please try again.')
     } finally {
       setSubmitting(false)
     }
@@ -149,8 +198,8 @@ export function CheckoutModal({ open, lines, onClose, onComplete, cartToken = ''
               <h2>Sign in to continue.</h2>
               <p className="checkout-intro">Your bag stays as it is. Verify your mobile number before entering a delivery address or placing a COD order.</p>
               <div className="field-grid"><label className="field-grid__wide"><span>Mobile number</span><input value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" autoComplete="tel" required placeholder="10-digit mobile number" /></label></div>
-              <button className="button button--copper checkout-submit" type="submit" disabled={submitting}><Smartphone size={16} /> {submitting ? 'Sending OTP…' : 'Send SMS OTP'}</button>
-              <p className="prototype-note">Test mode uses a static OTP configured on the server. Firebase is not enabled.</p>
+              <button className="button button--copper checkout-submit" type="submit" disabled={submitting || phone.replace(/\D/g, '').length !== 10}><Smartphone size={16} /> {submitting ? 'Sending OTP…' : linkingPhone ? 'Verify mobile number' : 'Send SMS OTP'}</button>
+              {firebaseAuthConfigured ? <><div id="checkout-recaptcha" /><button className="button button--dark checkout-submit" type="button" disabled={submitting} onClick={() => void googleSignIn()}>Continue with Google</button></> : <p className="prototype-note">Local test mode uses the configured static OTP.</p>}
             </>}
             {stage === 'otp' && <>
               <span className="eyebrow">Step 2 of 3 · verify mobile</span>

@@ -1,11 +1,12 @@
 import { CheckCircle2, ClipboardList, Home, LoaderCircle, LockKeyhole, LogOut, MapPin, PackageCheck, Pencil, ShieldCheck, Smartphone, UserRound } from 'lucide-react'
-import { FormEvent, ReactNode, useCallback, useEffect, useState } from 'react'
+import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { formatPrice } from '../data/products'
 import { getStorefront, postStorefront } from '../lib/storefrontApi'
 import { BrandMark } from './BrandMark'
 import { ModalShell } from './ModalShell'
+import { exchangeFirebaseUser, firebaseAuthConfigured, signInWithGoogle, startFirebasePhoneSignIn, signOutFirebase } from '../lib/firebaseAuth'
 
-export type StorefrontCustomer = { id: string; fullName: string; email?: string | null; phone: string; createdAt?: string }
+export type StorefrontCustomer = { id: string; fullName: string; email?: string | null; phone?: string | null; phoneVerified?: boolean; emailVerified?: boolean; createdAt?: string }
 
 type SavedAddress = { id: string; label: string; fullName: string; phone: string; addressLine1: string; addressLine2?: string | null; landmark?: string | null; city: string; state: string; pincode: string; isDefault: boolean }
 type CustomerOrder = { publicToken: string; orderNumber: string; status: string; totalPaise: number; createdAt: string; items: Array<{ id: string; productName: string; size?: string | null; quantity: number; finalLineTotalPaise: number }>; shippingAddress?: { fullName?: string; addressLine1?: string; addressLine2?: string | null; city?: string; state?: string; pincode?: string } | null }
@@ -55,6 +56,8 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange 
   const [otp, setOtp] = useState('')
   const [challengeId, setChallengeId] = useState('')
   const [testOtpCode, setTestOtpCode] = useState('')
+  const confirmationRef = useRef<Awaited<ReturnType<typeof startFirebasePhoneSignIn>> | null>(null)
+  const [linkingPhone, setLinkingPhone] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -99,6 +102,13 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange 
     setBusy(true)
     setError('')
     try {
+      if (firebaseAuthConfigured) {
+        confirmationRef.current = await startFirebasePhoneSignIn('+91' + phone, 'customer-account-recaptcha')
+        setOtp('')
+        setTestOtpCode('')
+        setStage('otp')
+        return
+      }
       const response = await postStorefront<{ challengeId: string; phone: string; testOtpCode?: string }>('/customer/auth/request-otp', { phone })
       setPhone(response.phone)
       setChallengeId(response.challengeId)
@@ -117,6 +127,15 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange 
     setBusy(true)
     setError('')
     try {
+      if (firebaseAuthConfigured && confirmationRef.current) {
+        const credential = await confirmationRef.current.confirm(otp)
+        const response = await exchangeFirebaseUser<{ customer: StorefrontCustomer }>(credential.user, undefined, linkingPhone)
+        confirmationRef.current = null
+        setLinkingPhone(false)
+        setStage('loading')
+        await loadAccount(response.customer)
+        return
+      }
       const response = await postStorefront<{ customer: StorefrontCustomer }>('/customer/auth/verify-otp', { challengeId, phone, code: otp })
       setStage('loading')
       await loadAccount(response.customer)
@@ -128,11 +147,34 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange 
     }
   }
 
+  const googleSignIn = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      if (!firebaseAuthConfigured) throw new Error('Google sign-in is not configured for this storefront yet.')
+      const credential = await signInWithGoogle()
+      const response = await exchangeFirebaseUser<{ customer: StorefrontCustomer }>(credential.user)
+      if (!response.customer.phoneVerified) {
+        setPhone('')
+        setLinkingPhone(true)
+        setError('Google is connected. Verify your mobile number to finish securing this account.')
+        setStage('phone')
+        return
+      }
+      await loadAccount(response.customer)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to sign in with Google. Please try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const logout = async () => {
     setBusy(true)
     setError('')
     try {
       await postStorefront('/customer/auth/logout', {}, customerCsrfHeaders())
+      await signOutFirebase()
       setCustomer(null)
       setOrders([])
       setAddresses([])
@@ -160,11 +202,11 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange 
           <p>Enter the mobile number you use at checkout. We’ll send a one-time verification code.</p>
           <form onSubmit={requestOtp} noValidate>
             <label className="account-field"><span>Mobile number</span><div className="account-phone-input"><span aria-hidden="true">+91</span><input aria-label="Mobile number" value={formatIndianPhone(phone)} onChange={(event) => setPhone(event.target.value.replace(/\D/g, '').slice(0, 10))} inputMode="tel" autoComplete="tel" required placeholder="98765 43210" /></div></label>
-            <p className="account-field__help"><ShieldCheck size={15} /> We use OTP verification to keep your account private.</p>
+            <p className="account-field__help"><ShieldCheck size={15} /> {firebaseAuthConfigured ? 'Firebase verifies your number with an encrypted SMS challenge.' : 'We use OTP verification to keep your account private.'}</p>
             {error && <p className="form-error" role="alert">{error}</p>}
-            <button className="button button--copper account-submit" disabled={busy || !apiAvailable || phone.length !== 10} type="submit"><Smartphone size={16} />{busy ? 'Sending code…' : 'Continue with OTP'}</button>
+            <button className="button button--copper account-submit" disabled={busy || !apiAvailable || phone.length !== 10} type="submit"><Smartphone size={16} />{busy ? 'Sending code…' : linkingPhone ? 'Verify mobile number' : firebaseAuthConfigured ? 'Continue with SMS OTP' : 'Continue with OTP'}</button>
           </form>
-          <p className="prototype-note">Testing environment: use the configured static OTP after continuing.</p>
+          {firebaseAuthConfigured ? <><div id="customer-account-recaptcha" /><button className="button button--dark account-submit" disabled={busy} type="button" onClick={() => void googleSignIn()}>Continue with Google</button></> : <p className="prototype-note">Local test mode: use the configured static OTP after continuing.</p>}
         </AccountAuthShell>}
 
         {stage === 'otp' && <AccountAuthShell step={2}>
@@ -182,7 +224,7 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange 
 
         {stage === 'account' && customer && <div className="account-dashboard">
           <header className="account-hero">
-            <div><span className="eyebrow"><UserRound size={14} /> Your SkinFox account</span><h2>Hello, {customerName(customer)}.</h2><p>Signed in with +91 {customer.phone}. Your account information is only visible in this verified session.</p></div>
+            <div><span className="eyebrow"><UserRound size={14} /> Your SkinFox account</span><h2>Hello, {customerName(customer)}.</h2><p>{customer.phoneVerified && customer.phone ? 'Signed in with +91 ' + customer.phone + '. ' : 'Google account connected. '}Your account information is only visible in this verified session.</p></div>
             <button className="account-signout" type="button" onClick={() => void logout()} disabled={busy}><LogOut size={15} /> Sign out</button>
           </header>
           <div className="account-tabs" role="tablist" aria-label="Account sections">
