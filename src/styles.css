@@ -6080,20 +6080,15 @@ blockquote {
 }
 
 .account-modal {
-  width: min(100%, 980px);
+  width: min(100%, 1080px);
 }
 
 .account-shell {
-  min-height: min(650px, calc(100svh - 48px));
-}
-
-.account-loading,
-.account-auth {
-  min-height: min(610px, calc(100svh - 48px));
-  padding: clamp(48px, 7vw, 88px);
+  min-height: min(680px, calc(100svh - 48px));
 }
 
 .account-loading {
+  min-height: min(640px, calc(100svh - 48px));
   display: grid;
   place-content: center;
   justify-items: center;
@@ -6108,23 +6103,169 @@ blockquote {
 }
 
 .account-auth {
-  width: min(100%, 620px);
+  min-height: min(640px, calc(100svh - 48px));
+  display: grid;
+  grid-template-columns: minmax(300px, .85fr) minmax(0, 1.15fr);
+  background: #fffdfa;
+}
+
+.account-auth__aside {
+  min-height: 100%;
+  padding: clamp(42px, 5vw, 70px);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 46px;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 12% 92%, rgba(232, 184, 194, .7), transparent 32%),
+    radial-gradient(circle at 90% 10%, rgba(220, 207, 232, .9), transparent 35%),
+    #f2e9f0;
+}
+
+.account-auth__aside::after {
+  content: '';
+  width: 180px;
+  height: 180px;
+  border: 1px solid rgba(111, 62, 131, .18);
+  border-radius: 50%;
+  position: absolute;
+  right: -78px;
+  bottom: -92px;
+}
+
+.account-auth__aside > * {
+  position: relative;
+  z-index: 1;
+}
+
+.account-auth__aside .brand-mark__image {
+  width: 145px;
+}
+
+.account-auth__kicker,
+.account-progress__label {
+  color: var(--copper-dark);
+  font-size: .59rem;
+  font-weight: 800;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+
+.account-auth__aside h2 {
+  max-width: 300px;
+  margin: 13px 0;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(2.7rem, 4.6vw, 4.35rem);
+  font-weight: 500;
+  line-height: .94;
+  letter-spacing: -.06em;
+}
+
+.account-auth__aside p {
+  max-width: 300px;
+  margin: 0;
+  color: #5d5262;
+  font-size: .72rem;
+  line-height: 1.75;
+}
+
+.account-auth__aside ul {
+  margin: 0;
+  padding: 18px 0 0;
+  border-top: 1px solid rgba(40, 25, 47, .12);
+  display: grid;
+  gap: 12px;
+  list-style: none;
+}
+
+.account-auth__aside li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #4d4054;
+  font-size: .63rem;
+  font-weight: 650;
+}
+
+.account-auth__aside li svg {
+  flex: none;
+  color: var(--copper);
+}
+
+.account-auth__main {
+  min-width: 0;
+  padding: clamp(44px, 6.5vw, 84px) clamp(34px, 7vw, 92px);
   display: flex;
   flex-direction: column;
   justify-content: center;
 }
 
-.account-auth h2,
+.account-progress {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px 16px;
+  margin-bottom: clamp(42px, 7vh, 74px);
+  color: #77716f;
+  font-size: .58rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+.account-progress__steps {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.account-progress__steps i {
+  width: 21px;
+  height: 21px;
+  border: 1px solid #cfc3d2;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #887d89;
+  font-size: .53rem;
+  font-style: normal;
+}
+
+.account-progress__steps i.is-complete,
+.account-progress__steps i.is-current {
+  border-color: var(--copper);
+  background: var(--copper);
+  color: #fff;
+}
+
+.account-progress__steps b {
+  width: 50px;
+  height: 1px;
+  background: #d5cad7;
+}
+
+.account-progress__steps i.is-current ~ b,
+.account-progress__steps:has(.is-current) b {
+  background: var(--copper);
+}
+
+.account-auth__content {
+  width: min(100%, 430px);
+}
+
+.account-auth__content h2,
 .account-hero h2 {
   margin: 18px 0 14px;
   font-family: 'Playfair Display', Georgia, serif;
-  font-size: clamp(2.8rem, 5.2vw, 4.7rem);
+  font-size: clamp(2.5rem, 4vw, 3.65rem);
   font-weight: 500;
-  line-height: .98;
+  line-height: .96;
   letter-spacing: -.055em;
 }
 
-.account-auth > p:not(.test-otp, .form-error, .prototype-note),
+.account-auth__content > p:not(.account-test-code, .form-error, .prototype-note),
 .account-hero p {
   max-width: 490px;
   color: #6d7069;
@@ -6136,7 +6277,7 @@ blockquote {
   display: flex;
   flex-direction: column;
   gap: 7px;
-  margin-top: 26px;
+  margin-top: 30px;
 }
 
 .account-field > span {
@@ -6147,17 +6288,113 @@ blockquote {
 }
 
 .account-field input {
-  min-height: 50px;
-  border: 1px solid var(--line);
-  padding: 0 14px;
+  min-width: 0;
+  min-height: 56px;
+  border: 1px solid #d9ceda;
+  border-radius: 11px;
+  padding: 0 16px;
   background: #fff;
   color: var(--ink);
+  font-size: .83rem;
+  font-weight: 650;
+  outline: none;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.account-field input:focus {
+  border-color: var(--copper);
+  box-shadow: 0 0 0 4px rgba(111, 62, 131, .12);
+}
+
+.account-phone-input {
+  border: 1px solid #d9ceda;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  background: #fff;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.account-phone-input:focus-within {
+  border-color: var(--copper);
+  box-shadow: 0 0 0 4px rgba(111, 62, 131, .12);
+}
+
+.account-phone-input > span {
+  min-height: 56px;
+  padding: 0 14px 0 16px;
+  border-right: 1px solid #e6dde7;
+  display: grid;
+  place-items: center;
+  color: var(--ink-soft);
   font-size: .78rem;
+  font-weight: 800;
+}
+
+.account-phone-input input {
+  border: 0;
+  border-radius: 0;
+  flex: 1;
+  box-shadow: none;
+}
+
+.account-phone-input input:focus {
+  box-shadow: none;
+}
+
+.account-field__help {
+  margin: 10px 0 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  color: #777171;
+  font-size: .59rem;
+  line-height: 1.55;
+}
+
+.account-field__help svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--copper);
+}
+
+.account-otp-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.25rem !important;
+  letter-spacing: .58em;
+  text-align: center;
+}
+
+.account-test-code {
+  margin: 26px 0 -8px;
+  padding: 11px 13px;
+  border: 1px solid #ddcee0;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f8f1f8;
+  color: #5b4161;
+  font-size: .64rem;
+}
+
+.account-test-code span {
+  color: #756278;
+}
+
+.account-test-code strong {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--copper-dark);
+  font-size: .8rem;
+  letter-spacing: .08em;
 }
 
 .account-submit {
   width: 100%;
-  margin-top: 20px;
+  min-height: 55px;
+  margin-top: 22px;
+  border-radius: 12px;
 }
 
 .account-text-button,
@@ -6169,11 +6406,22 @@ blockquote {
 }
 
 .account-text-button {
-  align-self: center;
-  margin-top: 16px;
-  border-bottom: 1px solid currentColor;
+  margin-top: 22px;
   padding: 0;
-  font-size: .65rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .62rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.prototype-note {
+  margin: 21px 0 0;
+  color: #8a8387;
+  font-size: .56rem;
+  line-height: 1.6;
 }
 
 .account-dashboard {
@@ -7920,14 +8168,39 @@ blockquote {
     min-height: 0;
   }
 
-  .account-auth,
   .account-dashboard {
-    padding: 62px 22px 34px;
+    padding: 42px 22px 34px;
   }
 
-  .account-auth h2,
+  .account-auth {
+    display: block;
+  }
+
+  .account-auth__aside {
+    min-height: 0;
+    padding: calc(20px + env(safe-area-inset-top)) 22px 20px;
+  }
+
+  .account-auth__aside > div,
+  .account-auth__aside ul {
+    display: none;
+  }
+
+  .account-auth__aside .brand-mark__image {
+    width: 122px;
+  }
+
+  .account-auth__main {
+    padding: 32px 22px 34px;
+  }
+
+  .account-progress {
+    margin-bottom: 34px;
+  }
+
+  .account-auth__content h2,
   .account-hero h2 {
-    font-size: clamp(2.55rem, 13vw, 3.6rem);
+    font-size: clamp(2.4rem, 12vw, 3.3rem);
   }
 
   .account-hero {
@@ -7949,6 +8222,10 @@ blockquote {
   .account-tabs button {
     gap: 6px;
     font-size: .61rem;
+  }
+
+  .account-otp-input {
+    letter-spacing: .48em;
   }
 
   .account-section__heading {

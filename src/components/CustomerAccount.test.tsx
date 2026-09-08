@@ -33,12 +33,13 @@ describe('CustomerAccount', () => {
     render(<CustomerAccount open onClose={() => undefined} apiAvailable onCustomerChange={onCustomerChange} />)
 
     await screen.findByRole('heading', { name: /sign in to see your orders/i })
-    fireEvent.change(screen.getByPlaceholderText('10-digit mobile number'), { target: { value: '9876543210' } })
-    fireEvent.click(screen.getByRole('button', { name: /send sms otp/i }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Mobile number' }), { target: { value: '9876543210' } })
+    fireEvent.click(screen.getByRole('button', { name: /continue with otp/i }))
 
-    await screen.findByRole('heading', { name: /enter your otp/i })
-    expect(screen.getByText(/testing only: use otp/i)).toHaveTextContent('123456')
-    fireEvent.change(screen.getByPlaceholderText('123456'), { target: { value: '123456' } })
+    await screen.findByRole('heading', { name: /check your messages/i })
+    expect(screen.getByText('Testing code')).toHaveTextContent('Testing code')
+    expect(screen.getByText('123456')).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Six-digit OTP' }), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: /verify and open account/i }))
 
     await screen.findByRole('heading', { name: /hello, asha sharma/i })

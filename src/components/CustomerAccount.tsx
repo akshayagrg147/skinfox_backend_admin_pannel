@@ -1,7 +1,8 @@
-import { ClipboardList, Home, LoaderCircle, LogOut, MapPin, PackageCheck, Smartphone, UserRound } from 'lucide-react'
-import { FormEvent, useCallback, useEffect, useState } from 'react'
+import { CheckCircle2, ClipboardList, Home, LoaderCircle, LockKeyhole, LogOut, MapPin, PackageCheck, Pencil, ShieldCheck, Smartphone, UserRound } from 'lucide-react'
+import { FormEvent, ReactNode, useCallback, useEffect, useState } from 'react'
 import { formatPrice } from '../data/products'
 import { getStorefront, postStorefront } from '../lib/storefrontApi'
+import { BrandMark } from './BrandMark'
 import { ModalShell } from './ModalShell'
 
 export type StorefrontCustomer = { id: string; fullName: string; email?: string | null; phone: string; createdAt?: string }
@@ -16,6 +17,33 @@ const customerCsrfHeaders = (): Record<string, string> => {
 
 const humanise = (value: string) => value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 const customerName = (customer: StorefrontCustomer) => customer.fullName === 'SkinFox customer' ? 'SkinFox customer' : customer.fullName
+const formatIndianPhone = (value: string) => value.length > 5 ? `${value.slice(0, 5)} ${value.slice(5)}` : value
+
+function AccountAuthShell({ step, children }: { step: 1 | 2; children: ReactNode }) {
+  return <div className="account-auth">
+    <aside className="account-auth__aside" aria-label="SkinFox account benefits">
+      <BrandMark />
+      <div>
+        <span className="account-auth__kicker">SkinFox account</span>
+        <h2>Care, kept close.</h2>
+        <p>A private space for the orders and delivery details connected to your number.</p>
+      </div>
+      <ul>
+        <li><CheckCircle2 size={16} /> Order updates in one place</li>
+        <li><CheckCircle2 size={16} /> Saved delivery addresses</li>
+        <li><LockKeyhole size={16} /> Protected with OTP sign-in</li>
+      </ul>
+    </aside>
+    <div className="account-auth__main">
+      <div className="account-progress" aria-label={`Sign-in step ${step} of 2`}>
+        <span className="account-progress__label">Secure sign-in</span>
+        <div className="account-progress__steps" aria-hidden="true"><i className="is-complete">1</i><b /><i className={step === 2 ? 'is-current' : ''}>2</i></div>
+        <span>Step {step} of 2</span>
+      </div>
+      <div className="account-auth__content">{children}</div>
+    </div>
+  </div>
+}
 
 export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange }: { open: boolean; onClose: () => void; apiAvailable: boolean; onCustomerChange: (customer: StorefrontCustomer | null) => void }) {
   const [stage, setStage] = useState<'loading' | 'phone' | 'otp' | 'account'>('loading')
@@ -126,26 +154,31 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange 
       <div className="account-shell">
         {stage === 'loading' && <div className="account-loading"><LoaderCircle size={22} /><span>Opening your SkinFox account…</span></div>}
 
-        {stage === 'phone' && <form className="account-auth" onSubmit={requestOtp} noValidate>
-          <span className="eyebrow"><UserRound size={14} /> Your SkinFox account</span>
+        {stage === 'phone' && <AccountAuthShell step={1}>
+          <span className="eyebrow"><UserRound size={14} /> Account sign-in</span>
           <h2>Sign in to see your orders.</h2>
-          <p>Use your mobile number to view your order history and saved delivery addresses.</p>
-          <label className="account-field"><span>Mobile number</span><input value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" autoComplete="tel" required placeholder="10-digit mobile number" /></label>
-          {error && <p className="form-error" role="alert">{error}</p>}
-          <button className="button button--copper account-submit" disabled={busy || !apiAvailable} type="submit"><Smartphone size={16} />{busy ? 'Sending OTP…' : 'Send SMS OTP'}</button>
-          <p className="prototype-note">For this testing release, the server uses the configured static SMS OTP. Firebase SMS will replace it before public launch.</p>
-        </form>}
+          <p>Enter the mobile number you use at checkout. We’ll send a one-time verification code.</p>
+          <form onSubmit={requestOtp} noValidate>
+            <label className="account-field"><span>Mobile number</span><div className="account-phone-input"><span aria-hidden="true">+91</span><input aria-label="Mobile number" value={formatIndianPhone(phone)} onChange={(event) => setPhone(event.target.value.replace(/\D/g, '').slice(0, 10))} inputMode="tel" autoComplete="tel" required placeholder="98765 43210" /></div></label>
+            <p className="account-field__help"><ShieldCheck size={15} /> We use OTP verification to keep your account private.</p>
+            {error && <p className="form-error" role="alert">{error}</p>}
+            <button className="button button--copper account-submit" disabled={busy || !apiAvailable || phone.length !== 10} type="submit"><Smartphone size={16} />{busy ? 'Sending code…' : 'Continue with OTP'}</button>
+          </form>
+          <p className="prototype-note">Testing environment: use the configured static OTP after continuing.</p>
+        </AccountAuthShell>}
 
-        {stage === 'otp' && <form className="account-auth" onSubmit={verifyOtp} noValidate>
-          <span className="eyebrow"><Smartphone size={14} /> Confirm your number</span>
-          <h2>Enter your OTP.</h2>
-          <p>Enter the six-digit SMS-style OTP sent to +91 {phone}.</p>
-          {testOtpCode && <p className="test-otp" role="status">Testing only: use OTP <strong>{testOtpCode}</strong></p>}
-          <label className="account-field"><span>Six-digit OTP</span><input value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" required placeholder="123456" /></label>
-          {error && <p className="form-error" role="alert">{error}</p>}
-          <button className="button button--copper account-submit" disabled={busy || otp.length !== 6} type="submit"><PackageCheck size={16} />{busy ? 'Verifying…' : 'Verify and open account'}</button>
-          <button className="account-text-button" disabled={busy} type="button" onClick={() => { setStage('phone'); setOtp(''); setError('') }}>Use another number</button>
-        </form>}
+        {stage === 'otp' && <AccountAuthShell step={2}>
+          <span className="eyebrow"><Smartphone size={14} /> Verify your number</span>
+          <h2>Check your messages.</h2>
+          <p>Enter the six-digit code sent to <strong>+91 {formatIndianPhone(phone)}</strong>.</p>
+          <form onSubmit={verifyOtp} noValidate>
+            {testOtpCode && <p className="account-test-code" role="status"><span>Testing code</span><strong>{testOtpCode}</strong></p>}
+            <label className="account-field"><span>Six-digit verification code</span><input className="account-otp-input" aria-label="Six-digit OTP" value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" required placeholder="••••••" /></label>
+            {error && <p className="form-error" role="alert">{error}</p>}
+            <button className="button button--copper account-submit" disabled={busy || otp.length !== 6} type="submit"><PackageCheck size={16} />{busy ? 'Verifying…' : 'Verify and open account'}</button>
+          </form>
+          <button className="account-text-button" disabled={busy} type="button" onClick={() => { setStage('phone'); setOtp(''); setError('') }}><Pencil size={13} /> Change mobile number</button>
+        </AccountAuthShell>}
 
         {stage === 'account' && customer && <div className="account-dashboard">
           <header className="account-hero">
