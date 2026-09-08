@@ -16,6 +16,7 @@ import { CartDrawer } from './components/CartDrawer'
 import { BrandMark } from './components/BrandMark'
 import { CampaignSlideshow } from './components/CampaignSlideshow'
 import { CheckoutModal } from './components/CheckoutModal'
+import { CustomerAccount, type StorefrontCustomer } from './components/CustomerAccount'
 import { Header } from './components/Header'
 import { HeroCollectionShowcase } from './components/HeroCollectionShowcase'
 import { HydrelleRoutineComparison } from './components/HydrelleRoutineComparison'
@@ -105,6 +106,8 @@ export default function App() {
   const [quizOpen, setQuizOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
+  const [accountOpen, setAccountOpen] = useState(false)
+  const [customer, setCustomer] = useState<StorefrontCustomer | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [activeFilter, setActiveFilter] = useState('All')
   const [activeIngredient, setActiveIngredient] = useState(0)
@@ -120,6 +123,11 @@ export default function App() {
     if (!storefront.apiMode || !cartToken) return
     getStorefront<any>(`/carts/${cartToken}`).then((response) => setCart((response.lines ?? []).map((line: any) => ({ product: mapProduct(line.product), quantity: line.quantity })))).catch(() => undefined)
   }, [cartToken, storefront.apiMode])
+
+  useEffect(() => {
+    if (!storefront.apiMode) return
+    void getStorefront<{ customer: StorefrontCustomer | null }>('/customer/auth/me').then(({ customer: signedInCustomer }) => setCustomer(signedInCustomer)).catch(() => undefined)
+  }, [storefront.apiMode])
 
   useEffect(() => {
     if (!storefront.apiMode) return
@@ -227,7 +235,7 @@ export default function App() {
           <button type="button" onClick={() => window.location.reload()}>Retry</button>
         </div>
       )}
-      <Header cartCount={cartCount} onCart={() => setCartOpen(true)} onQuiz={() => setQuizOpen(true)} onSearch={() => setSearchOpen(true)} />
+      <Header cartCount={cartCount} onCart={() => setCartOpen(true)} onQuiz={() => setQuizOpen(true)} onSearch={() => setSearchOpen(true)} onAccount={() => setAccountOpen(true)} customerName={customer?.fullName} />
 
       <main>
         <section className="hero" aria-labelledby="hero-title">
@@ -498,6 +506,7 @@ export default function App() {
       <RoutineQuiz open={quizOpen} onClose={() => setQuizOpen(false)} onAdd={(product) => addToCart(product)} catalogue={collectionProducts} finder={storefront.careFinder ?? undefined} />
       <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} onView={setSelectedProduct} catalogue={collectionProducts} apiMode={storefront.apiMode} />
       <CheckoutModal open={checkoutOpen} lines={cart} cartToken={cartToken} onClose={() => setCheckoutOpen(false)} onComplete={() => { setCart([]); if (cartToken) localStorage.removeItem('skinfox-cart-token'); setCartToken('') }} />
+      <CustomerAccount open={accountOpen} onClose={() => setAccountOpen(false)} apiAvailable={storefront.apiMode} onCustomerChange={setCustomer} />
 
       <AnimatePresence>
         {toast && <motion.div className="toast" role="status" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }}><Check size={16} /> {toast}</motion.div>}

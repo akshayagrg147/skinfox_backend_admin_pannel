@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { Menu, Search, ShoppingBag, Sparkles, X } from 'lucide-react'
+import { Menu, Search, ShoppingBag, Sparkles, UserRound, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { BrandMark } from './BrandMark'
 
@@ -8,9 +8,11 @@ type HeaderProps = {
   onCart: () => void
   onQuiz: () => void
   onSearch: () => void
+  onAccount: () => void
+  customerName?: string | null
 }
 
-export function Header({ cartCount, onCart, onQuiz, onSearch }: HeaderProps) {
+export function Header({ cartCount, onCart, onQuiz, onSearch, onAccount, customerName }: HeaderProps) {
   const [scrolled, setScrolled] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
 
@@ -43,7 +45,10 @@ export function Header({ cartCount, onCart, onQuiz, onSearch }: HeaderProps) {
             <button className="header-quiz" onClick={onQuiz}>
               <Sparkles size={15} /> Find my care
             </button>
-            <button className="icon-button" onClick={onSearch} aria-label="Search products">
+            <button className="icon-button header-account" onClick={onAccount} aria-label={customerName ? `Open account for ${customerName}` : 'Sign in or open account'}>
+              <UserRound size={19} />
+            </button>
+            <button className="icon-button header-search" onClick={onSearch} aria-label="Search products">
               <Search size={19} />
             </button>
             <button className="icon-button cart-button" onClick={onCart} aria-label={`Open bag with ${cartCount} items`}>
@@ -65,6 +70,7 @@ export function Header({ cartCount, onCart, onQuiz, onSearch }: HeaderProps) {
               </div>
               <nav aria-label="Mobile navigation">
                 <a href="#shop" onClick={navigate}>Shop the collection</a>
+                <button onClick={() => { navigate(); onAccount() }}>My account</button>
                 <button onClick={() => { navigate(); onQuiz() }}>Find my care</button>
                 <a href="#ingredients" onClick={navigate}>Label transparency</a>
                 <a href="#story" onClick={navigate}>Our story</a>
