@@ -1,9 +1,9 @@
 import { motion } from 'framer-motion'
 import { ArrowUpRight, Plus } from 'lucide-react'
 import type { CSSProperties } from 'react'
-import { formatProductPrice } from '../data/products'
 import type { Product } from '../types'
 import { ProductVisual } from './ProductVisual'
+import { ProductPrice } from './ProductPrice'
 
 type ProductCardProps = {
   product: Product
@@ -40,7 +40,7 @@ export function ProductCard({ product, index, onView, onAdd }: ProductCardProps)
         </div>
         <button className="product-card__title" onClick={() => onView(product)}>
           <span><strong>{product.name}</strong><small>{product.subtitle}</small></span>
-          <span>{formatProductPrice(product)}</span>
+          <ProductPrice product={product} compact />
         </button>
         <p>{product.benefit}</p>
         <button className="quick-add" onClick={() => onAdd(product)}>

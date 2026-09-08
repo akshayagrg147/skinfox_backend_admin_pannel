@@ -1,9 +1,10 @@
 import { Check, LockKeyhole, Smartphone } from 'lucide-react'
 import { FormEvent, useEffect, useState } from 'react'
-import { formatPrice, formatProductPrice } from '../data/products'
+import { formatPrice } from '../data/products'
 import type { CartLine } from '../types'
 import { getStorefront, postStorefront } from '../lib/storefrontApi'
 import { ModalShell } from './ModalShell'
+import { ProductPrice } from './ProductPrice'
 
 type Customer = { id: string; fullName: string; email?: string | null; phone: string }
 type SavedAddress = { id: string; label: string; fullName: string; addressLine1: string; addressLine2?: string | null; landmark?: string | null; city: string; state: string; pincode: string; isDefault: boolean }
@@ -186,7 +187,7 @@ export function CheckoutModal({ open, lines, onClose, onComplete, cartToken = ''
           </form>
           <aside className="checkout-summary">
             <span className="eyebrow">Order summary</span>
-            {lines.map((line) => <div key={line.product.id}><span>{line.product.name} <i>× {line.quantity}</i></span><strong>{line.product.price === null ? formatProductPrice(line.product) : formatPrice(line.product.price * line.quantity)}</strong></div>)}
+            {lines.map((line) => <div key={line.product.id}><span>{line.product.name} <i>× {line.quantity}</i></span><ProductPrice product={line.product} quantity={line.quantity} compact className="checkout-line-price" /></div>)}
             <hr />
             <div><span>Shipping</span><strong>{hasPendingPrice ? 'At launch' : 'Calculated by pincode'}</strong></div>
             <div className="checkout-total"><span>Total</span><strong>{hasPendingPrice ? 'Price pending' : formatPrice(subtotal)}</strong></div>

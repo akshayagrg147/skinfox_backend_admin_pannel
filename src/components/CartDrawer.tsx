@@ -1,8 +1,9 @@
 import { ArrowRight, Minus, Plus, ShoppingBag, Trash2 } from 'lucide-react'
-import { formatPrice, formatProductPrice } from '../data/products'
+import { formatPrice } from '../data/products'
 import type { CartLine } from '../types'
 import { ModalShell } from './ModalShell'
 import { ProductVisual } from './ProductVisual'
+import { ProductPrice } from './ProductPrice'
 
 type CartDrawerProps = {
   open: boolean
@@ -56,7 +57,7 @@ export function CartDrawer({ open, lines, onClose, onQuantity, onRemove, onCheck
                       <span>{quantity}</span>
                       <button onClick={() => onQuantity(product.id, quantity + 1)} aria-label={`Increase ${product.name} quantity`}><Plus size={13} /></button>
                     </div>
-                    <strong>{product.price === null ? formatProductPrice(product) : formatPrice(product.price * quantity)}</strong>
+                    <ProductPrice product={product} quantity={quantity} compact className="cart-line__price" />
                     <button className="remove-line" onClick={() => onRemove(product.id)} aria-label={`Remove ${product.name}`}><Trash2 size={15} /></button>
                   </div>
                 </div>

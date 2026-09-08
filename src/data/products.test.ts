@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { formatPrice, formatProductPrice, getQuizRecommendation, products } from './products'
+import { getOfferPriceDetails } from '../components/ProductPrice'
 
 describe('product catalogue', () => {
   it('contains a scalable set of uniquely identified actual products with visible pack sizes', () => {
@@ -39,6 +40,13 @@ describe('product catalogue', () => {
         expect(formatProductPrice(product)).toBe('Price on launch')
       }
     }
+  })
+
+  it('calculates a real offer only when the selling price is lower than the MRP', () => {
+    const offerProduct = { ...products[0], mrp: 700, price: 525 }
+    expect(getOfferPriceDetails(offerProduct)).toMatchObject({ offerPrice: 525, mrp: 700, savings: 175, discountPercent: 25, hasOffer: true })
+    expect(getOfferPriceDetails(offerProduct, 2)).toMatchObject({ offerPrice: 1050, mrp: 1400, savings: 350, discountPercent: 25, hasOffer: true })
+    expect(getOfferPriceDetails({ ...offerProduct, price: 700 })).toMatchObject({ savings: 0, discountPercent: 0, hasOffer: false })
   })
 
   it('returns only existing products for every current-range finder focus', () => {
