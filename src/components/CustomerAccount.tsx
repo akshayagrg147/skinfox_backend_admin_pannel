@@ -152,7 +152,8 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange 
     setError('')
     try {
       if (!firebaseAuthConfigured) throw new Error('Google sign-in is not configured for this storefront yet.')
-      const credential = await signInWithGoogle()
+      const credential = await signInWithGoogle({ destination: 'account' })
+      if (!credential) return
       const response = await exchangeFirebaseUser<{ customer: StorefrontCustomer }>(credential.user)
       if (!response.customer.phoneVerified) {
         setPhone('')

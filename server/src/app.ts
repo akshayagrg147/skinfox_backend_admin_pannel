@@ -304,7 +304,10 @@ export function buildApp(): FastifyInstance {
     const token = randomToken(32)
     const csrf = randomToken(18)
     const result = await prisma.$transaction(async (tx) => {
-      const customer = await tx.customer.upsert({ where: { phone }, update: { phoneVerifiedAt: new Date() }, create: { phone, phoneVerifiedAt: new Date(), fullName: 'SkinFox customer' } })
+      // Legacy/static OTP is a local test fallback only. It must never grant
+      // the verified-phone state used to authorize addresses or COD orders;
+      // only a Firebase-verified phone token may do that.
+      const customer = await tx.customer.upsert({ where: { phone }, update: {}, create: { phone, fullName: 'SkinFox customer' } })
       await tx.customerOtpChallenge.update({ where: { id: challenge.id }, data: { customerId: customer.id, verifiedAt: new Date(), attempts: { increment: 1 } } })
       let cartLinked = false
       if (input.cartToken) {

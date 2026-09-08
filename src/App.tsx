@@ -30,6 +30,7 @@ import { SearchOverlay } from './components/SearchOverlay'
 import { formatProductPrice, getProductById, products } from './data/products'
 import type { CartLine, Product } from './types'
 import { deleteStorefront, getStorefront, patchStorefront, postStorefront } from './lib/storefrontApi'
+import { consumeGoogleRedirect, exchangeFirebaseUser, firebaseAuthConfigured } from './lib/firebaseAuth'
 import { mapProduct, useStorefront } from './hooks/useStorefront'
 
 const rangeNotes = [
@@ -135,6 +136,22 @@ export default function App() {
   useEffect(() => {
     if (!storefront.apiMode) return
     void getStorefront<{ customer: StorefrontCustomer | null }>('/customer/auth/me').then(({ customer: signedInCustomer }) => setCustomer(signedInCustomer)).catch(() => undefined)
+  }, [storefront.apiMode])
+
+  useEffect(() => {
+    if (!storefront.apiMode || !firebaseAuthConfigured) return
+    let active = true
+    void consumeGoogleRedirect().then(async (pending) => {
+      if (!pending || !active) return
+      const response = await exchangeFirebaseUser<{ customer: StorefrontCustomer }>(pending.credential.user, pending.intent.cartToken)
+      if (!active) return
+      setCustomer(response.customer)
+      if (pending.intent.destination === 'checkout') setCheckoutOpen(true)
+      else setAccountOpen(true)
+    }).catch(() => {
+      if (active) setToast('Google sign-in could not be completed. Please try again.')
+    })
+    return () => { active = false }
   }, [storefront.apiMode])
 
   useEffect(() => {

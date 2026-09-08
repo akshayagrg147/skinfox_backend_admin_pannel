@@ -119,7 +119,8 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
     setError('')
     try {
       if (!firebaseAuthConfigured) throw new Error('Google sign-in is not configured for this storefront yet.')
-      const credential = await signInWithGoogle()
+      const credential = await signInWithGoogle({ destination: 'checkout', cartToken: cartToken || undefined })
+      if (!credential) return
       const response = await exchangeFirebaseUser<{ customer: Customer }>(credential.user, cartToken || undefined)
       setCustomer(response.customer)
       onCustomerChange?.(response.customer)
