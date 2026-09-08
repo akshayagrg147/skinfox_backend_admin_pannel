@@ -13,6 +13,8 @@ describe('mobile responsive stylesheet contracts', () => {
     expect(mobileMenu).toContain('overscroll-behavior: contain;')
     expect(styles).toMatch(/\.mobile-menu nav \{[\s\S]*?flex: 0 0 auto;/)
     expect(styles).toMatch(/\.mobile-menu__panel > p \{[\s\S]*?flex: 0 0 auto;/)
+    expect(styles).toMatch(/@media \(max-width: 560px\) \{[\s\S]*?\.mobile-menu__panel \{[\s\S]*?width: 100vw;/)
+    expect(styles).toMatch(/\.mobile-menu nav a:last-child \{[\s\S]*?white-space: nowrap;/)
   })
 
   it('uses a two-column hero product gallery and readable labels on phone widths', () => {

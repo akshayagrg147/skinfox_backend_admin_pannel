@@ -8654,8 +8654,26 @@ blockquote {
   }
 
   .mobile-menu__panel {
+    width: 100vw;
+    max-width: none;
+    min-height: 100dvh;
     padding-top: calc(22px + env(safe-area-inset-top));
     padding-bottom: calc(28px + env(safe-area-inset-bottom));
+  }
+
+  .mobile-menu nav {
+    margin-block: clamp(44px, 10svh, 72px) auto;
+  }
+
+  .mobile-menu nav a,
+  .mobile-menu nav button {
+    font-size: clamp(1.65rem, 8vw, 2.1rem);
+    line-height: 1.06;
+  }
+
+  .mobile-menu nav a:last-child {
+    white-space: nowrap;
+    font-size: clamp(1.5rem, 7.5vw, 1.9rem);
   }
 
   .mobile-menu-button,
