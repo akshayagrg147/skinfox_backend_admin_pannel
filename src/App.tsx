@@ -20,6 +20,7 @@ import { CustomerAccount, type StorefrontCustomer } from './components/CustomerA
 import { Header } from './components/Header'
 import { HeroCollectionShowcase } from './components/HeroCollectionShowcase'
 import { HydrelleRoutineComparison } from './components/HydrelleRoutineComparison'
+import { LegalPage, type LegalPageKind } from './components/LegalPage'
 import { ProductCard } from './components/ProductCard'
 import { ProductVisual } from './components/ProductVisual'
 import { QuickView } from './components/QuickView'
@@ -84,6 +85,12 @@ function readInitialCart(): CartLine[] {
   }
 }
 
+function readLegalPageFromHash(): LegalPageKind | null {
+  if (window.location.hash === '#privacy-policy') return 'privacy'
+  if (window.location.hash === '#terms-and-conditions') return 'terms'
+  return null
+}
+
 export default function App() {
   const storefront = useStorefront()
   const collectionProducts = storefront.products.length ? storefront.products : (import.meta.env.MODE === 'test' ? products : [])
@@ -114,6 +121,7 @@ export default function App() {
   const [activeRitual, setActiveRitual] = useState(0)
   const [openFaq, setOpenFaq] = useState<number | null>(0)
   const [toast, setToast] = useState('')
+  const [legalPage, setLegalPage] = useState<LegalPageKind | null>(readLegalPageFromHash)
   const { scrollYProgress } = useScroll()
   const progress = useSpring(scrollYProgress, { stiffness: 110, damping: 30, restDelta: 0.001 })
   const heroY = useTransform(scrollYProgress, [0, 0.16], [0, 80])
@@ -150,6 +158,16 @@ export default function App() {
     const timer = window.setTimeout(() => setToast(''), 2200)
     return () => window.clearTimeout(timer)
   }, [toast])
+
+  useEffect(() => {
+    const syncLegalPage = () => {
+      const nextLegalPage = readLegalPageFromHash()
+      setLegalPage(nextLegalPage)
+      if (nextLegalPage) window.scrollTo({ top: 0, behavior: 'auto' })
+    }
+    window.addEventListener('hashchange', syncLegalPage)
+    return () => window.removeEventListener('hashchange', syncLegalPage)
+  }, [])
 
   useEffect(() => {
     activeRitualStages.forEach(({ product }) => {
@@ -220,6 +238,14 @@ export default function App() {
     event.currentTarget.reset()
     setToast('Welcome to The Skin Letter')
   }
+
+  const returnToStore = () => {
+    setLegalPage(null)
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#top`)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  if (legalPage) return <LegalPage kind={legalPage} onBack={returnToStore} />
 
   return (
     <div id="top" className="app-shell">
@@ -494,7 +520,7 @@ export default function App() {
         <div className="shell site-footer__top">
           <div><div className="site-footer__logo"><BrandMark /></div><p>Beautiful care from root to skin.</p></div>
           <div><span>Explore</span><a href="#shop">Shop all</a><button onClick={() => setQuizOpen(true)}>Care finder</button><a href="#ingredients">On the label</a></div>
-          <div><span>Help</span><a href="#faq">FAQ</a><a href="#faq">Shipping & returns</a><a href="#faq">Contact</a></div>
+          <div><span>Help</span><a href="#faq">FAQ</a><a href="#faq">Shipping & returns</a><a href="mailto:contact@skinfox.in">Contact</a><a href="#privacy-policy">Privacy policy</a><a href="#terms-and-conditions">Terms & conditions</a></div>
           <div><span>Follow</span><a href="#story"><Instagram size={15} /> Instagram</a><a href="#story">Journal</a></div>
         </div>
         <div className="shell site-footer__bottom"><p>© 2026 SkinFox launch preview</p><p>Actual product photography · Selling prices pending · No live payments</p><a href="#top">Back to top ↑</a></div>
