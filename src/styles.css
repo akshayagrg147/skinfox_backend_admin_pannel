@@ -338,6 +338,8 @@ blockquote {
 .header-account--signed-in {
   width: auto;
   padding-inline: 10px;
+  display: inline-flex;
+  justify-content: center;
   gap: 7px;
 }
 
