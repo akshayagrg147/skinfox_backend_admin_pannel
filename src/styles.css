@@ -489,6 +489,12 @@ blockquote {
   background: rgba(23, 26, 23, 0.07);
 }
 
+/* Signed-in account controls need a single horizontal row for the icon,
+   customer name and menu chevron; the shared icon button is a grid by default. */
+.icon-button.header-account--signed-in {
+  display: inline-flex;
+}
+
 .cart-button {
   position: relative;
 }
