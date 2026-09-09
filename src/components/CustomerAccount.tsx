@@ -1,4 +1,4 @@
-import { CheckCircle2, CircleDollarSign, ClipboardList, Home, LoaderCircle, LogOut, MapPin, MailCheck, PackageCheck, ShieldCheck, UserRound, WalletCards } from 'lucide-react'
+import { Bell, CheckCircle2, CircleDollarSign, ClipboardList, Home, LoaderCircle, LogOut, MapPin, MailCheck, PackageCheck, ShieldCheck, UserRound, WalletCards } from 'lucide-react'
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { formatPrice } from '../data/products'
 import { getStorefront, postStorefront } from '../lib/storefrontApi'
@@ -19,6 +19,17 @@ const customerCsrfHeaders = (): Record<string, string> => {
 }
 
 const humanise = (value: string) => value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+
+const customerInitials = (name?: string) => {
+  const initials = (name ?? 'SkinFox customer')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join('')
+    .toUpperCase()
+  return initials || 'SF'
+}
 
 function AccountAuthShell({ children }: { children: ReactNode }) {
   return <div className="account-auth">
@@ -173,27 +184,43 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
         <div className="account-pending-verification__actions"><button className="button button--copper" type="button" onClick={() => void refreshVerification()} disabled={busy}>I verified</button><button className="button button--dark" type="button" onClick={() => void resendVerification()} disabled={busy}>Resend email</button></div>
         <button className="account-text-button" type="button" onClick={() => void logout()} disabled={busy}><LogOut size={13} /> Sign out</button>
       </div></AccountAuthShell>}
-      {stage === 'account' && customer && <div className="account-dashboard">
-        <header className="account-hero">
-          <div><span className="eyebrow"><UserRound size={14} /> Your SkinFox account</span><h2>Hello, {customer.fullName === 'SkinFox customer' ? 'there' : customer.fullName}.</h2><p>{customer.email ? `Signed in with ${customer.email}. ` : ''}Your account information is only visible in this signed-in session.</p></div>
-          <button className="account-signout" type="button" onClick={() => void logout()} disabled={busy}><LogOut size={15} /> Sign out</button>
-        </header>
-        {customer.email && !customer.emailVerified && <div className="verification-banner" role="status"><MailCheck size={18} /><div><strong>Verify your email before ordering.</strong><span>We sent a secure link to {customer.email}. Your cart stays saved while you verify.</span></div><div className="verification-banner__actions"><button type="button" onClick={() => void resendVerification()} disabled={busy}>Resend email</button><button type="button" onClick={() => void refreshVerification()} disabled={busy}>I verified</button></div></div>}
-        {!customer.email && <div className="verification-banner" role="status"><MailCheck size={18} /><div><strong>Legacy account recovery</strong><span>Your previous SkinFox history is preserved. Contact <a href="mailto:contact@skinfox.in">contact@skinfox.in</a> so support can help you add a secure sign-in.</span></div></div>}
-        {error && <p className="form-error" role="alert">{error}</p>}
-        {notice && <p className="auth-notice" role="status">{notice}</p>}
-        {(activeSection === 'orders' || activeSection === 'addresses') && <div className="account-tabs" role="tablist" aria-label="Account sections">
-          <button role="tab" aria-selected={activeSection === 'orders'} className={activeSection === 'orders' ? 'is-active' : ''} onClick={() => setActiveSection('orders')}><ClipboardList size={16} /> Orders <span>{orders.length}</span></button>
-          <button role="tab" aria-selected={activeSection === 'addresses'} className={activeSection === 'addresses' ? 'is-active' : ''} onClick={() => setActiveSection('addresses')}><Home size={16} /> Addresses <span>{addresses.length}</span></button>
-        </div>}
-        {activeSection === 'orders' ? <section className="account-section" role="tabpanel">
-          <div className="account-section__heading"><div><span className="eyebrow">Order history</span><h3>Your SkinFox edits</h3></div><span>{orders.length ? `${orders.length} order${orders.length === 1 ? '' : 's'}` : 'No orders yet'}</span></div>
-          {orders.length ? <div className="order-list">{orders.map((order) => <article className="order-card" key={order.publicToken}><div className="order-card__top"><div><strong>{order.orderNumber}</strong><small>{new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(order.createdAt))}</small></div><span className={`order-status order-status--${order.status}`}>{humanise(order.status)}</span></div><ul>{order.items.map((item) => <li key={item.id}><span>{item.productName}{item.size ? <small>{item.size}</small> : null}</span><b>× {item.quantity}</b></li>)}</ul><div className="order-card__bottom"><span><MapPin size={14} /> {order.shippingAddress?.city ?? 'Delivery address saved'}{order.shippingAddress?.pincode ? ` · ${order.shippingAddress.pincode}` : ''}</span><strong>{formatPrice(order.totalPaise / 100)}</strong></div></article>)}</div> : <div className="account-empty"><PackageCheck size={24} /><h3>Your order history will appear here.</h3><p>Once you place a COD order, you can return here to see its status and items.</p></div>}
-        </section> : activeSection === 'addresses' ? <section className="account-section" role="tabpanel">
-          <div className="account-section__heading"><div><span className="eyebrow">Delivery addresses</span><h3>Saved addresses</h3></div><span>Manage at checkout</span></div>
-          {addresses.length ? <div className="address-list">{addresses.map((address) => <article className="address-card" key={address.id}><div><strong>{address.label}</strong>{address.isDefault && <span>Default</span>}</div><p><b>{address.fullName}</b><br />{address.addressLine1}{address.addressLine2 ? `, ${address.addressLine2}` : ''}{address.landmark ? `, ${address.landmark}` : ''}<br />{address.city}, {address.state} · {address.pincode}<br />{address.phone}</p></article>)}</div> : <div className="account-empty"><Home size={24} /><h3>No saved addresses yet.</h3><p>Your delivery address can be saved during checkout and will then be available for your next SkinFox order.</p></div>}
-          {!showLinkForm ? <button type="button" className="account-text-button account-link-login" onClick={() => setShowLinkForm(true)}>Add email and password login</button> : <form className="account-link-form" onSubmit={addPasswordLogin}><h4>Add email and password login</h4><label className="account-field"><span>Email address</span><input type="email" value={linkEmail} onChange={(event) => setLinkEmail(event.target.value)} required autoComplete="email" /></label><label className="account-field"><span>Password</span><input type="password" value={linkPassword} onChange={(event) => setLinkPassword(event.target.value)} required minLength={8} autoComplete="new-password" /></label><div><button className="button button--copper" type="submit" disabled={busy}>Save login</button><button className="account-text-button" type="button" onClick={() => setShowLinkForm(false)}>Cancel</button></div></form>}
-        </section> : <AccountUtilitySection section={activeSection} customer={customer} onNavigate={setActiveSection} />}
+      {stage === 'account' && customer && <div className="account-dashboard account-dashboard--split">
+        <aside className="account-sidebar" aria-label="Account navigation">
+          <div className="account-sidebar__identity">
+            <span className="account-sidebar__avatar" aria-hidden="true">{customerInitials(customer.fullName)}</span>
+            <div><span>Hello,</span><strong>{customer.fullName === 'SkinFox customer' ? 'SkinFox customer' : customer.fullName}</strong></div>
+          </div>
+          <nav className="account-sidebar__nav">
+            <button type="button" className={activeSection === 'profile' ? 'is-active' : ''} aria-current={activeSection === 'profile' ? 'page' : undefined} onClick={() => setActiveSection('profile')}><UserRound size={17} /><span>My profile</span></button>
+            <button type="button" className={activeSection === 'orders' ? 'is-active' : ''} aria-current={activeSection === 'orders' ? 'page' : undefined} onClick={() => setActiveSection('orders')}><ClipboardList size={17} /><span>My orders</span><b>{orders.length}</b></button>
+            <div className="account-sidebar__group"><span>Account settings</span><button type="button" className={activeSection === 'addresses' ? 'is-active' : ''} aria-current={activeSection === 'addresses' ? 'page' : undefined} onClick={() => setActiveSection('addresses')}><Home size={17} /><span>Saved addresses</span><b>{addresses.length}</b></button></div>
+            <div className="account-sidebar__group"><span>Rewards & payments</span><button type="button" className={activeSection === 'supercoin' ? 'is-active' : ''} aria-current={activeSection === 'supercoin' ? 'page' : undefined} onClick={() => setActiveSection('supercoin')}><CircleDollarSign size={17} /><span>Supercoin</span></button><button type="button" className={activeSection === 'wallet' ? 'is-active' : ''} aria-current={activeSection === 'wallet' ? 'page' : undefined} onClick={() => setActiveSection('wallet')}><WalletCards size={17} /><span>Saved cards & wallet</span></button></div>
+            <div className="account-sidebar__group"><span>My stuff</span><button type="button" className={activeSection === 'notifications' ? 'is-active' : ''} aria-current={activeSection === 'notifications' ? 'page' : undefined} onClick={() => setActiveSection('notifications')}><Bell size={17} /><span>Notifications</span></button></div>
+          </nav>
+          <button className="account-sidebar__logout" type="button" onClick={() => void logout()} disabled={busy}><LogOut size={16} /> Logout</button>
+        </aside>
+        <div className="account-dashboard__main">
+          <header className="account-hero">
+            <div><span className="eyebrow"><UserRound size={14} /> Your SkinFox account</span><h2>Hello, {customer.fullName === 'SkinFox customer' ? 'there' : customer.fullName}.</h2><p>{customer.email ? `Signed in with ${customer.email}. ` : ''}Your account information is only visible in this signed-in session.</p></div>
+            <span className="account-hero__status"><CheckCircle2 size={15} /> Secure session</span>
+          </header>
+          {customer.email && !customer.emailVerified && <div className="verification-banner" role="status"><MailCheck size={18} /><div><strong>Verify your email before ordering.</strong><span>We sent a secure link to {customer.email}. Your cart stays saved while you verify.</span></div><div className="verification-banner__actions"><button type="button" onClick={() => void resendVerification()} disabled={busy}>Resend email</button><button type="button" onClick={() => void refreshVerification()} disabled={busy}>I verified</button></div></div>}
+          {!customer.email && <div className="verification-banner" role="status"><MailCheck size={18} /><div><strong>Legacy account recovery</strong><span>Your previous SkinFox history is preserved. Contact <a href="mailto:contact@skinfox.in">contact@skinfox.in</a> so support can help you add a secure sign-in.</span></div></div>}
+          {error && <p className="form-error" role="alert">{error}</p>}
+          {notice && <p className="auth-notice" role="status">{notice}</p>}
+          {(activeSection === 'orders' || activeSection === 'addresses') && <div className="account-tabs" role="tablist" aria-label="Account sections">
+            <button role="tab" aria-selected={activeSection === 'orders'} className={activeSection === 'orders' ? 'is-active' : ''} onClick={() => setActiveSection('orders')}><ClipboardList size={16} /> Orders <span>{orders.length}</span></button>
+            <button role="tab" aria-selected={activeSection === 'addresses'} className={activeSection === 'addresses' ? 'is-active' : ''} onClick={() => setActiveSection('addresses')}><Home size={16} /> Addresses <span>{addresses.length}</span></button>
+          </div>}
+          {activeSection === 'orders' ? <section className="account-section" role="tabpanel">
+            <div className="account-section__heading"><div><span className="eyebrow">Order history</span><h3>Your SkinFox edits</h3></div><span>{orders.length ? `${orders.length} order${orders.length === 1 ? '' : 's'}` : 'No orders yet'}</span></div>
+            {orders.length ? <div className="order-list">{orders.map((order) => <article className="order-card" key={order.publicToken}><div className="order-card__top"><div><strong>{order.orderNumber}</strong><small>{new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(order.createdAt))}</small></div><span className={`order-status order-status--${order.status}`}>{humanise(order.status)}</span></div><ul>{order.items.map((item) => <li key={item.id}><span>{item.productName}{item.size ? <small>{item.size}</small> : null}</span><b>× {item.quantity}</b></li>)}</ul><div className="order-card__bottom"><span><MapPin size={14} /> {order.shippingAddress?.city ?? 'Delivery address saved'}{order.shippingAddress?.pincode ? ` · ${order.shippingAddress.pincode}` : ''}</span><strong>{formatPrice(order.totalPaise / 100)}</strong></div></article>)}</div> : <div className="account-empty"><PackageCheck size={24} /><h3>Your order history will appear here.</h3><p>Once you place a COD order, you can return here to see its status and items.</p></div>}
+          </section> : activeSection === 'addresses' ? <section className="account-section" role="tabpanel">
+            <div className="account-section__heading"><div><span className="eyebrow">Delivery addresses</span><h3>Saved addresses</h3></div><span>Manage at checkout</span></div>
+            {addresses.length ? <div className="address-list">{addresses.map((address) => <article className="address-card" key={address.id}><div><strong>{address.label}</strong>{address.isDefault && <span>Default</span>}</div><p><b>{address.fullName}</b><br />{address.addressLine1}{address.addressLine2 ? `, ${address.addressLine2}` : ''}{address.landmark ? `, ${address.landmark}` : ''}<br />{address.city}, {address.state} · {address.pincode}<br />{address.phone}</p></article>)}</div> : <div className="account-empty"><Home size={24} /><h3>No saved addresses yet.</h3><p>Your delivery address can be saved during checkout and will then be available for your next SkinFox order.</p></div>}
+            {!showLinkForm ? <button type="button" className="account-text-button account-link-login" onClick={() => setShowLinkForm(true)}>Add email and password login</button> : <form className="account-link-form" onSubmit={addPasswordLogin}><h4>Add email and password login</h4><label className="account-field"><span>Email address</span><input type="email" value={linkEmail} onChange={(event) => setLinkEmail(event.target.value)} required autoComplete="email" /></label><label className="account-field"><span>Password</span><input type="password" value={linkPassword} onChange={(event) => setLinkPassword(event.target.value)} required minLength={8} autoComplete="new-password" /></label><div><button className="button button--copper" type="submit" disabled={busy}>Save login</button><button className="account-text-button" type="button" onClick={() => setShowLinkForm(false)}>Cancel</button></div></form>}
+          </section> : <AccountUtilitySection section={activeSection} customer={customer} onNavigate={setActiveSection} />}
+        </div>
       </div>}
     </div>
   </ModalShell>
