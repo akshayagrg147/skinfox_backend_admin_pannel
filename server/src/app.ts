@@ -38,6 +38,7 @@ const productSnapshot = (product: any) => ({ ...Object.fromEntries(productSnapsh
 const deliveryPhoneSchema = z.string().trim().regex(/^[6-9]\d{9}$/)
 const checkoutSchema = z.object({ fullName: z.string().min(2), email: z.union([z.string().email(), z.literal('')]).optional().transform((value) => value || undefined), phone: deliveryPhoneSchema, addressId: z.string().optional(), addressLine1: z.string().min(5), addressLine2: z.string().optional(), landmark: z.string().optional(), city: z.string().min(2), state: z.string().min(2), pincode: z.string().regex(/^[1-9]\d{5}$/), saveAddress: z.boolean().default(true), saveAsDefault: z.boolean().default(false), billingSameAsShipping: z.boolean().default(true), marketingConsent: z.boolean().default(false), paymentMethod: z.literal('cod').default('cod'), couponCode: z.string().optional() })
 const addressSchema = z.object({ label: z.string().trim().min(2).max(30).default('Home'), fullName: z.string().trim().min(2).max(120), phone: deliveryPhoneSchema, addressLine1: z.string().trim().min(5).max(200), addressLine2: z.string().trim().max(200).optional(), landmark: z.string().trim().max(120).optional(), city: z.string().trim().min(2).max(80), state: z.string().trim().min(2).max(80), pincode: z.string().regex(/^[1-9]\d{5}$/), isDefault: z.boolean().default(false) })
+const customerProfileSchema = z.object({ fullName: z.string().trim().min(2).max(120), phone: deliveryPhoneSchema.nullable().optional() })
 const rolePermissions: Record<AdminRole, string[]> = {
   SUPER_ADMIN: ['*'], CATALOG_MANAGER: ['catalog:read', 'catalog:write', 'inventory:read', 'inventory:write', 'content:read'], CONTENT_EDITOR: ['content:read', 'content:write', 'catalog:read'], ORDER_MANAGER: ['orders:read', 'orders:write', 'customers:read', 'catalog:read'], SUPPORT_AGENT: ['orders:read', 'customers:read', 'customers:write', 'leads:read'], ANALYST: ['analytics:read', 'dashboard:read'],
 }
@@ -86,7 +87,7 @@ const documentPath = (path: string, methods: string[], summary: string) => {
   ['/campaign-slides', ['get'], 'List campaign slides'], ['/faqs', ['get'], 'List FAQs'], ['/pages/home', ['get'], 'Get home page'], ['/pages/{slug}', ['get'], 'Get page'], ['/navigation/{location}', ['get'], 'Get navigation'],
   ['/care-finder', ['get'], 'Get care finder'], ['/care-finder/recommendations', ['post'], 'Get care recommendations'], ['/care-finder/events', ['post'], 'Record care finder event'],
   ['/carts', ['post'], 'Create cart'], ['/carts/{cartId}', ['get', 'delete'], 'Get or delete cart'], ['/carts/{cartId}/items', ['post'], 'Add cart item'], ['/carts/{cartId}/items/{itemId}', ['patch', 'delete'], 'Update or remove cart item'], ['/carts/{cartId}/apply-coupon', ['post'], 'Apply coupon'], ['/carts/{cartId}/coupon', ['delete'], 'Remove coupon'],
-  ['/customer/auth/firebase', ['post'], 'Exchange Firebase customer identity'], ['/customer/auth/me', ['get'], 'Get current customer'], ['/customer/auth/logout', ['post'], 'Log out customer'], ['/customer/addresses', ['get', 'post'], 'List or save customer addresses'], ['/customer/addresses/{id}', ['patch', 'delete'], 'Update or delete customer address'], ['/customer/orders', ['get'], 'List customer orders'], ['/customer/orders/{publicToken}', ['get'], 'Get customer order'],
+  ['/customer/auth/firebase', ['post'], 'Exchange Firebase customer identity'], ['/customer/auth/me', ['get'], 'Get current customer'], ['/customer/auth/profile', ['patch'], 'Update customer profile'], ['/customer/auth/logout', ['post'], 'Log out customer'], ['/customer/addresses', ['get', 'post'], 'List or save customer addresses'], ['/customer/addresses/{id}', ['patch', 'delete'], 'Update or delete customer address'], ['/customer/orders', ['get'], 'List customer orders'], ['/customer/orders/{publicToken}', ['get'], 'Get customer order'],
   ['/affiliate/applications', ['post'], 'Submit affiliate application'], ['/affiliate/auth/request-otp', ['post'], 'Request affiliate OTP'], ['/affiliate/auth/verify-otp', ['post'], 'Verify affiliate OTP'], ['/affiliate/auth/me', ['get'], 'Get current affiliate'], ['/affiliate/auth/logout', ['post'], 'Log out affiliate'], ['/affiliate/referrals/track', ['post'], 'Track affiliate referral'], ['/affiliate/dashboard', ['get'], 'Get affiliate dashboard'], ['/affiliate/wallet/redemptions', ['post'], 'Request affiliate wallet redemption'],
   ['/shipping/serviceability', ['get'], 'Check shipping serviceability'], ['/checkout/quote', ['post'], 'Calculate checkout quote'], ['/checkout/sessions', ['post'], 'Create checkout session'], ['/checkout/sessions/{id}', ['get'], 'Get checkout session'], ['/checkout/sessions/{id}/payment-order', ['post'], 'Create payment order'], ['/checkout/sessions/{id}/confirm-cod', ['post'], 'Confirm cash on delivery'],
   ['/payments/razorpay/verify', ['post'], 'Verify Razorpay payment'], ['/webhooks/payments/razorpay', ['post'], 'Receive Razorpay webhook'], ['/payments/{publicToken}/status', ['get'], 'Get payment status'], ['/orders/{publicToken}', ['get'], 'Get public order'], ['/orders/{publicToken}/tracking', ['get'], 'Get order tracking'], ['/orders/{publicToken}/cancel-request', ['post'], 'Request order cancellation'], ['/orders/{publicToken}/return-request', ['post'], 'Request return'],
@@ -415,6 +416,17 @@ export function buildApp(): FastifyInstance {
     return data(reply, { customer: publicCustomer(result.customer), provider, cartLinked: result.cartLinked, sessionExpiresAt: result.session.expiresAt, requiresEmailVerification: !result.customer.emailVerifiedAt })
   })
   routes.get('/api/v1/customer/auth/me', async (request, reply) => { const customer = await currentCustomer(request, false); return data(reply, { customer: customer ? publicCustomer(customer) : null }) })
+  routes.patch('/api/v1/customer/auth/profile', async (request, reply) => {
+    const customer = await requireCustomer(request, true)
+    const input = customerProfileSchema.parse(request.body)
+    try {
+      const updated = await prisma.customer.update({ where: { id: customer.id }, data: { fullName: input.fullName, ...(input.phone !== undefined ? { phone: input.phone, phoneVerifiedAt: null } : {}) } })
+      return data(reply, publicCustomer(updated))
+    } catch (cause: any) {
+      if (cause?.code === 'P2002') throw new ApiError(409, 'CUSTOMER_PHONE_IN_USE', 'That mobile number is already linked to another SkinFox account.')
+      throw cause
+    }
+  })
   routes.post('/api/v1/customer/auth/logout', async (request, reply) => { await requireCustomer(request, true); const token = request.cookies.sf_customer_session; if (token) await prisma.customerSession.updateMany({ where: { tokenHash: hashToken(token) }, data: { revokedAt: new Date() } }); reply.clearCookie('sf_customer_session', { path: '/' }).clearCookie('sf_customer_csrf', { path: '/' }); return data(reply, { loggedOut: true }) })
 
   // Affiliate applications remain pending until a SkinFox administrator approves them.

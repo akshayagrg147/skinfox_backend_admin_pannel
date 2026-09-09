@@ -1,7 +1,7 @@
-import { Bell, CheckCircle2, CircleDollarSign, ClipboardList, Home, LoaderCircle, LogOut, MapPin, MailCheck, PackageCheck, ShieldCheck, UserRound, WalletCards } from 'lucide-react'
+import { Bell, CheckCircle2, CircleDollarSign, ClipboardList, Home, LoaderCircle, LogOut, MapPin, MailCheck, PackageCheck, Pencil, Plus, ShieldCheck, Trash2, UserRound, WalletCards } from 'lucide-react'
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { formatPrice } from '../data/products'
-import { getStorefront, postStorefront } from '../lib/storefrontApi'
+import { deleteStorefront, getStorefront, patchStorefront, postStorefront } from '../lib/storefrontApi'
 import { exchangeFirebaseUser, firebaseAuthErrorMessage, linkEmailPassword, refreshFirebaseUser, resendEmailVerification, signOutFirebase } from '../lib/firebaseAuth'
 import { BrandMark } from './BrandMark'
 import { CustomerAuthForm, type CustomerAuthCustomer, type CustomerAuthResponse } from './CustomerAuthForm'
@@ -11,6 +11,7 @@ export type StorefrontCustomer = CustomerAuthCustomer
 export type AccountSection = 'profile' | 'orders' | 'supercoin' | 'wallet' | 'addresses' | 'notifications'
 
 type SavedAddress = { id: string; label: string; fullName: string; phone: string; addressLine1: string; addressLine2?: string | null; landmark?: string | null; city: string; state: string; pincode: string; isDefault: boolean }
+type AddressDraft = Omit<SavedAddress, 'id'>
 type CustomerOrder = { publicToken: string; orderNumber: string; status: string; totalPaise: number; createdAt: string; items: Array<{ id: string; productName: string; size?: string | null; quantity: number; finalLineTotalPaise: number }>; shippingAddress?: { fullName?: string; addressLine1?: string; addressLine2?: string | null; city?: string; state?: string; pincode?: string } | null }
 
 const customerCsrfHeaders = (): Record<string, string> => {
@@ -30,6 +31,19 @@ const customerInitials = (name?: string) => {
     .toUpperCase()
   return initials || 'SF'
 }
+
+const emptyAddressDraft = (customer?: StorefrontCustomer): AddressDraft => ({
+  label: 'Home',
+  fullName: customer?.fullName === 'SkinFox customer' ? '' : customer?.fullName ?? '',
+  phone: customer?.phone ?? '',
+  addressLine1: '',
+  addressLine2: '',
+  landmark: '',
+  city: '',
+  state: '',
+  pincode: '',
+  isDefault: false,
+})
 
 function AccountAuthShell({ children }: { children: ReactNode }) {
   return <div className="account-auth">
@@ -65,12 +79,20 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
   const [linkEmail, setLinkEmail] = useState('')
   const [linkPassword, setLinkPassword] = useState('')
   const [showLinkForm, setShowLinkForm] = useState(false)
+  const [profileEditing, setProfileEditing] = useState(false)
+  const [profileName, setProfileName] = useState('')
+  const [profilePhone, setProfilePhone] = useState('')
+  const [addressFormOpen, setAddressFormOpen] = useState(false)
+  const [editingAddressId, setEditingAddressId] = useState<string | null>(null)
+  const [addressDraft, setAddressDraft] = useState<AddressDraft>(() => emptyAddressDraft())
 
   const showVerificationPending = useCallback((nextCustomer: StorefrontCustomer) => {
     setCustomer(nextCustomer)
     setOrders([])
     setAddresses([])
     setLinkEmail(nextCustomer.email ?? '')
+    setProfileName(nextCustomer.fullName ?? '')
+    setProfilePhone(nextCustomer.phone ?? '')
     onCustomerChange(nextCustomer)
     setStage('verification')
   }, [onCustomerChange])
@@ -84,6 +106,9 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
     setOrders(nextOrders)
     setAddresses(nextAddresses)
     setLinkEmail(nextCustomer.email ?? '')
+    setProfileName(nextCustomer.fullName ?? '')
+    setProfilePhone(nextCustomer.phone ?? '')
+    setAddressDraft(emptyAddressDraft(nextCustomer))
     onCustomerChange(nextCustomer)
     setStage('account')
   }, [onCustomerChange])
@@ -96,6 +121,9 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
     setBusy(false)
     setActiveSection(initialSection)
     setShowLinkForm(false)
+    setProfileEditing(false)
+    setAddressFormOpen(false)
+    setEditingAddressId(null)
     if (!apiAvailable) {
       setStage('auth')
       setError('Customer accounts are available when the storefront is connected to the SkinFox API.')
@@ -165,8 +193,82 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
     try {
       await postStorefront('/customer/auth/logout', {}, customerCsrfHeaders())
       await signOutFirebase()
-      setCustomer(null); setOrders([]); setAddresses([]); setLinkPassword(''); onCustomerChange(null); setStage('auth')
+      setCustomer(null); setOrders([]); setAddresses([]); setLinkPassword(''); setProfileEditing(false); setAddressFormOpen(false); onCustomerChange(null); setStage('auth')
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to sign out. Please try again.') } finally { setBusy(false) }
+  }
+
+  const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const fullName = profileName.trim()
+    const phone = profilePhone.replace(/\D/g, '')
+    if (fullName.length < 2) { setError('Enter your full name.'); return }
+    if (phone && !/^[6-9]\d{9}$/.test(phone)) { setError('Enter a valid 10-digit Indian mobile number or leave it blank.'); return }
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const updated = await patchStorefront<StorefrontCustomer>('/customer/auth/profile', { fullName, phone: phone || null }, customerCsrfHeaders())
+      setCustomer(updated)
+      setProfileName(updated.fullName)
+      setProfilePhone(updated.phone ?? '')
+      onCustomerChange(updated)
+      setProfileEditing(false)
+      setNotice('Your profile details have been saved.')
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'We could not save your profile details. Please try again.') } finally { setBusy(false) }
+  }
+
+  const refreshAddresses = async () => {
+    const nextAddresses = await getStorefront<SavedAddress[]>('/customer/addresses')
+    setAddresses(nextAddresses)
+  }
+
+  const beginNewAddress = () => {
+    if (!customer) return
+    setEditingAddressId(null)
+    setAddressDraft(emptyAddressDraft(customer))
+    setAddressFormOpen(true)
+    setError('')
+    setNotice('')
+    setActiveSection('addresses')
+  }
+
+  const beginEditAddress = (address: SavedAddress) => {
+    setEditingAddressId(address.id)
+    setAddressDraft({ label: address.label, fullName: address.fullName, phone: address.phone, addressLine1: address.addressLine1, addressLine2: address.addressLine2 ?? '', landmark: address.landmark ?? '', city: address.city, state: address.state, pincode: address.pincode, isDefault: address.isDefault })
+    setAddressFormOpen(true)
+    setError('')
+    setNotice('')
+    setActiveSection('addresses')
+  }
+
+  const saveAddress = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    setNotice('')
+    const payload = { ...addressDraft, label: addressDraft.label.trim() || 'Home', fullName: addressDraft.fullName.trim(), phone: addressDraft.phone.replace(/\D/g, ''), addressLine1: addressDraft.addressLine1.trim(), addressLine2: addressDraft.addressLine2?.trim() || undefined, landmark: addressDraft.landmark?.trim() || undefined, city: addressDraft.city.trim(), state: addressDraft.state.trim(), pincode: addressDraft.pincode.replace(/\D/g, '') }
+    try {
+      if (editingAddressId) await patchStorefront<SavedAddress>(`/customer/addresses/${editingAddressId}`, payload, customerCsrfHeaders())
+      else await postStorefront<SavedAddress>('/customer/addresses', payload, customerCsrfHeaders())
+      await refreshAddresses()
+      setAddressFormOpen(false)
+      setEditingAddressId(null)
+      setAddressDraft(emptyAddressDraft(customer ?? undefined))
+      setNotice(editingAddressId ? 'Address updated successfully.' : 'Address saved successfully.')
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'We could not save this address. Please check the details and try again.') } finally { setBusy(false) }
+  }
+
+  const removeAddress = async (address: SavedAddress) => {
+    if (typeof window !== 'undefined' && !window.confirm(`Remove your ${address.label.toLowerCase()} address?`)) return
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await deleteStorefront<{ deleted: boolean }>(`/customer/addresses/${address.id}`, customerCsrfHeaders())
+      await refreshAddresses()
+      if (editingAddressId === address.id) { setAddressFormOpen(false); setEditingAddressId(null) }
+      setNotice('Address removed.')
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'We could not remove this address. Please try again.') } finally { setBusy(false) }
   }
 
   return <ModalShell open={open} onClose={onClose} title="Your SkinFox account" className="account-modal">
@@ -216,22 +318,43 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
             <div className="account-section__heading"><div><span className="eyebrow">Order history</span><h3>Your SkinFox edits</h3></div><span>{orders.length ? `${orders.length} order${orders.length === 1 ? '' : 's'}` : 'No orders yet'}</span></div>
             {orders.length ? <div className="order-list">{orders.map((order) => <article className="order-card" key={order.publicToken}><div className="order-card__top"><div><strong>{order.orderNumber}</strong><small>{new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(order.createdAt))}</small></div><span className={`order-status order-status--${order.status}`}>{humanise(order.status)}</span></div><ul>{order.items.map((item) => <li key={item.id}><span>{item.productName}{item.size ? <small>{item.size}</small> : null}</span><b>× {item.quantity}</b></li>)}</ul><div className="order-card__bottom"><span><MapPin size={14} /> {order.shippingAddress?.city ?? 'Delivery address saved'}{order.shippingAddress?.pincode ? ` · ${order.shippingAddress.pincode}` : ''}</span><strong>{formatPrice(order.totalPaise / 100)}</strong></div></article>)}</div> : <div className="account-empty"><PackageCheck size={24} /><h3>Your order history will appear here.</h3><p>Once you place a COD order, you can return here to see its status and items.</p></div>}
           </section> : activeSection === 'addresses' ? <section className="account-section" role="tabpanel">
-            <div className="account-section__heading"><div><span className="eyebrow">Delivery addresses</span><h3>Saved addresses</h3></div><span>Manage at checkout</span></div>
-            {addresses.length ? <div className="address-list">{addresses.map((address) => <article className="address-card" key={address.id}><div><strong>{address.label}</strong>{address.isDefault && <span>Default</span>}</div><p><b>{address.fullName}</b><br />{address.addressLine1}{address.addressLine2 ? `, ${address.addressLine2}` : ''}{address.landmark ? `, ${address.landmark}` : ''}<br />{address.city}, {address.state} · {address.pincode}<br />{address.phone}</p></article>)}</div> : <div className="account-empty"><Home size={24} /><h3>No saved addresses yet.</h3><p>Your delivery address can be saved during checkout and will then be available for your next SkinFox order.</p></div>}
+            <div className="account-section__heading"><div><span className="eyebrow">Delivery addresses</span><h3>Saved addresses</h3></div><button className="button button--copper account-add-address" type="button" onClick={beginNewAddress}><Plus size={15} /> Add address</button></div>
+            {addressFormOpen && <CustomerAddressForm draft={addressDraft} editing={Boolean(editingAddressId)} busy={busy} onChange={setAddressDraft} onSubmit={saveAddress} onCancel={() => { setAddressFormOpen(false); setEditingAddressId(null) }} />}
+            {addresses.length ? <div className="address-list">{addresses.map((address) => <article className="address-card" key={address.id}><div className="address-card__top"><div><strong>{address.label}</strong>{address.isDefault && <span>Default</span>}</div><div className="address-card__actions"><button type="button" aria-label={`Edit ${address.label} address`} onClick={() => beginEditAddress(address)} disabled={busy}><Pencil size={14} /></button><button type="button" aria-label={`Remove ${address.label} address`} onClick={() => void removeAddress(address)} disabled={busy}><Trash2 size={14} /></button></div></div><p><b>{address.fullName}</b><br />{address.addressLine1}{address.addressLine2 ? `, ${address.addressLine2}` : ''}{address.landmark ? `, ${address.landmark}` : ''}<br />{address.city}, {address.state} · {address.pincode}<br />{address.phone}</p></article>)}</div> : !addressFormOpen && <div className="account-empty"><Home size={24} /><h3>No saved addresses yet.</h3><p>Add a delivery address once and it will be ready for your next SkinFox order.</p><button type="button" className="button button--copper" onClick={beginNewAddress}><Plus size={15} /> Add your first address</button></div>}
             {!showLinkForm ? <button type="button" className="account-text-button account-link-login" onClick={() => setShowLinkForm(true)}>Add email and password login</button> : <form className="account-link-form" onSubmit={addPasswordLogin}><h4>Add email and password login</h4><label className="account-field"><span>Email address</span><input type="email" value={linkEmail} onChange={(event) => setLinkEmail(event.target.value)} required autoComplete="email" /></label><label className="account-field"><span>Password</span><input type="password" value={linkPassword} onChange={(event) => setLinkPassword(event.target.value)} required minLength={8} autoComplete="new-password" /></label><div><button className="button button--copper" type="submit" disabled={busy}>Save login</button><button className="account-text-button" type="button" onClick={() => setShowLinkForm(false)}>Cancel</button></div></form>}
-          </section> : <AccountUtilitySection section={activeSection} customer={customer} onNavigate={setActiveSection} />}
+          </section> : <AccountUtilitySection section={activeSection} customer={customer} onNavigate={setActiveSection} profileEditing={profileEditing} profileName={profileName} profilePhone={profilePhone} onEditProfile={() => { setProfileEditing(true); setError(''); setNotice('') }} onCancelProfile={() => { setProfileEditing(false); setProfileName(customer.fullName); setProfilePhone(customer.phone ?? '') }} onProfileNameChange={setProfileName} onProfilePhoneChange={setProfilePhone} onSaveProfile={saveProfile} busy={busy} />}
         </div>
       </div>}
     </div>
   </ModalShell>
 }
 
-function AccountUtilitySection({ section, customer, onNavigate }: { section: Exclude<AccountSection, 'orders' | 'addresses'>; customer: StorefrontCustomer; onNavigate: (section: AccountSection) => void }) {
+function AccountUtilitySection({ section, customer, onNavigate, profileEditing, profileName, profilePhone, onEditProfile, onCancelProfile, onProfileNameChange, onProfilePhoneChange, onSaveProfile, busy }: { section: Exclude<AccountSection, 'orders' | 'addresses'>; customer: StorefrontCustomer; onNavigate: (section: AccountSection) => void; profileEditing: boolean; profileName: string; profilePhone: string; onEditProfile: () => void; onCancelProfile: () => void; onProfileNameChange: (value: string) => void; onProfilePhoneChange: (value: string) => void; onSaveProfile: (event: FormEvent<HTMLFormElement>) => void; busy: boolean }) {
   const content = {
     profile: { eyebrow: 'Personal details', title: 'My profile', description: 'Your account details are kept private to this signed-in session.', icon: <UserRound size={25} />, body: <div className="account-utility__details"><div><span>Full name</span><strong>{customer.fullName || 'SkinFox customer'}</strong></div><div><span>Email address</span><strong>{customer.email || 'Not added'}</strong></div><div><span>Mobile number</span><strong>{customer.phone || 'Not added'}</strong></div></div> },
     supercoin: { eyebrow: 'Rewards', title: 'Supercoin', description: 'Supercoin rewards are not enabled for SkinFox yet. We will notify you when the programme launches.', icon: <CircleDollarSign size={25} />, body: <p className="account-utility__note">Your orders and account remain available while rewards are being prepared.</p> },
     wallet: { eyebrow: 'Payments', title: 'Saved cards & wallet', description: 'Saved cards and wallet payments will be available when online payments are enabled.', icon: <WalletCards size={25} />, body: <p className="account-utility__note">Cash on delivery is the only payment method enabled in the current test release.</p> },
     notifications: { eyebrow: 'Updates', title: 'Notifications', description: 'Order and account notifications will appear here as soon as notification preferences are enabled.', icon: <MailCheck size={25} />, body: <p className="account-utility__note">We currently send essential updates to the email address connected to your account.</p> },
   }[section]
-  return <section className="account-utility" aria-labelledby="account-utility-title"><span className="account-utility__icon">{content.icon}</span><span className="eyebrow">{content.eyebrow}</span><h3 id="account-utility-title">{content.title}</h3><p>{content.description}</p>{content.body}<div className="account-utility__actions"><button type="button" className="button button--copper" onClick={() => onNavigate('orders')}>View orders</button><button type="button" className="account-text-button" onClick={() => onNavigate('addresses')}>Saved addresses</button></div></section>
+  return <section className="account-utility" aria-labelledby="account-utility-title"><span className="account-utility__icon">{content.icon}</span><span className="eyebrow">{content.eyebrow}</span><h3 id="account-utility-title">{content.title}</h3><p>{content.description}</p>{section === 'profile' && profileEditing ? <form className="account-utility__edit-form" onSubmit={onSaveProfile}><label className="account-field"><span>Full name</span><input type="text" value={profileName} onChange={(event) => onProfileNameChange(event.target.value)} autoComplete="name" required minLength={2} maxLength={120} /></label><label className="account-field"><span>Mobile number</span><input type="tel" value={profilePhone} onChange={(event) => onProfilePhoneChange(event.target.value)} inputMode="numeric" autoComplete="tel" maxLength={10} placeholder="10-digit mobile number (optional)" /><small>Use an Indian mobile number beginning with 6, 7, 8 or 9.</small></label><p className="account-utility__form-note">Your email address is managed by your secure sign-in provider and cannot be changed here.</p><div className="account-utility__actions"><button type="submit" className="button button--copper" disabled={busy}>Save changes</button><button type="button" className="account-text-button" onClick={onCancelProfile} disabled={busy}>Cancel</button></div></form> : <>{content.body}<div className="account-utility__actions">{section === 'profile' && <button type="button" className="button button--dark" onClick={onEditProfile}>Edit profile</button>}<button type="button" className="button button--copper" onClick={() => onNavigate('orders')}>View orders</button><button type="button" className="account-text-button" onClick={() => onNavigate('addresses')}>Saved addresses</button></div></>}</section>
+}
+
+function CustomerAddressForm({ draft, editing, busy, onChange, onSubmit, onCancel }: { draft: AddressDraft; editing: boolean; busy: boolean; onChange: (draft: AddressDraft) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onCancel: () => void }) {
+  const update = <K extends keyof AddressDraft>(field: K, value: AddressDraft[K]) => onChange({ ...draft, [field]: value })
+  return <form className="account-address-form" onSubmit={onSubmit}>
+    <div className="account-address-form__heading"><div><span className="eyebrow">{editing ? 'Update address' : 'New address'}</span><h4>{editing ? 'Edit delivery address' : 'Add a delivery address'}</h4></div><button className="account-address-form__close" type="button" onClick={onCancel} disabled={busy} aria-label="Close address form">×</button></div>
+    <div className="account-address-form__grid">
+      <label className="account-field"><span>Address label</span><input value={draft.label} onChange={(event) => update('label', event.target.value)} required maxLength={30} placeholder="Home, Work…" /></label>
+      <label className="account-field"><span>Full name</span><input value={draft.fullName} onChange={(event) => update('fullName', event.target.value)} required minLength={2} maxLength={120} autoComplete="name" /></label>
+      <label className="account-field"><span>Mobile number</span><input type="tel" value={draft.phone} onChange={(event) => update('phone', event.target.value)} required inputMode="numeric" maxLength={10} autoComplete="tel" /></label>
+      <label className="account-field account-field--wide"><span>Address line</span><input value={draft.addressLine1} onChange={(event) => update('addressLine1', event.target.value)} required minLength={5} maxLength={200} autoComplete="street-address" placeholder="Flat, house no., street" /></label>
+      <label className="account-field"><span>Apartment / area</span><input value={draft.addressLine2 ?? ''} onChange={(event) => update('addressLine2', event.target.value)} maxLength={200} placeholder="Optional" /></label>
+      <label className="account-field"><span>Landmark</span><input value={draft.landmark ?? ''} onChange={(event) => update('landmark', event.target.value)} maxLength={120} placeholder="Optional" /></label>
+      <label className="account-field"><span>City</span><input value={draft.city} onChange={(event) => update('city', event.target.value)} required minLength={2} maxLength={80} autoComplete="address-level2" /></label>
+      <label className="account-field"><span>State</span><input value={draft.state} onChange={(event) => update('state', event.target.value)} required minLength={2} maxLength={80} autoComplete="address-level1" /></label>
+      <label className="account-field"><span>Pincode</span><input value={draft.pincode} onChange={(event) => update('pincode', event.target.value)} required inputMode="numeric" pattern="[1-9][0-9]{5}" maxLength={6} autoComplete="postal-code" /></label>
+    </div>
+    <label className="account-address-form__default"><input type="checkbox" checked={draft.isDefault} onChange={(event) => update('isDefault', event.target.checked)} /> <span>Set as my default delivery address</span></label>
+    <div className="account-address-form__actions"><button type="submit" className="button button--copper" disabled={busy}>{busy ? 'Saving…' : editing ? 'Update address' : 'Save address'}</button><button type="button" className="account-text-button" onClick={onCancel} disabled={busy}>Cancel</button></div>
+  </form>
 }

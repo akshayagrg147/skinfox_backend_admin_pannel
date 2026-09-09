@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CustomerAccount } from './CustomerAccount'
-import { getStorefront } from '../lib/storefrontApi'
+import { deleteStorefront, getStorefront, patchStorefront, postStorefront } from '../lib/storefrontApi'
 import { createEmailPasswordAccount, exchangeFirebaseUser, requestPasswordReset, signInWithEmailPassword } from '../lib/firebaseAuth'
 
-vi.mock('../lib/storefrontApi', () => ({ getStorefront: vi.fn(), postStorefront: vi.fn() }))
+vi.mock('../lib/storefrontApi', () => ({ getStorefront: vi.fn(), postStorefront: vi.fn(), patchStorefront: vi.fn(), deleteStorefront: vi.fn() }))
 vi.mock('../lib/firebaseAuth', () => ({
   firebaseAuthConfigured: true,
   createEmailPasswordAccount: vi.fn(),
@@ -20,6 +20,9 @@ vi.mock('../lib/firebaseAuth', () => ({
 }))
 
 const getMock = vi.mocked(getStorefront)
+const postMock = vi.mocked(postStorefront)
+const patchMock = vi.mocked(patchStorefront)
+const deleteMock = vi.mocked(deleteStorefront)
 const signInMock = vi.mocked(signInWithEmailPassword)
 const signUpMock = vi.mocked(createEmailPasswordAccount)
 const exchangeMock = vi.mocked(exchangeFirebaseUser)
@@ -39,6 +42,9 @@ describe('CustomerAccount', () => {
     signInMock.mockResolvedValue({ user: firebaseUser } as never)
     signUpMock.mockResolvedValue({ user: firebaseUser } as never)
     exchangeMock.mockResolvedValue({ customer: { id: 'customer-1', fullName: 'Asha Sharma', email: 'asha@example.com', emailVerified: true } } as never)
+    postMock.mockResolvedValue({} as never)
+    patchMock.mockResolvedValue({} as never)
+    deleteMock.mockResolvedValue({ deleted: true } as never)
   })
 
   it('signs in with email and password and displays only the signed-in customer order history', async () => {
@@ -113,5 +119,54 @@ describe('CustomerAccount', () => {
     fireEvent.click(screen.getByRole('tab', { name: /addresses 1/i }))
     await waitFor(() => expect(screen.getByText(/12 Marine Drive/i)).toBeInTheDocument())
     expect(screen.getByText('Default')).toBeInTheDocument()
+  })
+
+  it('allows a signed-in customer to edit their profile name and phone', async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === '/customer/auth/me') return Promise.resolve({ customer: { id: 'customer-1', fullName: 'Asha Sharma', email: 'asha@example.com', phone: '9876543210', emailVerified: true } }) as never
+      if (path === '/customer/orders') return Promise.resolve([]) as never
+      if (path === '/customer/addresses') return Promise.resolve([]) as never
+      return Promise.resolve({}) as never
+    })
+    patchMock.mockResolvedValue({ id: 'customer-1', fullName: 'Asha Verma', email: 'asha@example.com', phone: '9876543211', emailVerified: true } as never)
+    render(<CustomerAccount open onClose={() => undefined} apiAvailable onCustomerChange={() => undefined} initialSection="profile" />)
+    await screen.findByRole('heading', { name: /hello, asha sharma/i })
+    fireEvent.click(screen.getByRole('button', { name: /my profile/i }))
+    fireEvent.click(screen.getByRole('button', { name: /edit profile/i }))
+    fireEvent.change(screen.getByRole('textbox', { name: /full name/i }), { target: { value: 'Asha Verma' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /mobile number/i }), { target: { value: '9876543211' } })
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+    await screen.findByText(/profile details have been saved/i)
+    expect(patchMock).toHaveBeenCalledWith('/customer/auth/profile', { fullName: 'Asha Verma', phone: '9876543211' }, {})
+    expect(screen.getByRole('heading', { name: /hello, asha verma/i })).toBeInTheDocument()
+  })
+
+  it('allows a signed-in customer to add a saved delivery address', async () => {
+    let savedAddresses: Array<Record<string, unknown>> = []
+    getMock.mockImplementation((path: string) => {
+      if (path === '/customer/auth/me') return Promise.resolve({ customer: { id: 'customer-1', fullName: 'Asha Sharma', email: 'asha@example.com', phone: '9876543210', emailVerified: true } }) as never
+      if (path === '/customer/orders') return Promise.resolve([]) as never
+      if (path === '/customer/addresses') return Promise.resolve(savedAddresses) as never
+      return Promise.resolve({}) as never
+    })
+    postMock.mockImplementation((_path, value) => {
+      savedAddresses = [{ id: 'address-new', ...(value as Record<string, unknown>), isDefault: true }]
+      return Promise.resolve(savedAddresses[0]) as never
+    })
+    render(<CustomerAccount open onClose={() => undefined} apiAvailable onCustomerChange={() => undefined} initialSection="addresses" />)
+    await screen.findByRole('heading', { name: /hello, asha sharma/i })
+    fireEvent.click(screen.getByRole('button', { name: /saved addresses/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^add address$/i }))
+    fireEvent.change(screen.getByRole('textbox', { name: /address label/i }), { target: { value: 'Work' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /^full name$/i }), { target: { value: 'Asha Sharma' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /mobile number/i }), { target: { value: '9876543210' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /address line/i }), { target: { value: '12 Marine Drive' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /^city$/i }), { target: { value: 'Mumbai' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /^state$/i }), { target: { value: 'Maharashtra' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /pincode/i }), { target: { value: '400001' } })
+    fireEvent.click(screen.getByRole('button', { name: /save address/i }))
+    await screen.findByText('Work')
+    expect(postMock).toHaveBeenCalledWith('/customer/addresses', expect.objectContaining({ label: 'Work', addressLine1: '12 Marine Drive', city: 'Mumbai', pincode: '400001' }), {})
+    expect(screen.getByText(/address saved successfully/i)).toBeInTheDocument()
   })
 })
