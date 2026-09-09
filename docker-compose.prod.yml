@@ -34,6 +34,7 @@ services:
       PORT: 4000
       NODE_ENV: production
       SEED_DATABASE: ${SEED_DATABASE:-false}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-skinfox}
       GOOGLE_APPLICATION_CREDENTIALS: /app/deploy/firebase-service-account.json
     depends_on:
       db:
