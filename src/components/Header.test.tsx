@@ -38,4 +38,22 @@ describe('Header mobile menu', () => {
       expect(document.body).not.toHaveClass('is-locked')
     })
   })
+
+  it('shows the marked account options for a signed-in customer', () => {
+    const onLogout = vi.fn()
+    render(<Header {...props} customerName="Vishal" onLogout={onLogout} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /open account for vishal/i }))
+    const menu = screen.getByRole('menu', { name: 'Your account' })
+    for (const label of ['My Profile', 'Orders', 'Supercoin', 'Saved Cards & Wallet', 'Saved Addresses', 'Notifications', 'Logout']) {
+      expect(within(menu).getByRole('menuitem', { name: label })).toBeInTheDocument()
+    }
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Saved Addresses' }))
+    expect(props.onAccount).toHaveBeenCalledWith('addresses')
+
+    fireEvent.click(screen.getByRole('button', { name: /open account for vishal/i }))
+    fireEvent.click(within(screen.getByRole('menu', { name: 'Your account' })).getByRole('menuitem', { name: 'Logout' }))
+    expect(onLogout).toHaveBeenCalledOnce()
+  })
 })

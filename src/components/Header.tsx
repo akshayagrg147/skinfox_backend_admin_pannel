@@ -1,20 +1,24 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { Menu, Search, ShoppingBag, Sparkles, UserRound, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Bell, ChevronDown, ClipboardList, CircleDollarSign, LogOut, MapPin, Menu, Search, ShoppingBag, Sparkles, UserRound, WalletCards, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { BrandMark } from './BrandMark'
+import type { AccountSection } from './CustomerAccount'
 
 type HeaderProps = {
   cartCount: number
   onCart: () => void
   onQuiz: () => void
   onSearch: () => void
-  onAccount: () => void
+  onAccount: (section?: AccountSection) => void
+  onLogout?: () => void
   customerName?: string | null
 }
 
-export function Header({ cartCount, onCart, onQuiz, onSearch, onAccount, customerName }: HeaderProps) {
+export function Header({ cartCount, onCart, onQuiz, onSearch, onAccount, onLogout, customerName }: HeaderProps) {
   const [scrolled, setScrolled] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const accountMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 32)
@@ -38,6 +42,22 @@ export function Header({ cartCount, onCart, onQuiz, onSearch, onAccount, custome
     }
   }, [mobileOpen])
 
+  useEffect(() => {
+    if (!accountMenuOpen) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (!accountMenuRef.current?.contains(event.target as Node)) setAccountMenuOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setAccountMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [accountMenuOpen])
+
   const navigate = () => setMobileOpen(false)
 
   return (
@@ -60,9 +80,13 @@ export function Header({ cartCount, onCart, onQuiz, onSearch, onAccount, custome
             <button className="header-quiz" onClick={onQuiz}>
               <Sparkles size={15} /> Find my care
             </button>
-            <button className="icon-button header-account" onClick={onAccount} aria-label={customerName ? `Open account for ${customerName}` : 'Sign in or open account'}>
-              <UserRound size={19} />
-            </button>
+            <div className="header-account-wrap" ref={accountMenuRef}>
+              <button className={`icon-button header-account ${customerName ? 'header-account--signed-in' : ''}`} onClick={() => customerName ? setAccountMenuOpen((open) => !open) : onAccount('profile')} aria-expanded={customerName ? accountMenuOpen : undefined} aria-haspopup={customerName ? 'menu' : undefined} aria-label={customerName ? `Open account for ${customerName}` : 'Sign in or open account'}>
+                <UserRound size={19} />
+                {customerName && <><span className="header-account__name">{customerName}</span><ChevronDown size={14} className={`header-account__chevron ${accountMenuOpen ? 'is-open' : ''}`} /></>}
+              </button>
+              {customerName && accountMenuOpen && <AccountMenu onAccount={(section) => { setAccountMenuOpen(false); onAccount(section) }} onLogout={() => { setAccountMenuOpen(false); onLogout?.() }} />}
+            </div>
             <button className="icon-button header-search" onClick={onSearch} aria-label="Search products">
               <Search size={19} />
             </button>
@@ -99,4 +123,20 @@ export function Header({ cartCount, onCart, onQuiz, onSearch, onAccount, custome
       </AnimatePresence>
     </>
   )
+}
+
+function AccountMenu({ onAccount, onLogout }: { onAccount: (section: AccountSection) => void; onLogout: () => void }) {
+  const items: Array<{ section: AccountSection; label: string; icon: typeof UserRound }> = [
+    { section: 'profile', label: 'My Profile', icon: UserRound },
+    { section: 'orders', label: 'Orders', icon: ClipboardList },
+    { section: 'supercoin', label: 'Supercoin', icon: CircleDollarSign },
+    { section: 'wallet', label: 'Saved Cards & Wallet', icon: WalletCards },
+    { section: 'addresses', label: 'Saved Addresses', icon: MapPin },
+    { section: 'notifications', label: 'Notifications', icon: Bell },
+  ]
+  return <div className="account-popover" role="menu" aria-label="Your account">
+    <div className="account-popover__heading"><span>Your Account</span><small>Manage your SkinFox space</small></div>
+    {items.map(({ section, label, icon: Icon }) => <button key={section} type="button" role="menuitem" className="account-popover__item" onClick={() => onAccount(section)}><Icon size={18} /><span>{label}</span><ChevronDown size={14} className="account-popover__arrow" /></button>)}
+    <button type="button" role="menuitem" className="account-popover__item account-popover__item--logout" onClick={onLogout}><LogOut size={18} /><span>Logout</span></button>
+  </div>
 }

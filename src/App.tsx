@@ -16,7 +16,7 @@ import { CartDrawer } from './components/CartDrawer'
 import { BrandMark } from './components/BrandMark'
 import { CampaignSlideshow } from './components/CampaignSlideshow'
 import { CheckoutModal } from './components/CheckoutModal'
-import { CustomerAccount, type StorefrontCustomer } from './components/CustomerAccount'
+import { CustomerAccount, type AccountSection, type StorefrontCustomer } from './components/CustomerAccount'
 import { Header } from './components/Header'
 import { HeroCollectionShowcase } from './components/HeroCollectionShowcase'
 import { HydrelleRoutineComparison } from './components/HydrelleRoutineComparison'
@@ -30,7 +30,7 @@ import { SearchOverlay } from './components/SearchOverlay'
 import { formatProductPrice, getProductById, products } from './data/products'
 import type { CartLine, Product } from './types'
 import { deleteStorefront, getStorefront, patchStorefront, postStorefront } from './lib/storefrontApi'
-import { consumeGoogleRedirect, exchangeFirebaseUser, firebaseAuthConfigured } from './lib/firebaseAuth'
+import { consumeGoogleRedirect, exchangeFirebaseUser, firebaseAuthConfigured, signOutFirebase } from './lib/firebaseAuth'
 import { mapProduct, useStorefront } from './hooks/useStorefront'
 
 const rangeNotes = [
@@ -115,6 +115,7 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
+  const [accountSection, setAccountSection] = useState<AccountSection>('orders')
   const [customer, setCustomer] = useState<StorefrontCustomer | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [activeFilter, setActiveFilter] = useState('All')
@@ -262,6 +263,18 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  const openAccount = (section: AccountSection = 'profile') => { setAccountSection(section); setAccountOpen(true) }
+  const logoutCustomer = async () => {
+    try {
+      const csrf = document.cookie.split('; ').find((entry) => entry.startsWith('sf_customer_csrf='))?.split('=').slice(1).join('=')
+      await postStorefront('/customer/auth/logout', {}, csrf ? { 'x-customer-csrf-token': decodeURIComponent(csrf) } : {})
+    } catch { /* Signing out locally is still safe if the API is unavailable. */ }
+    await signOutFirebase().catch(() => undefined)
+    setCustomer(null)
+    setAccountOpen(false)
+    setToast('You have been signed out.')
+  }
+
   if (legalPage) return <LegalPage kind={legalPage} onBack={returnToStore} />
 
   return (
@@ -278,7 +291,7 @@ export default function App() {
           <button type="button" onClick={() => window.location.reload()}>Retry</button>
         </div>
       )}
-      <Header cartCount={cartCount} onCart={() => setCartOpen(true)} onQuiz={() => setQuizOpen(true)} onSearch={() => setSearchOpen(true)} onAccount={() => setAccountOpen(true)} customerName={customer?.fullName} />
+      <Header cartCount={cartCount} onCart={() => setCartOpen(true)} onQuiz={() => setQuizOpen(true)} onSearch={() => setSearchOpen(true)} onAccount={openAccount} onLogout={() => void logoutCustomer()} customerName={customer?.fullName} />
 
       <main>
         <section className="hero" aria-labelledby="hero-title">
@@ -549,7 +562,7 @@ export default function App() {
       <RoutineQuiz open={quizOpen} onClose={() => setQuizOpen(false)} onAdd={(product) => addToCart(product)} catalogue={collectionProducts} finder={storefront.careFinder ?? undefined} />
       <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} onView={setSelectedProduct} catalogue={collectionProducts} apiMode={storefront.apiMode} />
       <CheckoutModal open={checkoutOpen} lines={cart} cartToken={cartToken} apiAvailable={storefront.apiMode} onCustomerChange={setCustomer} onClose={() => setCheckoutOpen(false)} onComplete={() => { setCart([]); if (cartToken) localStorage.removeItem('skinfox-cart-token'); setCartToken('') }} />
-      <CustomerAccount open={accountOpen} onClose={() => setAccountOpen(false)} apiAvailable={storefront.apiMode} onCustomerChange={setCustomer} />
+      <CustomerAccount open={accountOpen} onClose={() => setAccountOpen(false)} apiAvailable={storefront.apiMode} onCustomerChange={setCustomer} initialSection={accountSection} />
 
       <AnimatePresence>
         {toast && <motion.div className="toast" role="status" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }}><Check size={16} /> {toast}</motion.div>}

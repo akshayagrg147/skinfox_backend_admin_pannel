@@ -1,4 +1,4 @@
-import { CheckCircle2, ClipboardList, Home, LoaderCircle, LogOut, MapPin, MailCheck, PackageCheck, ShieldCheck, UserRound } from 'lucide-react'
+import { CheckCircle2, CircleDollarSign, ClipboardList, Home, LoaderCircle, LogOut, MapPin, MailCheck, PackageCheck, ShieldCheck, UserRound, WalletCards } from 'lucide-react'
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { formatPrice } from '../data/products'
 import { getStorefront, postStorefront } from '../lib/storefrontApi'
@@ -8,6 +8,7 @@ import { CustomerAuthForm, type CustomerAuthCustomer, type CustomerAuthResponse 
 import { ModalShell } from './ModalShell'
 
 export type StorefrontCustomer = CustomerAuthCustomer
+export type AccountSection = 'profile' | 'orders' | 'supercoin' | 'wallet' | 'addresses' | 'notifications'
 
 type SavedAddress = { id: string; label: string; fullName: string; phone: string; addressLine1: string; addressLine2?: string | null; landmark?: string | null; city: string; state: string; pincode: string; isDefault: boolean }
 type CustomerOrder = { publicToken: string; orderNumber: string; status: string; totalPaise: number; createdAt: string; items: Array<{ id: string; productName: string; size?: string | null; quantity: number; finalLineTotalPaise: number }>; shippingAddress?: { fullName?: string; addressLine1?: string; addressLine2?: string | null; city?: string; state?: string; pincode?: string } | null }
@@ -41,9 +42,9 @@ function AccountAuthShell({ children }: { children: ReactNode }) {
   </div>
 }
 
-export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange }: { open: boolean; onClose: () => void; apiAvailable: boolean; onCustomerChange: (customer: StorefrontCustomer | null) => void }) {
+export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange, initialSection = 'orders' }: { open: boolean; onClose: () => void; apiAvailable: boolean; onCustomerChange: (customer: StorefrontCustomer | null) => void; initialSection?: AccountSection }) {
   const [stage, setStage] = useState<'loading' | 'auth' | 'verification' | 'account'>('loading')
-  const [activeTab, setActiveTab] = useState<'orders' | 'addresses'>('orders')
+  const [activeSection, setActiveSection] = useState<AccountSection>(initialSection)
   const [customer, setCustomer] = useState<StorefrontCustomer | null>(null)
   const [orders, setOrders] = useState<CustomerOrder[]>([])
   const [addresses, setAddresses] = useState<SavedAddress[]>([])
@@ -82,7 +83,7 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange 
     setError('')
     setNotice('')
     setBusy(false)
-    setActiveTab('orders')
+    setActiveSection(initialSection)
     setShowLinkForm(false)
     if (!apiAvailable) {
       setStage('auth')
@@ -101,7 +102,7 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange 
       setError(cause instanceof Error ? cause.message : 'We could not check your account session.')
     })
     return () => { active = false }
-  }, [apiAvailable, loadAccount, open, showVerificationPending])
+  }, [apiAvailable, initialSection, loadAccount, open, showVerificationPending])
 
   const authenticated = async (response: CustomerAuthResponse) => {
     setError('')
@@ -181,19 +182,29 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange 
         {!customer.email && <div className="verification-banner" role="status"><MailCheck size={18} /><div><strong>Legacy account recovery</strong><span>Your previous SkinFox history is preserved. Contact <a href="mailto:contact@skinfox.in">contact@skinfox.in</a> so support can help you add a secure sign-in.</span></div></div>}
         {error && <p className="form-error" role="alert">{error}</p>}
         {notice && <p className="auth-notice" role="status">{notice}</p>}
-        <div className="account-tabs" role="tablist" aria-label="Account sections">
-          <button role="tab" aria-selected={activeTab === 'orders'} className={activeTab === 'orders' ? 'is-active' : ''} onClick={() => setActiveTab('orders')}><ClipboardList size={16} /> Orders <span>{orders.length}</span></button>
-          <button role="tab" aria-selected={activeTab === 'addresses'} className={activeTab === 'addresses' ? 'is-active' : ''} onClick={() => setActiveTab('addresses')}><Home size={16} /> Addresses <span>{addresses.length}</span></button>
-        </div>
-        {activeTab === 'orders' ? <section className="account-section" role="tabpanel">
+        {(activeSection === 'orders' || activeSection === 'addresses') && <div className="account-tabs" role="tablist" aria-label="Account sections">
+          <button role="tab" aria-selected={activeSection === 'orders'} className={activeSection === 'orders' ? 'is-active' : ''} onClick={() => setActiveSection('orders')}><ClipboardList size={16} /> Orders <span>{orders.length}</span></button>
+          <button role="tab" aria-selected={activeSection === 'addresses'} className={activeSection === 'addresses' ? 'is-active' : ''} onClick={() => setActiveSection('addresses')}><Home size={16} /> Addresses <span>{addresses.length}</span></button>
+        </div>}
+        {activeSection === 'orders' ? <section className="account-section" role="tabpanel">
           <div className="account-section__heading"><div><span className="eyebrow">Order history</span><h3>Your SkinFox edits</h3></div><span>{orders.length ? `${orders.length} order${orders.length === 1 ? '' : 's'}` : 'No orders yet'}</span></div>
           {orders.length ? <div className="order-list">{orders.map((order) => <article className="order-card" key={order.publicToken}><div className="order-card__top"><div><strong>{order.orderNumber}</strong><small>{new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(order.createdAt))}</small></div><span className={`order-status order-status--${order.status}`}>{humanise(order.status)}</span></div><ul>{order.items.map((item) => <li key={item.id}><span>{item.productName}{item.size ? <small>{item.size}</small> : null}</span><b>× {item.quantity}</b></li>)}</ul><div className="order-card__bottom"><span><MapPin size={14} /> {order.shippingAddress?.city ?? 'Delivery address saved'}{order.shippingAddress?.pincode ? ` · ${order.shippingAddress.pincode}` : ''}</span><strong>{formatPrice(order.totalPaise / 100)}</strong></div></article>)}</div> : <div className="account-empty"><PackageCheck size={24} /><h3>Your order history will appear here.</h3><p>Once you place a COD order, you can return here to see its status and items.</p></div>}
-        </section> : <section className="account-section" role="tabpanel">
+        </section> : activeSection === 'addresses' ? <section className="account-section" role="tabpanel">
           <div className="account-section__heading"><div><span className="eyebrow">Delivery addresses</span><h3>Saved addresses</h3></div><span>Manage at checkout</span></div>
           {addresses.length ? <div className="address-list">{addresses.map((address) => <article className="address-card" key={address.id}><div><strong>{address.label}</strong>{address.isDefault && <span>Default</span>}</div><p><b>{address.fullName}</b><br />{address.addressLine1}{address.addressLine2 ? `, ${address.addressLine2}` : ''}{address.landmark ? `, ${address.landmark}` : ''}<br />{address.city}, {address.state} · {address.pincode}<br />{address.phone}</p></article>)}</div> : <div className="account-empty"><Home size={24} /><h3>No saved addresses yet.</h3><p>Your delivery address can be saved during checkout and will then be available for your next SkinFox order.</p></div>}
           {!showLinkForm ? <button type="button" className="account-text-button account-link-login" onClick={() => setShowLinkForm(true)}>Add email and password login</button> : <form className="account-link-form" onSubmit={addPasswordLogin}><h4>Add email and password login</h4><label className="account-field"><span>Email address</span><input type="email" value={linkEmail} onChange={(event) => setLinkEmail(event.target.value)} required autoComplete="email" /></label><label className="account-field"><span>Password</span><input type="password" value={linkPassword} onChange={(event) => setLinkPassword(event.target.value)} required minLength={8} autoComplete="new-password" /></label><div><button className="button button--copper" type="submit" disabled={busy}>Save login</button><button className="account-text-button" type="button" onClick={() => setShowLinkForm(false)}>Cancel</button></div></form>}
-        </section>}
+        </section> : <AccountUtilitySection section={activeSection} customer={customer} onNavigate={setActiveSection} />}
       </div>}
     </div>
   </ModalShell>
+}
+
+function AccountUtilitySection({ section, customer, onNavigate }: { section: Exclude<AccountSection, 'orders' | 'addresses'>; customer: StorefrontCustomer; onNavigate: (section: AccountSection) => void }) {
+  const content = {
+    profile: { eyebrow: 'Personal details', title: 'My profile', description: 'Your account details are kept private to this signed-in session.', icon: <UserRound size={25} />, body: <div className="account-utility__details"><div><span>Full name</span><strong>{customer.fullName || 'SkinFox customer'}</strong></div><div><span>Email address</span><strong>{customer.email || 'Not added'}</strong></div><div><span>Mobile number</span><strong>{customer.phone || 'Not added'}</strong></div></div> },
+    supercoin: { eyebrow: 'Rewards', title: 'Supercoin', description: 'Supercoin rewards are not enabled for SkinFox yet. We will notify you when the programme launches.', icon: <CircleDollarSign size={25} />, body: <p className="account-utility__note">Your orders and account remain available while rewards are being prepared.</p> },
+    wallet: { eyebrow: 'Payments', title: 'Saved cards & wallet', description: 'Saved cards and wallet payments will be available when online payments are enabled.', icon: <WalletCards size={25} />, body: <p className="account-utility__note">Cash on delivery is the only payment method enabled in the current test release.</p> },
+    notifications: { eyebrow: 'Updates', title: 'Notifications', description: 'Order and account notifications will appear here as soon as notification preferences are enabled.', icon: <MailCheck size={25} />, body: <p className="account-utility__note">We currently send essential updates to the email address connected to your account.</p> },
+  }[section]
+  return <section className="account-utility" aria-labelledby="account-utility-title"><span className="account-utility__icon">{content.icon}</span><span className="eyebrow">{content.eyebrow}</span><h3 id="account-utility-title">{content.title}</h3><p>{content.description}</p>{content.body}<div className="account-utility__actions"><button type="button" className="button button--copper" onClick={() => onNavigate('orders')}>View orders</button><button type="button" className="account-text-button" onClick={() => onNavigate('addresses')}>Saved addresses</button></div></section>
 }

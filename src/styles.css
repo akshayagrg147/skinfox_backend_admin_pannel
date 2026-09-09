@@ -331,6 +331,129 @@ blockquote {
   gap: 6px;
 }
 
+.header-account-wrap {
+  position: relative;
+}
+
+.header-account--signed-in {
+  width: auto;
+  padding-inline: 10px;
+  gap: 7px;
+}
+
+.header-account__name {
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.header-account__chevron {
+  transition: transform 180ms ease;
+}
+
+.header-account__chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.account-popover {
+  position: absolute;
+  z-index: 120;
+  top: calc(100% + 12px);
+  right: 0;
+  width: min(318px, calc(100vw - 34px));
+  padding: 10px;
+  border: 1px solid rgba(48, 30, 53, 0.14);
+  border-radius: 18px;
+  background: rgba(255, 252, 247, 0.98);
+  box-shadow: 0 20px 55px rgba(41, 24, 45, 0.18);
+  backdrop-filter: blur(18px) saturate(130%);
+}
+
+.account-popover::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  right: 28px;
+  width: 12px;
+  height: 12px;
+  border-top: 1px solid rgba(48, 30, 53, 0.14);
+  border-left: 1px solid rgba(48, 30, 53, 0.14);
+  background: #fffcf7;
+  transform: rotate(45deg);
+}
+
+.account-popover__heading {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px 12px;
+  border-bottom: 1px solid rgba(48, 30, 53, 0.1);
+}
+
+.account-popover__heading span {
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 1rem;
+}
+
+.account-popover__heading small {
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
+.account-popover__item {
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 11px;
+  border: 0;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  font-size: 0.78rem;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.account-popover__item:hover,
+.account-popover__item:focus-visible {
+  outline: 0;
+  background: #f2e8f0;
+  color: var(--purple);
+  transform: translateX(2px);
+}
+
+.account-popover__item svg:first-child {
+  color: var(--purple);
+  flex: 0 0 auto;
+}
+
+.account-popover__item span {
+  flex: 1;
+}
+
+.account-popover__arrow {
+  color: rgba(48, 30, 53, 0.36);
+  transform: rotate(-90deg);
+}
+
+.account-popover__item--logout {
+  margin-top: 6px;
+  padding-top: 13px;
+  border-top: 1px solid rgba(48, 30, 53, 0.1);
+  color: #8f3328;
+}
+
+.account-popover__item--logout svg:first-child {
+  color: #8f3328;
+}
+
 .header-quiz {
   border: 0;
   border-radius: 999px;
