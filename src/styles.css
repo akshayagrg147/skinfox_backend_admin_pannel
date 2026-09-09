@@ -988,40 +988,6 @@ blockquote {
   grid-row: 2 / 4;
 }
 
-.hero-collection__count {
-  position: absolute;
-  z-index: 3;
-  left: 1.5%;
-  bottom: 4%;
-  min-width: 172px;
-  min-height: 70px;
-  padding: 12px 16px;
-  border: 1px solid rgba(255,255,255,.7);
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  background: rgba(255,255,255,.58);
-  box-shadow: 0 16px 42px rgba(67,43,72,.12);
-  backdrop-filter: blur(13px);
-}
-
-.hero-collection__count strong {
-  font-family: 'Playfair Display', Georgia, serif;
-  font-size: 2rem;
-  font-weight: 500;
-  line-height: 1;
-}
-
-.hero-collection__count-label {
-  color: #6f6870;
-  font-size: .48rem;
-  font-weight: 600;
-  line-height: 1.45;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-}
-
 .hero-collection__caption {
   color: #6f6870;
   font-size: .5rem;
@@ -1099,10 +1065,6 @@ blockquote {
 
   .hero-collection__grid {
     transform: translateY(-32px);
-  }
-
-  .hero-collection__count {
-    bottom: 44px;
   }
 
   .hero-collection__caption {
@@ -8563,11 +8525,6 @@ blockquote {
     height: 188px;
   }
 
-  .hero-collection__count {
-    left: 5%;
-    bottom: 1%;
-  }
-
   .hero-collection__caption {
     right: 6%;
     bottom: 3%;
@@ -9080,18 +9037,6 @@ blockquote {
 
   .hero-collection__card figcaption strong {
     font-size: .9rem;
-  }
-
-  .hero-collection__count {
-    left: 15px;
-    bottom: 0;
-    min-width: 154px;
-    min-height: 60px;
-    padding: 10px 13px;
-  }
-
-  .hero-collection__count strong {
-    font-size: 1.7rem;
   }
 
   .hero-collection__caption {
@@ -10131,7 +10076,6 @@ blockquote {
   .campaign-slideshow__status,
   .hero-collection__card figcaption span,
   .hero-collection__card figcaption small,
-  .hero-collection__count-label,
   .product-card__badge,
   .product-card__index,
   .product-card__meta,

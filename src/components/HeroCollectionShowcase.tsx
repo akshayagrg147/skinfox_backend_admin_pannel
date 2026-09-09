@@ -43,10 +43,6 @@ export function HeroCollectionShowcase({ products, onView }: HeroCollectionShowc
           </motion.figure>
         ))}
       </div>
-      <div className="hero-collection__count" aria-label={`${products.length} products in the SkinFox launch collection`}>
-        <strong>{String(products.length).padStart(2, '0')}</strong>
-        <span className="hero-collection__count-label">products<br />in the launch edit</span>
-      </div>
       <p className="hero-collection__caption hero-collection__caption--aside">
         Six featured here · all seven in the shop
       </p>

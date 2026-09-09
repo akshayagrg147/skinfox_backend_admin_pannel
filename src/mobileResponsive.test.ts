@@ -25,9 +25,9 @@ describe('mobile responsive stylesheet contracts', () => {
     expect(mobileRules).toContain('font-size: clamp(0.95rem, 4.45vw, 1.05rem);')
   })
 
-  it('keeps hero collection metadata above the next section on short desktop viewports', () => {
+  it('keeps the hero collection inside the viewport on short desktop viewports', () => {
     expect(styles).toMatch(/@media \(min-width: 821px\) and \(max-height: 900px\) \{[\s\S]*?\.hero \{[\s\S]*?min-height: max\(calc\(100svh - 34px\), 760px\);/)
     expect(styles).toMatch(/@media \(min-width: 821px\) and \(max-height: 900px\) \{[\s\S]*?\.hero__visual--collection \{[\s\S]*?min-height: 0;/)
-    expect(styles).toMatch(/@media \(min-width: 821px\) and \(max-height: 900px\) \{[\s\S]*?\.hero-collection__count \{[\s\S]*?bottom: 44px;/)
+    expect(styles).not.toMatch(/hero-collection__count/)
   })
 })

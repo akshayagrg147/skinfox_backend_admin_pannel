@@ -49,7 +49,7 @@ describe('SkinFox storefront', () => {
     expect(heroProducts).toHaveLength(6)
     expect(new Set(heroIds).size).toBe(6)
     expect(heroCategories.size).toBeGreaterThanOrEqual(2)
-    expect(screen.getByLabelText('7 products in the SkinFox launch collection')).toBeInTheDocument()
+    expect(screen.queryByLabelText('7 products in the SkinFox launch collection')).not.toBeInTheDocument()
 
     const storyProducts = within(screen.getByRole('list', { name: 'SkinFox Hydrelle product' })).getAllByRole('listitem')
     expect(storyProducts).toHaveLength(1)
