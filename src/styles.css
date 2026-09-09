@@ -492,6 +492,7 @@ blockquote {
 /* Signed-in account controls need a single horizontal row for the icon,
    customer name and menu chevron; the shared icon button is a grid by default. */
 .icon-button.header-account--signed-in {
+  width: auto;
   display: inline-flex;
 }
 
