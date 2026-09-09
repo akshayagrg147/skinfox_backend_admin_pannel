@@ -219,7 +219,7 @@ export default function App() {
   }
   const addToCart = (product: Product, quantity = 1, openCart = false) => {
     if (storefront.apiMode) {
-      void ensureCartToken().then((token) => postStorefront<any>(`/carts/${token}/items`, { productId: product.id, quantity }, { 'x-cart-token': token })).then(applyCartResponse).then(() => { setToast(`${product.name} added to your edit`); if (openCart) setCartOpen(true) }).catch((cause: unknown) => setToast(cause instanceof Error ? cause.message : 'Unable to update your bag'))
+      void ensureCartToken().then((token) => postStorefront<any>(`/carts/${token}/items`, { productId: product.id, quantity }, { 'x-cart-token': token })).then((response) => { applyCartResponse(response); const issue = Array.isArray(response.validationMessages) ? response.validationMessages[0] : ''; if (issue) throw new Error(issue); return response }).then(() => { setToast(`${product.name} added to your edit`); if (openCart) setCartOpen(true) }).catch((cause: unknown) => setToast(cause instanceof Error ? cause.message : 'Unable to update your bag'))
       return
     }
     setCart((current) => {

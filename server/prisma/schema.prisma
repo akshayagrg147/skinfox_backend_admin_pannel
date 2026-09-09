@@ -1230,6 +1230,7 @@ model CareFinder {
   name        String
   version     Int                    @default(1)
   active      Boolean                @default(true)
+  config      Json?
   questions   CareFinderQuestion[]
   rules       CareFinderRule[]
   submissions CareFinderSubmission[]
@@ -1241,6 +1242,9 @@ model CareFinderQuestion {
   key          String
   prompt       String
   sortOrder    Int                @default(0)
+  selectionMode String             @default("single")
+  required     Boolean            @default(true)
+  condition    Json?
   careFinder   CareFinder         @relation(fields: [careFinderId], references: [id], onDelete: Cascade)
   options      CareFinderOption[]
 
@@ -1254,6 +1258,7 @@ model CareFinderOption {
   label       String
   description String?
   sortOrder   Int                @default(0)
+  condition   Json?
   question    CareFinderQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
 }
 
@@ -1264,6 +1269,7 @@ model CareFinderRule {
   answerValue  String
   productId    String
   weight       Int        @default(1)
+  metadata     Json?
   careFinder   CareFinder @relation(fields: [careFinderId], references: [id], onDelete: Cascade)
   product      Product    @relation(fields: [productId], references: [id], onDelete: Restrict)
 
