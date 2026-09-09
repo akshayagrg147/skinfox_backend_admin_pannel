@@ -147,13 +147,13 @@ export const consumeGoogleRedirect = async (): Promise<{ credential: UserCredent
   return { credential, intent }
 }
 
-export const exchangeFirebaseUser = async <T extends { customer: unknown }>(user: User, cartToken?: string, link = false) => {
+export const exchangeFirebaseUser = async <T extends { customer: unknown }>(user: User, cartToken?: string, link = false, profile?: { phone?: string }) => {
   const idToken = await user.getIdToken()
   const csrf = link && typeof document !== 'undefined'
     ? document.cookie.split('; ').find((entry) => entry.startsWith('sf_customer_csrf='))?.split('=').slice(1).join('=')
     : undefined
   const headers = csrf ? { 'x-customer-csrf-token': decodeURIComponent(csrf) } : undefined
-  return postStorefront<T>('/customer/auth/firebase', { idToken, ...(cartToken ? { cartToken } : {}), ...(link ? { link: true } : {}) }, headers)
+  return postStorefront<T>('/customer/auth/firebase', { idToken, ...(cartToken ? { cartToken } : {}), ...(link ? { link: true } : {}), ...(profile?.phone ? { profilePhone: profile.phone } : {}) }, headers)
 }
 
 export const signOutFirebase = async () => {

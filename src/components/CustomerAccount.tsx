@@ -42,7 +42,7 @@ function AccountAuthShell({ children }: { children: ReactNode }) {
 }
 
 export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange }: { open: boolean; onClose: () => void; apiAvailable: boolean; onCustomerChange: (customer: StorefrontCustomer | null) => void }) {
-  const [stage, setStage] = useState<'loading' | 'auth' | 'account'>('loading')
+  const [stage, setStage] = useState<'loading' | 'auth' | 'verification' | 'account'>('loading')
   const [activeTab, setActiveTab] = useState<'orders' | 'addresses'>('orders')
   const [customer, setCustomer] = useState<StorefrontCustomer | null>(null)
   const [orders, setOrders] = useState<CustomerOrder[]>([])
@@ -53,6 +53,15 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange 
   const [linkEmail, setLinkEmail] = useState('')
   const [linkPassword, setLinkPassword] = useState('')
   const [showLinkForm, setShowLinkForm] = useState(false)
+
+  const showVerificationPending = useCallback((nextCustomer: StorefrontCustomer) => {
+    setCustomer(nextCustomer)
+    setOrders([])
+    setAddresses([])
+    setLinkEmail(nextCustomer.email ?? '')
+    onCustomerChange(nextCustomer)
+    setStage('verification')
+  }, [onCustomerChange])
 
   const loadAccount = useCallback(async (nextCustomer: StorefrontCustomer) => {
     const [nextOrders, nextAddresses] = await Promise.all([
@@ -84,6 +93,7 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange 
     void getStorefront<{ customer: StorefrontCustomer | null }>('/customer/auth/me').then(async ({ customer: signedInCustomer }) => {
       if (!active) return
       if (!signedInCustomer) { setStage('auth'); return }
+      if (!signedInCustomer.emailVerified) { showVerificationPending(signedInCustomer); return }
       await loadAccount(signedInCustomer)
     }).catch((cause: unknown) => {
       if (!active) return
@@ -91,10 +101,11 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange 
       setError(cause instanceof Error ? cause.message : 'We could not check your account session.')
     })
     return () => { active = false }
-  }, [apiAvailable, loadAccount, open])
+  }, [apiAvailable, loadAccount, open, showVerificationPending])
 
   const authenticated = async (response: CustomerAuthResponse) => {
     setError('')
+    if (!response.customer.emailVerified) { showVerificationPending(response.customer); return }
     await loadAccount(response.customer)
   }
 
@@ -105,8 +116,13 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange 
     try {
       const user = await refreshFirebaseUser()
       const response = await exchangeFirebaseUser<CustomerAuthResponse>(user)
-      await loadAccount(response.customer)
-      setNotice(response.customer.emailVerified ? 'Your email is verified.' : 'Your email is still awaiting verification. Open the latest email and try again.')
+      if (response.customer.emailVerified) {
+        await loadAccount(response.customer)
+        setNotice('Your email is verified.')
+      } else {
+        showVerificationPending(response.customer)
+        setNotice('Your email is still awaiting verification. Open the latest email and try again.')
+      }
     } catch (cause) { setError(firebaseAuthErrorMessage(cause, 'We could not refresh verification status. Please try again.')) } finally { setBusy(false) }
   }
 
@@ -144,7 +160,18 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange 
   return <ModalShell open={open} onClose={onClose} title="Your SkinFox account" className="account-modal">
     <div className="account-shell">
       {stage === 'loading' && <div className="account-loading"><LoaderCircle size={22} /><span>Opening your SkinFox account…</span></div>}
-      {stage === 'auth' && <AccountAuthShell><CustomerAuthForm apiAvailable={apiAvailable} destination="account" onAuthenticated={authenticated} /></AccountAuthShell>}
+      {stage === 'auth' && <AccountAuthShell>{error && <p className="form-error" role="alert">{error}</p>}<CustomerAuthForm apiAvailable={apiAvailable} destination="account" onAuthenticated={authenticated} /></AccountAuthShell>}
+      {stage === 'verification' && customer && <AccountAuthShell><div className="account-pending-verification">
+        <span className="account-pending-verification__icon"><MailCheck size={24} /></span>
+        <span className="eyebrow">One quick step</span>
+        <h2>Check your inbox.</h2>
+        <p>Your account is created, but orders and saved addresses unlock after you verify <strong>{customer.email ?? 'your email address'}</strong>.</p>
+        <div className="account-pending-verification__notice"><MailCheck size={16} /><span>Open the secure Firebase email, then return here and tap “I verified”.</span></div>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        {notice && <p className="auth-notice" role="status">{notice}</p>}
+        <div className="account-pending-verification__actions"><button className="button button--copper" type="button" onClick={() => void refreshVerification()} disabled={busy}>I verified</button><button className="button button--dark" type="button" onClick={() => void resendVerification()} disabled={busy}>Resend email</button></div>
+        <button className="account-text-button" type="button" onClick={() => void logout()} disabled={busy}><LogOut size={13} /> Sign out</button>
+      </div></AccountAuthShell>}
       {stage === 'account' && customer && <div className="account-dashboard">
         <header className="account-hero">
           <div><span className="eyebrow"><UserRound size={14} /> Your SkinFox account</span><h2>Hello, {customer.fullName === 'SkinFox customer' ? 'there' : customer.fullName}.</h2><p>{customer.email ? `Signed in with ${customer.email}. ` : ''}Your account information is only visible in this signed-in session.</p></div>

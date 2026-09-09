@@ -1,4 +1,4 @@
-import { ArrowLeft, Eye, EyeOff, KeyRound, LoaderCircle, Mail, UserRound } from 'lucide-react'
+import { ArrowLeft, Eye, EyeOff, KeyRound, LoaderCircle, Mail, Phone, UserRound } from 'lucide-react'
 import { FormEvent, useState } from 'react'
 import {
   createEmailPasswordAccount,
@@ -18,6 +18,7 @@ type AuthMode = 'signin' | 'signup' | 'reset'
 export function CustomerAuthForm({ apiAvailable, cartToken, destination, onAuthenticated }: { apiAvailable: boolean; cartToken?: string; destination: 'account' | 'checkout'; onAuthenticated: (response: CustomerAuthResponse) => Promise<void> | void }) {
   const [mode, setMode] = useState<AuthMode>('signin')
   const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
@@ -30,13 +31,14 @@ export function CustomerAuthForm({ apiAvailable, cartToken, destination, onAuthe
     setMode(next)
     setError('')
     setNotice('')
+    setPhone('')
     setPassword('')
     setConfirmation('')
   }
 
-  const authenticate = async (credentialUser: Parameters<typeof exchangeFirebaseUser>[0]) => {
+  const authenticate = async (credentialUser: Parameters<typeof exchangeFirebaseUser>[0], profilePhone?: string) => {
     if (!apiAvailable) throw new Error('Customer accounts are temporarily unavailable. Please try again shortly.')
-    await onAuthenticated(await exchangeFirebaseUser<CustomerAuthResponse>(credentialUser, cartToken || undefined))
+    await onAuthenticated(await exchangeFirebaseUser<CustomerAuthResponse>(credentialUser, cartToken || undefined, false, profilePhone ? { phone: profilePhone } : undefined))
   }
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -58,12 +60,17 @@ export function CustomerAuthForm({ apiAvailable, cartToken, destination, onAuthe
       setError('Passwords do not match.')
       return
     }
+    const normalizedPhone = phone.replace(/\D/g, '')
+    if (mode === 'signup' && !/^[6-9]\d{9}$/.test(normalizedPhone)) {
+      setError('Enter a valid 10-digit Indian mobile number.')
+      return
+    }
     setBusy(true)
     try {
       const credential = mode === 'signup'
         ? await createEmailPasswordAccount(name, email, password)
         : await signInWithEmailPassword(email, password)
-      await authenticate(credential.user)
+      await authenticate(credential.user, mode === 'signup' ? normalizedPhone : undefined)
     } catch (cause) {
       setError(firebaseAuthErrorMessage(cause, mode === 'signup' ? 'We could not create your account. Please try again.' : 'We could not sign you in. Please try again.'))
     } finally { setBusy(false) }
@@ -99,6 +106,7 @@ export function CustomerAuthForm({ apiAvailable, cartToken, destination, onAuthe
     </>}
     <form onSubmit={submit} noValidate>
       {mode === 'signup' && <label className="account-field"><span>Full name</span><div className="auth-input-wrap"><UserRound size={16} aria-hidden="true" /><input value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" required minLength={2} placeholder="Your name" /></div></label>}
+      {mode === 'signup' && <label className="account-field"><span>Mobile number</span><div className="auth-input-wrap"><Phone size={16} aria-hidden="true" /><input value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/g, '').slice(0, 10))} inputMode="tel" autoComplete="tel" required placeholder="9876543210" /></div><small className="account-field__hint">Used for delivery updates. No SMS login is required.</small></label>}
       <label className="account-field"><span>Email address</span><div className="auth-input-wrap"><Mail size={16} aria-hidden="true" /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required placeholder="you@example.com" /></div></label>
       {mode !== 'reset' && <label className="account-field"><span>Password</span><div className="auth-input-wrap"><KeyRound size={16} aria-hidden="true" /><input type={showPassword ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} required minLength={8} placeholder="At least 8 characters" /><button type="button" className="auth-password-toggle" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword((visible) => !visible)}>{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></label>}
       {mode === 'signup' && <label className="account-field"><span>Confirm password</span><div className="auth-input-wrap"><KeyRound size={16} aria-hidden="true" /><input type={showPassword ? 'text' : 'password'} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" required minLength={8} placeholder="Repeat your password" /></div></label>}

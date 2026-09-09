@@ -6120,6 +6120,13 @@ blockquote {
   color: #45614b;
 }
 
+.account-field__hint {
+  margin: -1px 0 0;
+  color: #777171;
+  font-size: .59rem;
+  line-height: 1.5;
+}
+
 .auth-spinner {
   animation: account-spin 900ms linear infinite;
 }
@@ -6175,6 +6182,69 @@ blockquote {
 
 .verification-banner--checkout {
   margin-top: -4px;
+}
+
+.account-pending-verification {
+  max-width: 430px;
+}
+
+.account-pending-verification__icon {
+  width: 52px;
+  height: 52px;
+  margin-bottom: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #f2e5f2;
+  color: var(--copper);
+}
+
+.account-pending-verification > h2 {
+  margin-bottom: 16px;
+}
+
+.account-pending-verification > p {
+  max-width: 420px;
+  color: #6d7069;
+  font-size: .78rem;
+  line-height: 1.7;
+}
+
+.account-pending-verification__notice {
+  margin-top: 24px;
+  padding: 13px 14px;
+  border: 1px solid #ddcee0;
+  border-radius: 11px;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  background: #f8f1f8;
+  color: #5b4161;
+  font-size: .64rem;
+  line-height: 1.55;
+}
+
+.account-pending-verification__notice svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--copper);
+}
+
+.account-pending-verification__actions {
+  margin-top: 26px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.account-pending-verification__actions .button {
+  min-height: 46px;
+  flex: 1 1 150px;
+  font-size: .64rem;
+}
+
+.account-pending-verification > .account-text-button {
+  margin-top: 22px;
 }
 
 .account-link-login {
@@ -8917,6 +8987,14 @@ blockquote {
     width: 100%;
     justify-content: flex-start;
     padding-left: 30px;
+  }
+
+  .account-pending-verification__actions {
+    flex-direction: column;
+  }
+
+  .account-pending-verification__actions .button {
+    width: 100%;
   }
 
   .account-auth__content h2,

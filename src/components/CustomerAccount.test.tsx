@@ -57,8 +57,26 @@ describe('CustomerAccount', () => {
     expect(onCustomerChange).toHaveBeenCalledWith(expect.objectContaining({ id: 'customer-1', email: 'asha@example.com' }))
   })
 
-  it('creates an email account and displays the verification reminder', async () => {
+  it('keeps a new email account in the verification state until the email is verified', async () => {
     exchangeMock.mockResolvedValue({ customer: { id: 'customer-2', fullName: 'Neha Rao', email: 'neha@example.com', emailVerified: false } } as never)
+    render(<CustomerAccount open onClose={() => undefined} apiAvailable onCustomerChange={() => undefined} />)
+    await screen.findByRole('heading', { name: /welcome back/i })
+    fireEvent.click(screen.getByRole('button', { name: /create account/i }))
+    fireEvent.change(screen.getByRole('textbox', { name: /full name/i }), { target: { value: 'Neha Rao' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /mobile number/i }), { target: { value: '9876543210' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /email address/i }), { target: { value: 'neha@example.com' } })
+    const passwords = screen.getAllByPlaceholderText(/at least 8 characters/i)
+    fireEvent.change(passwords[0], { target: { value: 'strong password 123' } })
+    fireEvent.change(screen.getByPlaceholderText('Repeat your password'), { target: { value: 'strong password 123' } })
+    fireEvent.click(screen.getByRole('button', { name: /create account/i }))
+    await screen.findByRole('heading', { name: /check your inbox/i })
+    expect(screen.queryByRole('tab', { name: /orders/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /addresses/i })).not.toBeInTheDocument()
+    expect(signUpMock).toHaveBeenCalledWith('Neha Rao', 'neha@example.com', 'strong password 123')
+    expect(exchangeMock).toHaveBeenCalledWith(firebaseUser, undefined, false, { phone: '9876543210' })
+  })
+
+  it('requires a valid mobile number before creating an email account', async () => {
     render(<CustomerAccount open onClose={() => undefined} apiAvailable onCustomerChange={() => undefined} />)
     await screen.findByRole('heading', { name: /welcome back/i })
     fireEvent.click(screen.getByRole('button', { name: /create account/i }))
@@ -68,8 +86,8 @@ describe('CustomerAccount', () => {
     fireEvent.change(passwords[0], { target: { value: 'strong password 123' } })
     fireEvent.change(screen.getByPlaceholderText('Repeat your password'), { target: { value: 'strong password 123' } })
     fireEvent.click(screen.getByRole('button', { name: /create account/i }))
-    await screen.findByText(/verify your email before ordering/i)
-    expect(signUpMock).toHaveBeenCalledWith('Neha Rao', 'neha@example.com', 'strong password 123')
+    await screen.findByText(/valid 10-digit indian mobile number/i)
+    expect(signUpMock).not.toHaveBeenCalled()
   })
 
   it('requests a neutral password reset message', async () => {

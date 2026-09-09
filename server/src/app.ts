@@ -307,7 +307,7 @@ export function buildApp(): FastifyInstance {
 
   routes.post('/api/v1/customer/auth/firebase', { config: { rateLimit: { max: 20, timeWindow: '15 minutes' } } }, async (request, reply) => {
     if (!firebaseAdminIsConfigured()) throw new ApiError(503, 'FIREBASE_AUTH_NOT_CONFIGURED', 'Firebase customer authentication is not configured on this server.')
-    const input = z.object({ idToken: z.string().min(20), cartToken: z.string().min(16).optional(), link: z.boolean().default(false) }).parse(request.body)
+    const input = z.object({ idToken: z.string().min(20), cartToken: z.string().min(16).optional(), link: z.boolean().default(false), profilePhone: deliveryPhoneSchema.optional() }).parse(request.body)
     let decoded: any
     try {
       decoded = await verifyFirebaseIdToken(input.idToken, true)
@@ -331,6 +331,7 @@ export function buildApp(): FastifyInstance {
     const tokenEmail = typeof decoded.email === 'string' ? decoded.email.trim().toLowerCase() : null
     const tokenEmailVerified = decoded.email_verified === true
     const tokenName = typeof decoded.name === 'string' && decoded.name.trim().length >= 2 ? decoded.name.trim() : 'SkinFox customer'
+    const profilePhone = input.profilePhone
     const token = randomToken(32)
     const csrf = randomToken(18)
     let result: any
@@ -343,10 +344,12 @@ export function buildApp(): FastifyInstance {
           // Firebase authentication proves the credential, but an email claim
           // must never be used to take over an unrelated legacy SkinFox row.
           const emailTaken = tokenEmail ? await tx.customer.findUnique({ where: { email: tokenEmail }, select: { id: true } }) : null
-          customer = await tx.customer.create({ data: { fullName: tokenName, email: emailTaken ? undefined : tokenEmail ?? undefined, emailVerifiedAt: !emailTaken && tokenEmail && tokenEmailVerified ? new Date() : undefined } })
+          const phoneTaken = profilePhone ? await tx.customer.findUnique({ where: { phone: profilePhone }, select: { id: true } }) : null
+          customer = await tx.customer.create({ data: { fullName: tokenName, email: emailTaken ? undefined : tokenEmail ?? undefined, phone: phoneTaken ? undefined : profilePhone, emailVerifiedAt: !emailTaken && tokenEmail && tokenEmailVerified ? new Date() : undefined } })
         } else {
           const updates: any = {}
           if (!customer.email && tokenEmail && !await tx.customer.findFirst({ where: { email: tokenEmail, id: { not: customer.id } }, select: { id: true } })) { updates.email = tokenEmail; if (tokenEmailVerified) updates.emailVerifiedAt = new Date() }
+          if (!customer.phone && profilePhone && !await tx.customer.findFirst({ where: { phone: profilePhone, id: { not: customer.id } }, select: { id: true } })) updates.phone = profilePhone
           if (tokenEmailVerified && customer.email === tokenEmail && !customer.emailVerifiedAt) updates.emailVerifiedAt = new Date()
           if (customer.fullName === 'SkinFox customer' && tokenName !== 'SkinFox customer') updates.fullName = tokenName
           if (Object.keys(updates).length) customer = await tx.customer.update({ where: { id: customer.id }, data: updates })
