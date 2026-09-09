@@ -8320,6 +8320,28 @@ blockquote {
 
   .header-actions {
     justify-self: end;
+    min-width: 0;
+    gap: 2px;
+  }
+
+  .header-quiz {
+    display: none;
+  }
+
+  .header-account-wrap {
+    min-width: 0;
+    max-width: 132px;
+  }
+
+  .header-account--signed-in {
+    max-width: 132px;
+    padding-inline: 6px;
+    gap: 4px;
+  }
+
+  .header-account__name {
+    max-width: 86px;
+    font-size: .6rem;
   }
 
   .hero {
@@ -9963,6 +9985,21 @@ blockquote {
 
   .header-actions {
     gap: 0;
+  }
+
+  .header-account-wrap,
+  .header-account--signed-in {
+    max-width: 106px;
+  }
+
+  .header-account--signed-in {
+    padding-inline: 3px;
+    gap: 2px;
+  }
+
+  .header-account__name {
+    max-width: 57px;
+    font-size: .56rem;
   }
 
   .hero {
