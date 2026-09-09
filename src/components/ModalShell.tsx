@@ -13,6 +13,8 @@ type ModalShellProps = {
 
 export function ModalShell({ open, onClose, title, children, className = '', drawer = false }: ModalShellProps) {
   const panelRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
   useEffect(() => {
     if (!open) return
@@ -25,7 +27,7 @@ export function ModalShell({ open, onClose, title, children, className = '', dra
     window.setTimeout(() => getFocusable()[0]?.focus(), 30)
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') onCloseRef.current()
       if (event.key !== 'Tab') return
       const focusable = getFocusable()
       if (focusable.length === 0) return
@@ -46,7 +48,7 @@ export function ModalShell({ open, onClose, title, children, className = '', dra
       document.body.classList.remove('is-locked')
       previousFocus?.focus()
     }
-  }, [onClose, open])
+  }, [open])
 
   return (
     <AnimatePresence>
