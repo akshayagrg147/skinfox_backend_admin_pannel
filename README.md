@@ -34,13 +34,15 @@ The JSON document behind the interactive API reference is available at `http://l
 
 ### Environment variables
 
-The complete templates are [server/.env.example](/Users/akshay/Documents/ChatGPT/skinfox/server/.env.example), [admin/.env.example](/Users/akshay/Documents/ChatGPT/skinfox/admin/.env.example), [affiliate/.env.example](/Users/akshay/Documents/ChatGPT/skinfox/affiliate/.env.example), and [.env.example](/Users/akshay/Documents/ChatGPT/skinfox/.env.example). The server template covers PostgreSQL/Redis (`DATABASE_URL`, `REDIS_URL`), origins and session security (`STOREFRONT_ORIGIN`, `ADMIN_ORIGIN`, `AFFILIATE_ORIGIN`, `COOKIE_SECRET`, `SESSION_TTL_DAYS`), Firebase Admin authentication (`FIREBASE_PROJECT_ID`, `GOOGLE_APPLICATION_CREDENTIALS`), independent affiliate OTP (`AFFILIATE_OTP_*`), local customer OTP fallback (`CUSTOMER_OTP_*`), first-admin bootstrap (`SEED_ADMIN_*`), and optional Razorpay, S3-compatible storage, and Mailpit provider settings. Keep real values in an ignored `.env` or deployment secret manager.
+The complete templates are [server/.env.example](/Users/akshay/Documents/ChatGPT/skinfox/server/.env.example), [admin/.env.example](/Users/akshay/Documents/ChatGPT/skinfox/admin/.env.example), [affiliate/.env.example](/Users/akshay/Documents/ChatGPT/skinfox/affiliate/.env.example), and [.env.example](/Users/akshay/Documents/ChatGPT/skinfox/.env.example). The server template covers PostgreSQL/Redis (`DATABASE_URL`, `REDIS_URL`), origins and session security (`STOREFRONT_ORIGIN`, `ADMIN_ORIGIN`, `AFFILIATE_ORIGIN`, `COOKIE_SECRET`, `SESSION_TTL_DAYS`), Firebase Admin authentication (`FIREBASE_PROJECT_ID`, `FIREBASE_SERVICE_ACCOUNT_JSON` or `GOOGLE_APPLICATION_CREDENTIALS`), independent affiliate OTP (`AFFILIATE_OTP_*`), first-admin bootstrap (`SEED_ADMIN_*`), and optional Razorpay, S3-compatible storage, and Mailpit provider settings. Keep real values in an ignored `.env` or deployment secret manager.
 
-### Customer OTP and COD test flow
+### Customer Firebase authentication and COD test flow
 
-The customer flow uses Firebase SMS phone verification and Google sign-in when the public `VITE_FIREBASE_*` web configuration is present. The backend verifies the Firebase ID token, maps each provider UID to a `CustomerIdentity`, creates the existing SkinFox session, and links the guest cart. Google-only accounts must verify an Indian mobile number before saving an address or placing a COD order. Local tests can use the static OTP fallback (`CUSTOMER_OTP_MODE=static`); static OTP is rejected in production.
+The customer flow uses Firebase Google sign-in or email/password when the public `VITE_FIREBASE_*` web configuration is present. The backend verifies the Firebase ID token, maps each Firebase project/UID to a `CustomerIdentity`, creates a SkinFox session, and links the guest cart. New email/password accounts receive a Firebase verification email; a verified email is required before a COD order can be placed. Password reset and Firebase token revocation invalidate the corresponding SkinFox session. Existing legacy customer rows remain readable and are never silently merged by email; contact `contact@skinfox.in` for support-assisted recovery.
 
-Only COD is available in this release. To exercise the full flow, publish a product with a non-null selling price and `available` purchase state in Admin, then add it to the bag. Firebase Phone and Google providers are configured for the SkinFox project; SMS delivery remains subject to Firebase quotas and authorized domains. Razorpay is still intentionally disabled until payment-provider credentials and webhook verification are supplied.
+In Firebase Console, enable **Google** and **Email/Password** under Authentication → Sign-in method, configure the verification/reset email templates, and add every local/production hostname to Authentication → Settings → Authorized domains. The storefront needs `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, and `VITE_FIREBASE_APP_ID`; the API needs a server-only Firebase service account. Never expose the service-account JSON in the browser bundle.
+
+Only COD is available in this release. To exercise the full flow, publish a product with a non-null selling price and `available` purchase state in Admin, then add it to the bag. Firebase Google and email/password providers are configured for the SkinFox project; email delivery remains subject to Firebase quotas and authorized domains. Razorpay is still intentionally disabled until payment-provider credentials and webhook verification are supplied.
 
 ### Affiliate programme
 
@@ -82,7 +84,7 @@ Provider adapters are deliberately local-safe. Set Razorpay, S3/R2, email and sh
 
 For a PostgreSQL backup, run `pg_dump --format=custom --file=skinfox-$(date +%F).dump "$DATABASE_URL"`; restore with `pg_restore --clean --if-exists --dbname="$DATABASE_URL" skinfox-YYYY-MM-DD.dump` during a maintenance window. Retain encrypted backups according to the deployment retention policy and test restores before launch.
 
-Security defaults include Argon2id passwords, HttpOnly/SameSite admin and customer sessions, separate CSRF cookie/headers, OTP expiry, resend and attempt limits, origin-restricted CORS, global and login-specific rate limits, encrypted-at-rest TOTP secrets, request IDs with redacted structured logs, server-side paise pricing, transactional stock reservations, append-only audit records, signed webhook verification, and idempotency-key replay protection.
+Security defaults include Argon2id passwords, HttpOnly/SameSite admin and customer sessions, Firebase token revocation checks, separate CSRF cookie/headers, affiliate OTP expiry/resend/attempt limits, origin-restricted CORS, global and login-specific rate limits, encrypted-at-rest TOTP secrets, request IDs with redacted structured logs, server-side paise pricing, transactional stock reservations, append-only audit records, signed webhook verification, and idempotency-key replay protection.
 
 ## What is included
 
@@ -95,7 +97,7 @@ Security defaults include Argon2id passwords, HttpOnly/SameSite admin and custom
 - A single-product Save Data and reduced-motion fallback for the motion chapter, while the hero and catalogue remain multi-product
 - Search, local cart persistence, quantity controls, and explicit pending-price states
 - Three-step routine finder with tailored recommendations
-- Guest carts with mandatory customer SMS-style OTP verification, saved delivery addresses, customer sessions and COD-only checkout
+- Guest carts with Firebase Google/email authentication, verified-email checkout gating, saved delivery addresses, customer sessions and COD-only checkout
 - An affiliate dashboard with OTP sign-in, encrypted PAN application details, admin approval, referral-link attribution, 10% commission wallet credits and ₹500+ payout requests
 - Responsive navigation, front-label transparency, editorial product notes, FAQ, and newsletter sections
 - Unit and interaction tests with Vitest and Testing Library

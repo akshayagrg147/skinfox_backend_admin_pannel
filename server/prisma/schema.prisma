@@ -609,6 +609,8 @@ model Customer {
   notes     CustomerNote[]
   carts     Cart[]
   sessions  CustomerSession[]
+  // Legacy relation retained so existing customer records remain readable;
+  // new customer authentication uses Firebase Google/email identities.
   otpChallenges CustomerOtpChallenge[]
   identities CustomerIdentity[]
 }
@@ -616,6 +618,7 @@ model Customer {
 model CustomerIdentity {
   id         String   @id @default(cuid())
   customerId String
+  firebaseProjectId String @default("skinfox")
   provider   String
   providerUid String
   email      String?
@@ -623,7 +626,7 @@ model CustomerIdentity {
   updatedAt  DateTime @updatedAt
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  @@unique([provider, providerUid])
+  @@unique([firebaseProjectId, providerUid])
   @@index([customerId])
 }
 
@@ -647,6 +650,8 @@ model Address {
   @@index([customerId, isDefault])
 }
 
+// Deprecated customer SMS OTP records. Kept for migration compatibility only;
+// no active route creates or verifies these challenges.
 model CustomerOtpChallenge {
   id        String   @id @default(cuid())
   customerId String?
@@ -666,6 +671,8 @@ model CustomerSession {
   id         String   @id @default(cuid())
   tokenHash  String   @unique
   customerId String
+  firebaseProjectId String?
+  firebaseUid String?
   expiresAt  DateTime
   revokedAt  DateTime?
   lastSeenAt DateTime @default(now())

@@ -548,7 +548,7 @@ export default function App() {
       <CartDrawer open={cartOpen} lines={cart} onClose={() => setCartOpen(false)} onQuantity={updateQuantity} onRemove={(id) => updateQuantity(id, 0)} onCheckout={() => setCheckoutOpen(true)} />
       <RoutineQuiz open={quizOpen} onClose={() => setQuizOpen(false)} onAdd={(product) => addToCart(product)} catalogue={collectionProducts} finder={storefront.careFinder ?? undefined} />
       <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} onView={setSelectedProduct} catalogue={collectionProducts} apiMode={storefront.apiMode} />
-      <CheckoutModal open={checkoutOpen} lines={cart} cartToken={cartToken} onCustomerChange={setCustomer} onClose={() => setCheckoutOpen(false)} onComplete={() => { setCart([]); if (cartToken) localStorage.removeItem('skinfox-cart-token'); setCartToken('') }} />
+      <CheckoutModal open={checkoutOpen} lines={cart} cartToken={cartToken} apiAvailable={storefront.apiMode} onCustomerChange={setCustomer} onClose={() => setCheckoutOpen(false)} onComplete={() => { setCart([]); if (cartToken) localStorage.removeItem('skinfox-cart-token'); setCartToken('') }} />
       <CustomerAccount open={accountOpen} onClose={() => setAccountOpen(false)} apiAvailable={storefront.apiMode} onCustomerChange={setCustomer} />
 
       <AnimatePresence>

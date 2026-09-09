@@ -1,5 +1,5 @@
 import { applicationDefault, cert, getApp, getApps, initializeApp, type App } from 'firebase-admin/app'
-import { getAuth, type DecodedIdToken } from 'firebase-admin/auth'
+import { getAuth, type DecodedIdToken, type UserRecord } from 'firebase-admin/auth'
 
 let cachedApp: App | null | undefined
 
@@ -16,7 +16,9 @@ const configuredServiceAccount = () => {
 }
 
 export const firebaseAdminIsConfigured = (env: NodeJS.ProcessEnv = process.env) => Boolean(
-  env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim() || env.GOOGLE_APPLICATION_CREDENTIALS?.trim() || env.GOOGLE_CLOUD_PROJECT?.trim() || env.FIREBASE_PROJECT_ID?.trim(),
+  // FIREBASE_PROJECT_ID only identifies the project; it is not a credential.
+  // On Google Cloud, GOOGLE_CLOUD_PROJECT indicates that ADC is available.
+  env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim() || env.GOOGLE_APPLICATION_CREDENTIALS?.trim() || env.GOOGLE_CLOUD_PROJECT?.trim(),
 )
 
 const getFirebaseApp = (): App | null => {
@@ -44,3 +46,8 @@ export const verifyFirebaseIdToken = async (idToken: string, checkRevoked = true
   return getAuth(app).verifyIdToken(idToken, checkRevoked)
 }
 
+export const getFirebaseUserRecord = async (uid: string): Promise<UserRecord> => {
+  const app = getFirebaseApp()
+  if (!app) throw new Error('Firebase Admin is not configured')
+  return getAuth(app).getUser(uid)
+}

@@ -17,7 +17,7 @@ describe('LegalPage', () => {
 
     expect(screen.getByRole('heading', { name: 'Terms & Conditions' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /orders, availability and pricing/i })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /customer accounts and otp/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /customer accounts and sign-in/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /back to store/i }))
     expect(onBack).toHaveBeenCalledOnce()
   })

@@ -66,14 +66,6 @@ COOKIE_SECRET=$cookie_secret
 # This free-tier deployment is HTTP-only until a domain/TLS terminator is added.
 COOKIE_SECURE=false
 SESSION_TTL_DAYS=7
-# Temporary test-only static customer OTP. Replace with Firebase and set the
-# code exposure to false before putting a real domain behind HTTPS.
-CUSTOMER_OTP_MODE=static
-CUSTOMER_TEST_OTP=123456
-CUSTOMER_OTP_EXPOSE_TEST_CODE=true
-CUSTOMER_OTP_TTL_MINUTES=10
-CUSTOMER_OTP_MAX_ATTEMPTS=5
-CUSTOMER_OTP_RESEND_SECONDS=60
 CUSTOMER_SESSION_TTL_DAYS=30
 SEED_ADMIN_EMAIL=$SKINFOX_ADMIN_EMAIL
 SEED_ADMIN_PASSWORD=$SKINFOX_ADMIN_PASSWORD

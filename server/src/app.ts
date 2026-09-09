@@ -15,8 +15,8 @@ import { authenticator } from 'otplib'
 import { prisma } from './lib/prisma.js'
 import { ApiError, forbidden, notFound, validationError } from './lib/errors.js'
 import { decryptSecret, encryptSecret, hashPassword, hashToken, randomToken, safeEqual, signHmac, verifyPassword } from './lib/crypto.js'
-import { affiliateOtpConfig, affiliateStaticOtpIsConfigured, customerOtpConfig, hashCustomerOtp, normalizeIndianPhone, staticOtpIsConfigured } from './lib/customerAuth.js'
-import { firebaseAdminIsConfigured, verifyFirebaseIdToken } from './lib/firebaseAdmin.js'
+import { affiliateOtpConfig, affiliateStaticOtpIsConfigured, customerSessionTtlDays, hashAffiliateOtp, normalizeIndianPhone } from './lib/customerAuth.js'
+import { firebaseAdminIsConfigured, getFirebaseUserRecord, verifyFirebaseIdToken } from './lib/firebaseAdmin.js'
 import { calculateCart, isValidPincode } from './lib/pricing.js'
 import { affiliateCommissionPaise, affiliateReferralCode, isValidPan } from './lib/affiliate.js'
 import { LocalEmailAdapter, LocalStorageAdapter, ManualShippingAdapter, RazorpayAdapter } from './lib/providers.js'
@@ -34,8 +34,9 @@ const variantPatchSchema = z.object({ sku: z.string().min(2).optional(), name: z
 const productSnapshotFields = ['slug', 'name', 'subtitle', 'type', 'packaging', 'category', 'categoryId', 'concern', 'concerns', 'benefit', 'description', 'pricePaise', 'mrpPaise', 'size', 'usage', 'routineStep', 'highlights', 'color', 'accent', 'tint', 'image', 'storyImage', 'imageAlt', 'imagePosition', 'imageScale', 'badge', 'purchaseState', 'status', 'publishedAt', 'scheduledAt', 'archivedAt'] as const
 const mediaSnapshotFields = ['type', 'src', 'mobileSrc', 'poster', 'alt', 'sortOrder', 'width', 'height', 'aspectRatio', 'fitMode', 'objectPosition', 'imageScale', 'focalPointX', 'focalPointY', 'mediaAssetId'] as const
 const productSnapshot = (product: any) => ({ ...Object.fromEntries(productSnapshotFields.filter((key) => product[key] !== undefined).map((key) => [key, product[key]])), media: Array.isArray(product.media) ? product.media.map((media: any) => Object.fromEntries(mediaSnapshotFields.filter((key) => media[key] !== undefined).map((key) => [key, media[key]]))) : [] })
-const checkoutSchema = z.object({ fullName: z.string().min(2), email: z.union([z.string().email(), z.literal('')]).optional().transform((value) => value || undefined), addressId: z.string().optional(), addressLine1: z.string().min(5), addressLine2: z.string().optional(), landmark: z.string().optional(), city: z.string().min(2), state: z.string().min(2), pincode: z.string().regex(/^[1-9]\d{5}$/), saveAddress: z.boolean().default(true), saveAsDefault: z.boolean().default(false), billingSameAsShipping: z.boolean().default(true), marketingConsent: z.boolean().default(false), paymentMethod: z.literal('cod').default('cod'), couponCode: z.string().optional() })
-const addressSchema = z.object({ label: z.string().trim().min(2).max(30).default('Home'), fullName: z.string().trim().min(2).max(120), addressLine1: z.string().trim().min(5).max(200), addressLine2: z.string().trim().max(200).optional(), landmark: z.string().trim().max(120).optional(), city: z.string().trim().min(2).max(80), state: z.string().trim().min(2).max(80), pincode: z.string().regex(/^[1-9]\d{5}$/), isDefault: z.boolean().default(false) })
+const deliveryPhoneSchema = z.string().trim().regex(/^[6-9]\d{9}$/)
+const checkoutSchema = z.object({ fullName: z.string().min(2), email: z.union([z.string().email(), z.literal('')]).optional().transform((value) => value || undefined), phone: deliveryPhoneSchema, addressId: z.string().optional(), addressLine1: z.string().min(5), addressLine2: z.string().optional(), landmark: z.string().optional(), city: z.string().min(2), state: z.string().min(2), pincode: z.string().regex(/^[1-9]\d{5}$/), saveAddress: z.boolean().default(true), saveAsDefault: z.boolean().default(false), billingSameAsShipping: z.boolean().default(true), marketingConsent: z.boolean().default(false), paymentMethod: z.literal('cod').default('cod'), couponCode: z.string().optional() })
+const addressSchema = z.object({ label: z.string().trim().min(2).max(30).default('Home'), fullName: z.string().trim().min(2).max(120), phone: deliveryPhoneSchema, addressLine1: z.string().trim().min(5).max(200), addressLine2: z.string().trim().max(200).optional(), landmark: z.string().trim().max(120).optional(), city: z.string().trim().min(2).max(80), state: z.string().trim().min(2).max(80), pincode: z.string().regex(/^[1-9]\d{5}$/), isDefault: z.boolean().default(false) })
 const rolePermissions: Record<AdminRole, string[]> = {
   SUPER_ADMIN: ['*'], CATALOG_MANAGER: ['catalog:read', 'catalog:write', 'inventory:read', 'inventory:write', 'content:read'], CONTENT_EDITOR: ['content:read', 'content:write', 'catalog:read'], ORDER_MANAGER: ['orders:read', 'orders:write', 'customers:read', 'catalog:read'], SUPPORT_AGENT: ['orders:read', 'customers:read', 'customers:write', 'leads:read'], ANALYST: ['analytics:read', 'dashboard:read'],
 }
@@ -84,7 +85,7 @@ const documentPath = (path: string, methods: string[], summary: string) => {
   ['/campaign-slides', ['get'], 'List campaign slides'], ['/faqs', ['get'], 'List FAQs'], ['/pages/home', ['get'], 'Get home page'], ['/pages/{slug}', ['get'], 'Get page'], ['/navigation/{location}', ['get'], 'Get navigation'],
   ['/care-finder', ['get'], 'Get care finder'], ['/care-finder/recommendations', ['post'], 'Get care recommendations'], ['/care-finder/events', ['post'], 'Record care finder event'],
   ['/carts', ['post'], 'Create cart'], ['/carts/{cartId}', ['get', 'delete'], 'Get or delete cart'], ['/carts/{cartId}/items', ['post'], 'Add cart item'], ['/carts/{cartId}/items/{itemId}', ['patch', 'delete'], 'Update or remove cart item'], ['/carts/{cartId}/apply-coupon', ['post'], 'Apply coupon'], ['/carts/{cartId}/coupon', ['delete'], 'Remove coupon'],
-  ['/customer/auth/request-otp', ['post'], 'Request customer OTP'], ['/customer/auth/verify-otp', ['post'], 'Verify customer OTP'], ['/customer/auth/firebase', ['post'], 'Exchange Firebase ID token'], ['/customer/auth/me', ['get'], 'Get current customer'], ['/customer/auth/logout', ['post'], 'Log out customer'], ['/customer/addresses', ['get', 'post'], 'List or save customer addresses'], ['/customer/addresses/{id}', ['patch', 'delete'], 'Update or delete customer address'], ['/customer/orders', ['get'], 'List customer orders'], ['/customer/orders/{publicToken}', ['get'], 'Get customer order'],
+  ['/customer/auth/firebase', ['post'], 'Exchange Firebase customer identity'], ['/customer/auth/me', ['get'], 'Get current customer'], ['/customer/auth/logout', ['post'], 'Log out customer'], ['/customer/addresses', ['get', 'post'], 'List or save customer addresses'], ['/customer/addresses/{id}', ['patch', 'delete'], 'Update or delete customer address'], ['/customer/orders', ['get'], 'List customer orders'], ['/customer/orders/{publicToken}', ['get'], 'Get customer order'],
   ['/affiliate/applications', ['post'], 'Submit affiliate application'], ['/affiliate/auth/request-otp', ['post'], 'Request affiliate OTP'], ['/affiliate/auth/verify-otp', ['post'], 'Verify affiliate OTP'], ['/affiliate/auth/me', ['get'], 'Get current affiliate'], ['/affiliate/auth/logout', ['post'], 'Log out affiliate'], ['/affiliate/referrals/track', ['post'], 'Track affiliate referral'], ['/affiliate/dashboard', ['get'], 'Get affiliate dashboard'], ['/affiliate/wallet/redemptions', ['post'], 'Request affiliate wallet redemption'],
   ['/shipping/serviceability', ['get'], 'Check shipping serviceability'], ['/checkout/quote', ['post'], 'Calculate checkout quote'], ['/checkout/sessions', ['post'], 'Create checkout session'], ['/checkout/sessions/{id}', ['get'], 'Get checkout session'], ['/checkout/sessions/{id}/payment-order', ['post'], 'Create payment order'], ['/checkout/sessions/{id}/confirm-cod', ['post'], 'Confirm cash on delivery'],
   ['/payments/razorpay/verify', ['post'], 'Verify Razorpay payment'], ['/webhooks/payments/razorpay', ['post'], 'Receive Razorpay webhook'], ['/payments/{publicToken}/status', ['get'], 'Get payment status'], ['/orders/{publicToken}', ['get'], 'Get public order'], ['/orders/{publicToken}/tracking', ['get'], 'Get order tracking'], ['/orders/{publicToken}/cancel-request', ['post'], 'Request order cancellation'], ['/orders/{publicToken}/return-request', ['post'], 'Request return'],
@@ -172,6 +173,32 @@ export function buildApp(): FastifyInstance {
       if (required) throw new ApiError(401, 'CUSTOMER_AUTH_REQUIRED', 'Your customer session has expired. Please sign in again.')
       return null
     }
+    if (session.firebaseUid) {
+      if (session.firebaseProjectId && process.env.FIREBASE_PROJECT_ID && session.firebaseProjectId !== process.env.FIREBASE_PROJECT_ID) {
+        await prisma.customerSession.update({ where: { id: session.id }, data: { revokedAt: new Date() } })
+        if (required) throw new ApiError(401, 'CUSTOMER_AUTH_REQUIRED', 'Your customer session is no longer valid. Please sign in again.')
+        return null
+      }
+      try {
+        const firebaseUser = await getFirebaseUserRecord(session.firebaseUid)
+        const revokedAt = firebaseUser.tokensValidAfterTime ? new Date(firebaseUser.tokensValidAfterTime).getTime() : 0
+        if (firebaseUser.disabled || (revokedAt > 0 && revokedAt > session.createdAt.getTime())) {
+          await prisma.customerSession.update({ where: { id: session.id }, data: { revokedAt: new Date() } })
+          if (required) throw new ApiError(401, 'CUSTOMER_AUTH_REQUIRED', 'Your customer session is no longer valid. Please sign in again.')
+          return null
+        }
+      } catch (cause: any) {
+        if (cause instanceof ApiError) throw cause
+        if (cause?.code === 'auth/user-not-found') {
+          await prisma.customerSession.update({ where: { id: session.id }, data: { revokedAt: new Date() } })
+          if (required) throw new ApiError(401, 'CUSTOMER_AUTH_REQUIRED', 'Your customer session is no longer valid. Please sign in again.')
+          return null
+        }
+        // Keep the application session usable during a transient Firebase
+        // outage; the next request retries the revocation check.
+        request.log.warn({ err: cause, sessionId: session.id }, 'Firebase session validation unavailable')
+      }
+    }
     await prisma.customerSession.update({ where: { id: session.id }, data: { lastSeenAt: new Date() } })
     return session.customer
   }
@@ -240,7 +267,7 @@ export function buildApp(): FastifyInstance {
   routes.get('/api/v1/storefront/bootstrap', async (_, reply) => {
     const settings = await prisma.storeSetting.findMany({ where: { key: { in: ['storefront', 'seo'] } } })
     const values = Object.fromEntries(settings.map((setting) => [setting.key, setting.value])) as any
-    return data(reply, { storeName: 'SkinFox', logo: '/brand/skinfox-logo.png', currency: 'INR', announcement: values.storefront?.announcement ?? 'New collection preview', navigation: [{ label: 'Shop', href: '#shop' }, { label: 'Care finder', href: '#care-finder' }], footerLinks: [{ label: 'FAQ', href: '#faq' }], socialLinks: [{ label: 'Instagram', href: '#story' }], freeShippingThresholdPaise: values.storefront?.freeShippingThresholdPaise ?? 99900, featureFlags: { customerOtp: staticOtpIsConfigured(customerOtpConfig()), firebaseAuth: firebaseAdminIsConfigured(), paymentMode: 'cod' }, supportContact: { email: values.storefront?.supportEmail ?? 'hello@skinfox.example' }, enabledPaymentMethods: ['cod'], seo: values.seo ?? {} })
+    return data(reply, { storeName: 'SkinFox', logo: '/brand/skinfox-logo.png', currency: 'INR', announcement: values.storefront?.announcement ?? 'New collection preview', navigation: [{ label: 'Shop', href: '#shop' }, { label: 'Care finder', href: '#care-finder' }], footerLinks: [{ label: 'FAQ', href: '#faq' }], socialLinks: [{ label: 'Instagram', href: '#story' }], freeShippingThresholdPaise: values.storefront?.freeShippingThresholdPaise ?? 99900, featureFlags: { customerOtp: false, firebaseAuth: firebaseAdminIsConfigured(), customerEmailAuth: firebaseAdminIsConfigured(), paymentMode: 'cod' }, supportContact: { email: values.storefront?.supportEmail ?? 'hello@skinfox.example' }, enabledPaymentMethods: ['cod'], seo: values.seo ?? {} })
   })
   routes.get('/api/v1/products', async (request, reply) => {
     const params = pageParams(request)
@@ -278,51 +305,6 @@ export function buildApp(): FastifyInstance {
   routes.post('/api/v1/care-finder/recommendations', async (request, reply) => { const answers = z.record(z.string()).parse(request.body?.answers ?? request.body ?? {}); const finder = await prisma.careFinder.findFirstOrThrow({ where: { active: true }, include: { rules: { include: { product: { include: { media: true } } } } } }); const scores = new Map<string, { product: any; score: number }>(); finder.rules.forEach((rule) => { if (answers[rule.answerKey] === rule.answerValue) { const current = scores.get(rule.productId) ?? { product: rule.product, score: 0 }; current.score += rule.weight; scores.set(rule.productId, current) } }); const ranked = [...scores.values()].sort((a, b) => b.score - a.score).map((item) => item.product); const recommendations = ranked.length ? ranked : (await prisma.product.findMany({ where: { status: PublicationStatus.published }, include: { media: true }, take: 2 })); return data(reply, { primary: publicProduct(recommendations[0]), alternatives: recommendations.slice(1, 3).map(publicProduct), explanation: 'Matched to the care focus you selected. This is cosmetic product discovery, not a diagnosis.', routineOrder: recommendations.map((product: any) => product.routineStep), disclaimer: 'For persistent or concerning symptoms, consult a qualified professional.' }) })
   routes.post('/api/v1/care-finder/events', async (request, reply) => data(reply, { accepted: true, event: request.body?.event }))
 
-  routes.post('/api/v1/customer/auth/request-otp', { config: { rateLimit: { max: 5, timeWindow: '15 minutes' } } }, async (request, reply) => {
-    const phone = normalizeIndianPhone(z.object({ phone: z.string().min(1) }).parse(request.body).phone)
-    if (!phone) throw validationError('Enter a valid Indian 10-digit mobile number.', { phone: 'Use a mobile number beginning with 6, 7, 8, or 9.' })
-    const config = customerOtpConfig()
-    if (process.env.NODE_ENV === 'production' || !staticOtpIsConfigured(config)) throw new ApiError(503, 'OTP_PROVIDER_NOT_CONFIGURED', 'Customer OTP is unavailable. Use Firebase SMS sign-in.')
-    const latest = await prisma.customerOtpChallenge.findFirst({ where: { phone }, orderBy: { createdAt: 'desc' } })
-    if (latest && latest.createdAt.getTime() > Date.now() - config.resendSeconds * 1000) throw new ApiError(429, 'OTP_RESEND_TOO_SOON', `Please wait ${config.resendSeconds} seconds before requesting another OTP.`)
-    const challenge = await prisma.customerOtpChallenge.create({ data: { phone, codeHash: hashCustomerOtp(config.code), expiresAt: new Date(Date.now() + config.ttlMinutes * 60 * 1000) } })
-    return data(reply, { challengeId: challenge.id, phone, expiresAt: challenge.expiresAt, retryAfterSeconds: config.resendSeconds, ...(config.exposeTestCode ? { testOtpCode: config.code } : {}) })
-  })
-  routes.post('/api/v1/customer/auth/verify-otp', { config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } }, async (request, reply) => {
-    const input = z.object({ challengeId: z.string().min(1), phone: z.string().min(1), code: z.string().regex(/^\d{6}$/), cartToken: z.string().min(16).optional() }).parse(request.body)
-    const phone = normalizeIndianPhone(input.phone)
-    if (!phone) throw validationError('Enter a valid Indian 10-digit mobile number.', { phone: 'Use a mobile number beginning with 6, 7, 8, or 9.' })
-    const config = customerOtpConfig()
-    const challenge = await prisma.customerOtpChallenge.findFirst({ where: { id: input.challengeId, phone } })
-    if (!challenge || challenge.verifiedAt) throw new ApiError(401, 'OTP_INVALID', 'That OTP is no longer valid. Request a new one.')
-    if (challenge.expiresAt < new Date()) throw new ApiError(401, 'OTP_EXPIRED', 'That OTP has expired. Request a new one.')
-    if (challenge.attempts >= config.maxAttempts) throw new ApiError(429, 'OTP_ATTEMPTS_EXCEEDED', 'Too many incorrect OTP attempts. Request a new code.')
-    if (!safeEqual(challenge.codeHash, hashCustomerOtp(input.code))) {
-      await prisma.customerOtpChallenge.update({ where: { id: challenge.id }, data: { attempts: { increment: 1 } } })
-      throw new ApiError(401, 'OTP_INVALID', 'The OTP is incorrect. Please try again.')
-    }
-    const token = randomToken(32)
-    const csrf = randomToken(18)
-    const result = await prisma.$transaction(async (tx) => {
-      // Legacy/static OTP is a local test fallback only. It must never grant
-      // the verified-phone state used to authorize addresses or COD orders;
-      // only a Firebase-verified phone token may do that.
-      const customer = await tx.customer.upsert({ where: { phone }, update: {}, create: { phone, fullName: 'SkinFox customer' } })
-      await tx.customerOtpChallenge.update({ where: { id: challenge.id }, data: { customerId: customer.id, verifiedAt: new Date(), attempts: { increment: 1 } } })
-      let cartLinked = false
-      if (input.cartToken) {
-        const cart = await tx.cart.findUnique({ where: { tokenHash: hashToken(input.cartToken) } })
-        if (cart && cart.expiresAt > new Date() && (!cart.customerId || cart.customerId === customer.id)) {
-          await tx.cart.update({ where: { id: cart.id }, data: { customerId: customer.id } })
-          cartLinked = true
-        }
-      }
-      const session = await tx.customerSession.create({ data: { tokenHash: hashToken(token), customerId: customer.id, expiresAt: new Date(Date.now() + config.sessionTtlDays * 86400000), ip: request.ip, userAgent: request.headers['user-agent'] } })
-      return { customer, session, cartLinked }
-    })
-    reply.setCookie('sf_customer_session', token, { httpOnly: true, sameSite: 'lax', secure: secureCookies(), maxAge: config.sessionTtlDays * 86400, path: '/' }).setCookie('sf_customer_csrf', csrf, { httpOnly: false, sameSite: 'lax', secure: secureCookies(), maxAge: config.sessionTtlDays * 86400, path: '/' })
-    return data(reply, { customer: publicCustomer(result.customer), cartLinked: result.cartLinked, sessionExpiresAt: result.session.expiresAt })
-  })
   routes.post('/api/v1/customer/auth/firebase', { config: { rateLimit: { max: 20, timeWindow: '15 minutes' } } }, async (request, reply) => {
     if (!firebaseAdminIsConfigured()) throw new ApiError(503, 'FIREBASE_AUTH_NOT_CONFIGURED', 'Firebase customer authentication is not configured on this server.')
     const input = z.object({ idToken: z.string().min(20), cartToken: z.string().min(16).optional(), link: z.boolean().default(false) }).parse(request.body)
@@ -332,10 +314,12 @@ export function buildApp(): FastifyInstance {
     } catch {
       throw new ApiError(401, 'FIREBASE_TOKEN_INVALID', 'Your Firebase sign-in could not be verified. Please try again.')
     }
-    const provider = decoded?.firebase?.sign_in_provider
-    if (provider !== 'google.com' && provider !== 'phone') throw new ApiError(401, 'FIREBASE_PROVIDER_UNSUPPORTED', 'Use Google or SMS phone sign-in.')
+    const provider = String(decoded?.firebase?.sign_in_provider ?? '')
+    if (provider !== 'google.com' && provider !== 'password') throw new ApiError(401, 'FIREBASE_PROVIDER_UNSUPPORTED', 'Use Google or email and password sign-in.')
     const providerUid = String(decoded.uid ?? '')
-    if (!providerUid) throw new ApiError(401, 'FIREBASE_TOKEN_INVALID', 'Your Firebase sign-in could not be verified. Please try again.')
+    const firebaseProjectId = String(decoded.aud ?? process.env.FIREBASE_PROJECT_ID ?? '')
+    if (!providerUid || !firebaseProjectId) throw new ApiError(401, 'FIREBASE_TOKEN_INVALID', 'Your Firebase sign-in could not be verified. Please try again.')
+    if (process.env.FIREBASE_PROJECT_ID && firebaseProjectId !== process.env.FIREBASE_PROJECT_ID) throw new ApiError(401, 'FIREBASE_TOKEN_INVALID', 'Your Firebase sign-in could not be verified. Please try again.')
     const existingSessionCustomer = input.link ? await currentCustomer(request, false) : null
     if (input.link) {
       if (!existingSessionCustomer) throw new ApiError(401, 'CUSTOMER_AUTH_REQUIRED', 'Sign in to your SkinFox account before linking another provider.')
@@ -343,13 +327,10 @@ export function buildApp(): FastifyInstance {
       const csrfHeader = request.headers['x-customer-csrf-token']
       if (!csrfCookie || csrfHeader !== csrfCookie) throw new ApiError(403, 'CSRF_REQUIRED', 'A customer CSRF token is required to link a provider.')
     }
-    const identityKey = { provider_providerUid: { provider, providerUid } }
+    const identityKey = { firebaseProjectId_providerUid: { firebaseProjectId, providerUid } }
     const tokenEmail = typeof decoded.email === 'string' ? decoded.email.trim().toLowerCase() : null
     const tokenEmailVerified = decoded.email_verified === true
     const tokenName = typeof decoded.name === 'string' && decoded.name.trim().length >= 2 ? decoded.name.trim() : 'SkinFox customer'
-    const tokenPhone = provider === 'phone' && typeof decoded.phone_number === 'string' ? normalizeIndianPhone(decoded.phone_number) : null
-    if (provider === 'phone' && !tokenPhone) throw new ApiError(401, 'FIREBASE_PHONE_INVALID', 'Only verified Indian mobile numbers can be used for SkinFox customer sign-in.')
-    const customerOtp = customerOtpConfig()
     const token = randomToken(32)
     const csrf = randomToken(18)
     let result: any
@@ -358,25 +339,22 @@ export function buildApp(): FastifyInstance {
         const mappedIdentity = await tx.customerIdentity.findUnique({ where: identityKey, include: { customer: true } })
         if (mappedIdentity && existingSessionCustomer && mappedIdentity.customerId !== existingSessionCustomer.id) throw new ApiError(409, 'CUSTOMER_PROVIDER_CONFLICT', 'That provider is already linked to another SkinFox account.')
         let customer = mappedIdentity?.customer ?? existingSessionCustomer
-        if (!customer && provider === 'phone') {
-          customer = await tx.customer.findUnique({ where: { phone: tokenPhone! } })
-        }
         if (!customer) {
-          const safeEmail = tokenEmail && !await tx.customer.findUnique({ where: { email: tokenEmail }, select: { id: true } }) ? tokenEmail : undefined
-          customer = await tx.customer.create({ data: { fullName: tokenName, phone: tokenPhone ?? undefined, phoneVerifiedAt: tokenPhone ? new Date() : undefined, email: safeEmail, emailVerifiedAt: safeEmail && tokenEmailVerified ? new Date() : undefined } })
+          // Firebase authentication proves the credential, but an email claim
+          // must never be used to take over an unrelated legacy SkinFox row.
+          const emailTaken = tokenEmail ? await tx.customer.findUnique({ where: { email: tokenEmail }, select: { id: true } }) : null
+          customer = await tx.customer.create({ data: { fullName: tokenName, email: emailTaken ? undefined : tokenEmail ?? undefined, emailVerifiedAt: !emailTaken && tokenEmail && tokenEmailVerified ? new Date() : undefined } })
         } else {
           const updates: any = {}
-          if (provider === 'phone' && tokenPhone && customer.phone !== tokenPhone) updates.phone = tokenPhone
-          if (provider === 'phone' && !customer.phoneVerifiedAt) updates.phoneVerifiedAt = new Date()
-          if (provider === 'google' && !customer.email && tokenEmail && !await tx.customer.findFirst({ where: { email: tokenEmail, id: { not: customer.id } }, select: { id: true } })) { updates.email = tokenEmail; if (tokenEmailVerified) updates.emailVerifiedAt = new Date() }
-          if (provider === 'google' && tokenEmailVerified && customer.email === tokenEmail && !customer.emailVerifiedAt) updates.emailVerifiedAt = new Date()
+          if (!customer.email && tokenEmail && !await tx.customer.findFirst({ where: { email: tokenEmail, id: { not: customer.id } }, select: { id: true } })) { updates.email = tokenEmail; if (tokenEmailVerified) updates.emailVerifiedAt = new Date() }
+          if (tokenEmailVerified && customer.email === tokenEmail && !customer.emailVerifiedAt) updates.emailVerifiedAt = new Date()
           if (customer.fullName === 'SkinFox customer' && tokenName !== 'SkinFox customer') updates.fullName = tokenName
           if (Object.keys(updates).length) customer = await tx.customer.update({ where: { id: customer.id }, data: updates })
         }
         if (mappedIdentity) {
-          if (mappedIdentity.email !== tokenEmail) await tx.customerIdentity.update({ where: { id: mappedIdentity.id }, data: { email: tokenEmail } })
+          if (mappedIdentity.email !== tokenEmail || mappedIdentity.provider !== provider) await tx.customerIdentity.update({ where: { id: mappedIdentity.id }, data: { email: tokenEmail, provider } })
         } else {
-          await tx.customerIdentity.create({ data: { customerId: customer.id, provider, providerUid, email: tokenEmail } })
+          await tx.customerIdentity.create({ data: { customerId: customer.id, firebaseProjectId, provider, providerUid, email: tokenEmail } })
         }
         let cartLinked = false
         if (input.cartToken) {
@@ -386,7 +364,7 @@ export function buildApp(): FastifyInstance {
             cartLinked = true
           }
         }
-        const session = await tx.customerSession.create({ data: { tokenHash: hashToken(token), customerId: customer.id, expiresAt: new Date(Date.now() + customerOtp.sessionTtlDays * 86400000), ip: request.ip, userAgent: request.headers['user-agent'] } })
+        const session = await tx.customerSession.create({ data: { tokenHash: hashToken(token), customerId: customer.id, firebaseProjectId, firebaseUid: providerUid, expiresAt: new Date(Date.now() + customerSessionTtlDays() * 86400000), ip: request.ip, userAgent: request.headers['user-agent'] } })
         return { customer, session, cartLinked }
       })
     } catch (cause: any) {
@@ -394,8 +372,8 @@ export function buildApp(): FastifyInstance {
       if (cause?.code === 'P2002') throw new ApiError(409, 'CUSTOMER_PROVIDER_CONFLICT', 'That provider is already linked to another SkinFox account.')
       throw cause
     }
-    reply.setCookie('sf_customer_session', token, { httpOnly: true, sameSite: 'lax', secure: secureCookies(), maxAge: customerOtp.sessionTtlDays * 86400, path: '/' }).setCookie('sf_customer_csrf', csrf, { httpOnly: false, sameSite: 'lax', secure: secureCookies(), maxAge: customerOtp.sessionTtlDays * 86400, path: '/' })
-    return data(reply, { customer: publicCustomer(result.customer), provider, cartLinked: result.cartLinked, sessionExpiresAt: result.session.expiresAt, requiresPhoneVerification: !result.customer.phoneVerifiedAt })
+    reply.setCookie('sf_customer_session', token, { httpOnly: true, sameSite: 'lax', secure: secureCookies(), maxAge: customerSessionTtlDays() * 86400, path: '/' }).setCookie('sf_customer_csrf', csrf, { httpOnly: false, sameSite: 'lax', secure: secureCookies(), maxAge: customerSessionTtlDays() * 86400, path: '/' })
+    return data(reply, { customer: publicCustomer(result.customer), provider, cartLinked: result.cartLinked, sessionExpiresAt: result.session.expiresAt, requiresEmailVerification: !result.customer.emailVerifiedAt })
   })
   routes.get('/api/v1/customer/auth/me', async (request, reply) => { const customer = await currentCustomer(request, false); return data(reply, { customer: customer ? publicCustomer(customer) : null }) })
   routes.post('/api/v1/customer/auth/logout', async (request, reply) => { await requireCustomer(request, true); const token = request.cookies.sf_customer_session; if (token) await prisma.customerSession.updateMany({ where: { tokenHash: hashToken(token) }, data: { revokedAt: new Date() } }); reply.clearCookie('sf_customer_session', { path: '/' }).clearCookie('sf_customer_csrf', { path: '/' }); return data(reply, { loggedOut: true }) })
@@ -421,7 +399,7 @@ export function buildApp(): FastifyInstance {
     if (!affiliateStaticOtpIsConfigured(config)) throw new ApiError(503, 'OTP_PROVIDER_NOT_CONFIGURED', 'Affiliate OTP is not configured on this server.')
     const latest = await prisma.affiliateOtpChallenge.findFirst({ where: { phone }, orderBy: { createdAt: 'desc' } })
     if (latest && latest.createdAt.getTime() > Date.now() - config.resendSeconds * 1000) throw new ApiError(429, 'OTP_RESEND_TOO_SOON', `Please wait ${config.resendSeconds} seconds before requesting another OTP.`)
-    const challenge = await prisma.affiliateOtpChallenge.create({ data: { affiliateId: affiliate.id, phone, codeHash: hashCustomerOtp(config.code), expiresAt: new Date(Date.now() + config.ttlMinutes * 60 * 1000) } })
+    const challenge = await prisma.affiliateOtpChallenge.create({ data: { affiliateId: affiliate.id, phone, codeHash: hashAffiliateOtp(config.code), expiresAt: new Date(Date.now() + config.ttlMinutes * 60 * 1000) } })
     return data(reply, { challengeId: challenge.id, phone, expiresAt: challenge.expiresAt, retryAfterSeconds: config.resendSeconds, ...(config.exposeTestCode ? { testOtpCode: config.code } : {}) })
   })
   routes.post('/api/v1/affiliate/auth/verify-otp', { config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } }, async (request, reply) => {
@@ -433,7 +411,7 @@ export function buildApp(): FastifyInstance {
     if (!challenge || challenge.verifiedAt || !challenge.affiliate) throw new ApiError(401, 'OTP_INVALID', 'That OTP is no longer valid. Request a new one.')
     if (challenge.expiresAt < new Date()) throw new ApiError(401, 'OTP_EXPIRED', 'That OTP has expired. Request a new code.')
     if (challenge.attempts >= config.maxAttempts) throw new ApiError(429, 'OTP_ATTEMPTS_EXCEEDED', 'Too many incorrect OTP attempts. Request a new code.')
-    if (!safeEqual(challenge.codeHash, hashCustomerOtp(input.code))) { await prisma.affiliateOtpChallenge.update({ where: { id: challenge.id }, data: { attempts: { increment: 1 } } }); throw new ApiError(401, 'OTP_INVALID', 'The OTP is incorrect. Please try again.') }
+    if (!safeEqual(challenge.codeHash, hashAffiliateOtp(input.code))) { await prisma.affiliateOtpChallenge.update({ where: { id: challenge.id }, data: { attempts: { increment: 1 } } }); throw new ApiError(401, 'OTP_INVALID', 'The OTP is incorrect. Please try again.') }
     if (challenge.affiliate.status === AffiliateStatus.suspended) throw forbidden('This affiliate account is suspended. Contact SkinFox support.')
     const token = randomToken(32)
     const csrf = randomToken(18)
@@ -483,12 +461,11 @@ export function buildApp(): FastifyInstance {
   routes.post('/api/v1/customer/addresses', async (request, reply) => {
     const customer = await requireCustomer(request, true)
     const input = addressSchema.parse(request.body)
-    if (!customer.phone || !customer.phoneVerifiedAt) throw new ApiError(400, 'CUSTOMER_PHONE_REQUIRED', 'A verified mobile number is required to save an address.')
     const address = await prisma.$transaction(async (tx) => {
       const count = await tx.address.count({ where: { customerId: customer.id } })
       const isDefault = input.isDefault || count === 0
       if (isDefault) await tx.address.updateMany({ where: { customerId: customer.id }, data: { isDefault: false } })
-      return tx.address.create({ data: { ...input, isDefault, phone: customer.phone!, customerId: customer.id } })
+      return tx.address.create({ data: { ...input, isDefault, customerId: customer.id } })
     })
     return reply.status(201).send({ data: address, meta: { requestId: request.id } })
   })
@@ -529,7 +506,7 @@ export function buildApp(): FastifyInstance {
   routes.delete('/api/v1/carts/:cartId/coupon', async (request, reply) => { const cart = await getCart(request); await prisma.cart.update({ where: { id: cart.id }, data: { couponId: null } }); return data(reply, await cartResponse(await getCart(request))) })
 
   routes.get('/api/v1/shipping/serviceability', async (request, reply) => { const pincode = String(request.query?.pincode ?? ''); if (!isValidPincode(pincode)) throw validationError('Enter a valid six-digit pincode.'); return data(reply, { pincode, serviceable: await shipping.serviceable(pincode), codAvailable: Boolean(await prisma.serviceablePincode.findUnique({ where: { pincode, active: true } })) }) })
-  const makeQuote = async (request: any, sessionInput?: any, customer?: any) => { const cart = await getCart(request); const bodyValue = sessionInput ?? request.body; const parsed = checkoutSchema.parse(bodyValue); if (!customer?.phone || !customer.phoneVerifiedAt) throw new ApiError(400, 'CUSTOMER_PHONE_REQUIRED', 'A verified mobile number is required to check out.'); const serviceable = await shipping.serviceable(parsed.pincode); const response = await cartResponse(cart, true, serviceable); return { ...response, serviceability: serviceable, estimatedDeliveryFrom: serviceable ? new Date(Date.now() + 3 * 86400000).toISOString() : null, estimatedDeliveryTo: serviceable ? new Date(Date.now() + 7 * 86400000).toISOString() : null, quoteExpiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(), checkout: { ...parsed, phone: customer.phone, email: parsed.email ?? customer.email ?? undefined } } }
+  const makeQuote = async (request: any, sessionInput?: any, customer?: any) => { const cart = await getCart(request); const bodyValue = sessionInput ?? request.body; const parsed = checkoutSchema.parse(bodyValue); if (!customer?.emailVerifiedAt) throw new ApiError(400, 'CUSTOMER_EMAIL_UNVERIFIED', 'Verify your email address before placing an order.'); const serviceable = await shipping.serviceable(parsed.pincode); const response = await cartResponse(cart, true, serviceable); return { ...response, serviceability: serviceable, estimatedDeliveryFrom: serviceable ? new Date(Date.now() + 3 * 86400000).toISOString() : null, estimatedDeliveryTo: serviceable ? new Date(Date.now() + 7 * 86400000).toISOString() : null, quoteExpiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(), checkout: { ...parsed, email: parsed.email ?? customer.email ?? undefined } } }
   routes.post('/api/v1/checkout/quote', async (request, reply) => { const customer = await requireCustomer(request); return data(reply, await makeQuote(request, undefined, customer)) })
   routes.post('/api/v1/checkout/sessions', async (request, reply) => {
     const customer = await requireCustomer(request, true)
@@ -544,15 +521,15 @@ export function buildApp(): FastifyInstance {
     const result = await prisma.$transaction(async (tx) => {
       const selectedAddress = quote.checkout.addressId ? await tx.address.findFirst({ where: { id: quote.checkout.addressId, customerId: customer.id } }) : null
       if (quote.checkout.addressId && !selectedAddress) throw notFound('Saved address not found.')
-      const updatedCustomer = await tx.customer.update({ where: { id: customer.id }, data: { fullName: quote.checkout.fullName, ...(quote.checkout.email ? { email: quote.checkout.email.toLowerCase() } : {}) } })
+      const updatedCustomer = await tx.customer.update({ where: { id: customer.id }, data: { fullName: quote.checkout.fullName } })
       const shippingAddress = selectedAddress
         ? { label: selectedAddress.label, fullName: selectedAddress.fullName, email: quote.checkout.email ?? updatedCustomer.email ?? undefined, phone: selectedAddress.phone, addressLine1: selectedAddress.addressLine1, addressLine2: selectedAddress.addressLine2, landmark: selectedAddress.landmark, city: selectedAddress.city, state: selectedAddress.state, pincode: selectedAddress.pincode }
-        : { fullName: quote.checkout.fullName, email: quote.checkout.email ?? updatedCustomer.email ?? undefined, phone: updatedCustomer.phone, addressLine1: quote.checkout.addressLine1, addressLine2: quote.checkout.addressLine2, landmark: quote.checkout.landmark, city: quote.checkout.city, state: quote.checkout.state, pincode: quote.checkout.pincode }
+        : { fullName: quote.checkout.fullName, email: quote.checkout.email ?? updatedCustomer.email ?? undefined, phone: quote.checkout.phone, addressLine1: quote.checkout.addressLine1, addressLine2: quote.checkout.addressLine2, landmark: quote.checkout.landmark, city: quote.checkout.city, state: quote.checkout.state, pincode: quote.checkout.pincode }
       if (!selectedAddress && quote.checkout.saveAddress) {
         const addressCount = await tx.address.count({ where: { customerId: customer.id } })
         const isDefault = quote.checkout.saveAsDefault || addressCount === 0
         if (isDefault) await tx.address.updateMany({ where: { customerId: customer.id }, data: { isDefault: false } })
-        await tx.address.create({ data: { customerId: customer.id, phone: updatedCustomer.phone!, label: 'Home', fullName: quote.checkout.fullName, addressLine1: quote.checkout.addressLine1, addressLine2: quote.checkout.addressLine2, landmark: quote.checkout.landmark, city: quote.checkout.city, state: quote.checkout.state, pincode: quote.checkout.pincode, isDefault } })
+        await tx.address.create({ data: { customerId: customer.id, phone: quote.checkout.phone, label: 'Home', fullName: quote.checkout.fullName, addressLine1: quote.checkout.addressLine1, addressLine2: quote.checkout.addressLine2, landmark: quote.checkout.landmark, city: quote.checkout.city, state: quote.checkout.state, pincode: quote.checkout.pincode, isDefault } })
       }
       await tx.cart.update({ where: { id: cart.id }, data: { customerId: customer.id } })
       const storedQuote = { ...quote, checkout: shippingAddress }

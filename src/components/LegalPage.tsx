@@ -24,7 +24,7 @@ const privacySections: LegalSection[] = [
   },
   {
     id: 'use', title: '3. How we use information', content: <>
-      <p>We use personal data to operate the store, provide the services you request, and meet legal obligations. This includes verifying a mobile number with a one-time password (OTP), maintaining a customer account, processing and delivering an order, responding to support requests, preventing fraud or misuse, and sending communications that you have agreed to receive.</p>
+      <p>We use personal data to operate the store, provide the services you request, and meet legal obligations. This includes maintaining a customer account through Google or email and password sign-in, sending verification and password-reset emails, processing and delivering an order, responding to support requests, preventing fraud or misuse, and sending communications that you have agreed to receive.</p>
       <p>Where consent is required, we will request it. You may withdraw consent for optional communications at any time; this will not affect processing that was already lawful or information we must retain by law.</p>
     </>,
   },
@@ -36,14 +36,14 @@ const privacySections: LegalSection[] = [
   },
   {
     id: 'sharing', title: '5. When we share information', content: <>
-      <p>We may share only the information necessary with service providers that help us host, secure and operate SkinFox. When enabled for an order, this can include delivery partners, payment providers and OTP/SMS providers. Those providers may process data only for the services they perform for us and as permitted by law.</p>
+      <p>We may share only the information necessary with service providers that help us host, secure and operate SkinFox. When enabled for an order, this can include delivery partners, payment providers and email providers. Those providers may process data only for the services they perform for us and as permitted by law.</p>
       <p>We may also disclose information where required to comply with law, enforce our terms, protect the rights, safety or security of SkinFox, our customers or others, or in connection with a lawful business transition.</p>
     </>,
   },
   {
     id: 'retention', title: '6. Retention and security', content: <>
       <p>We keep personal data only for as long as reasonably necessary for the purpose described in this policy, including support, security, accounting, tax and legal requirements. We use reasonable technical and organisational safeguards designed to protect information; however, no internet transmission or storage system can be guaranteed completely secure.</p>
-      <p>Keep your device and OTP private. We will never ask you to disclose an OTP by email, social media or an unsolicited call.</p>
+      <p>Keep your passwords and sign-in links private. SkinFox will never ask you to disclose a password or reset link by social media or an unsolicited call.</p>
     </>,
   },
   {
@@ -91,8 +91,8 @@ const termsSections: LegalSection[] = [
     </>,
   },
   {
-    id: 'accounts', title: '5. Customer accounts and OTP', content: <>
-      <p>Some features require sign-in by mobile OTP. You are responsible for providing accurate information and keeping your device and OTP secure. Do not share an OTP with anyone. Tell us promptly if you suspect unauthorised access. We may suspend an account or order flow where we reasonably believe it is being misused or presents a security risk.</p>
+    id: 'accounts', title: '5. Customer accounts and sign-in', content: <>
+      <p>Some features require sign-in with Google or an email address and password. You are responsible for providing accurate information and keeping your password and sign-in links secure. Tell us promptly if you suspect unauthorised access. We may suspend an account or order flow where we reasonably believe it is being misused or presents a security risk.</p>
     </>,
   },
   {
@@ -102,7 +102,7 @@ const termsSections: LegalSection[] = [
   },
   {
     id: 'use', title: '7. Acceptable use and intellectual property', content: <>
-      <p>You must not interfere with the store, bypass security or OTP controls, scrape data, misuse promotions or referral links, submit false orders, impersonate another person, or use the services in a way that violates law or another person’s rights.</p>
+      <p>You must not interfere with the store, bypass security controls, scrape data, misuse promotions or referral links, submit false orders, impersonate another person, or use the services in a way that violates law or another person’s rights.</p>
       <p>SkinFox names, logos, product content, photographs, designs and site content are owned by or licensed to SkinFox and may not be copied, distributed or used commercially without prior written permission, except where law permits.</p>
     </>,
   },

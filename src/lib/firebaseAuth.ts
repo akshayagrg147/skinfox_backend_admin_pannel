@@ -1,5 +1,22 @@
 import { getApp, getApps, initializeApp } from 'firebase/app'
-import { getAuth, getRedirectResult, GoogleAuthProvider, RecaptchaVerifier, signInWithPhoneNumber, signInWithPopup, signInWithRedirect, signOut, type ConfirmationResult, type User, type UserCredential } from 'firebase/auth'
+import {
+  createUserWithEmailAndPassword,
+  EmailAuthProvider,
+  getAuth,
+  getRedirectResult,
+  GoogleAuthProvider,
+  linkWithCredential,
+  reload,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signInWithRedirect,
+  signOut,
+  updateProfile,
+  type User,
+  type UserCredential,
+} from 'firebase/auth'
 import { postStorefront } from './storefrontApi'
 
 const firebaseConfig = {
@@ -11,28 +28,84 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID as string | undefined,
 }
 
-// Vitest deliberately exercises the local static OTP fallback; real builds use
-// Firebase whenever the public web configuration is present.
-export const firebaseAuthConfigured = import.meta.env.MODE !== 'test' && Boolean(firebaseConfig.apiKey && firebaseConfig.authDomain && firebaseConfig.projectId && firebaseConfig.appId)
-let verifier: RecaptchaVerifier | null = null
+export const firebaseAuthConfigured = Boolean(firebaseConfig.apiKey && firebaseConfig.authDomain && firebaseConfig.projectId && firebaseConfig.appId)
+let firebaseAuthInstance: ReturnType<typeof getAuth> | null = null
 const googleRedirectIntentKey = 'skinfox-google-redirect-intent'
 
 export type GoogleRedirectIntent = { destination: 'account' | 'checkout'; cartToken?: string }
 
 export const getFirebaseAuth = () => {
   if (!firebaseAuthConfigured) throw new Error('Firebase customer authentication is not configured for this storefront.')
+  if (firebaseAuthInstance) return firebaseAuthInstance
   const app = getApps().length ? getApp() : initializeApp(firebaseConfig)
-  return getAuth(app)
+  firebaseAuthInstance = getAuth(app)
+  return firebaseAuthInstance
 }
 
-export const startFirebasePhoneSignIn = async (phone: string, containerId: string): Promise<ConfirmationResult> => {
+const actionCodeSettings = () => typeof window === 'undefined' ? undefined : { url: `${window.location.origin}/#account`, handleCodeInApp: false }
+
+export const firebaseAuthErrorMessage = (cause: unknown, fallback = 'We could not complete sign-in. Please try again.') => {
+  const code = typeof cause === 'object' && cause && 'code' in cause ? String((cause as { code?: unknown }).code) : ''
+  const messages: Record<string, string> = {
+    'auth/invalid-credential': 'The email or password is incorrect.',
+    'auth/invalid-login-credentials': 'The email or password is incorrect.',
+    'auth/user-disabled': 'This account is disabled. Contact SkinFox support.',
+    'auth/email-already-in-use': 'An account with this email already exists. Sign in instead.',
+    'auth/weak-password': 'Choose a stronger password with at least 8 characters.',
+    'auth/password-does-not-meet-requirements': 'Choose a stronger password and include a mix of letters and numbers.',
+    'auth/too-many-requests': 'Too many attempts. Please wait a little and try again.',
+    'auth/popup-closed-by-user': 'The Google sign-in window was closed before completion.',
+    'auth/popup-blocked': 'Your browser blocked the Google sign-in window. Try again to continue.',
+    'auth/account-exists-with-different-credential': 'An account already exists with another sign-in method. Sign in with that method first, then link this one from your account.',
+    'auth/network-request-failed': 'The network connection failed. Check your connection and try again.',
+    'auth/operation-not-allowed': 'This sign-in method is not enabled in Firebase yet.',
+  }
+  return messages[code] ?? fallback
+}
+
+export const signInWithEmailPassword = (email: string, password: string) => signInWithEmailAndPassword(getFirebaseAuth(), email.trim().toLowerCase(), password)
+
+export const createEmailPasswordAccount = async (name: string, email: string, password: string) => {
+  const credential = await createUserWithEmailAndPassword(getFirebaseAuth(), email.trim().toLowerCase(), password)
+  if (name.trim()) {
+    await updateProfile(credential.user, { displayName: name.trim() })
+    // Refresh the ID token so the backend can use the new display name when
+    // it creates the SkinFox customer record.
+    await credential.user.getIdToken(true)
+  }
+  try {
+    await sendEmailVerification(credential.user, actionCodeSettings())
+  } catch {
+    // Account creation still succeeds if the verification email provider is
+    // temporarily unavailable; the account screen offers a resend action.
+  }
+  return credential
+}
+
+export const requestPasswordReset = (email: string) => sendPasswordResetEmail(getFirebaseAuth(), email.trim().toLowerCase(), actionCodeSettings())
+
+export const resendEmailVerification = async (user?: User | null) => {
+  const current = user ?? getFirebaseAuth().currentUser
+  if (!current) throw new Error('Sign in again before requesting a verification email.')
+  await sendEmailVerification(current, actionCodeSettings())
+}
+
+export const refreshFirebaseUser = async () => {
   const auth = getFirebaseAuth()
-  if (typeof document === 'undefined') throw new Error('Phone sign-in is only available in a browser.')
-  clearFirebaseRecaptcha()
-  const container = document.getElementById(containerId)
-  if (!container) throw new Error('Security check could not be loaded. Please refresh and try again.')
-  verifier = new RecaptchaVerifier(auth, container, { size: 'invisible' })
-  return signInWithPhoneNumber(auth, phone.startsWith('+') ? phone : `+91${phone}`, verifier)
+  const user = auth.currentUser
+  if (!user) throw new Error('Your Firebase session has expired. Please sign in again.')
+  await reload(user)
+  await user.getIdToken(true)
+  return user
+}
+
+export const linkEmailPassword = async (email: string, password: string) => {
+  const auth = getFirebaseAuth()
+  const user = auth.currentUser
+  if (!user) throw new Error('Sign in before adding email and password login.')
+  const credential = await linkWithCredential(user, EmailAuthProvider.credential(email.trim().toLowerCase(), password))
+  try { await sendEmailVerification(credential.user, actionCodeSettings()) } catch { /* The account can resend from the dashboard. */ }
+  return credential
 }
 
 export const signInWithGoogle = async (intent: GoogleRedirectIntent = { destination: 'account' }): Promise<UserCredential | null> => {
@@ -83,13 +156,6 @@ export const exchangeFirebaseUser = async <T extends { customer: unknown }>(user
   return postStorefront<T>('/customer/auth/firebase', { idToken, ...(cartToken ? { cartToken } : {}), ...(link ? { link: true } : {}) }, headers)
 }
 
-export const clearFirebaseRecaptcha = () => {
-  if (!verifier) return
-  verifier.clear()
-  verifier = null
-}
-
 export const signOutFirebase = async () => {
   if (firebaseAuthConfigured) await signOut(getFirebaseAuth())
-  clearFirebaseRecaptcha()
 }
