@@ -78,4 +78,23 @@ describe('WaitlistModal', () => {
       ],
     }), expect.any(Object))
   })
+
+  it('does not ask the customer to pay again when Razorpay succeeds but confirmation is delayed', async () => {
+    vi.mocked(postStorefront)
+      .mockResolvedValueOnce({ reservation: { ...reservation, status: 'payment_pending' }, checkout: { keyId: 'rzp_test_key', orderId: 'order_123', amountPaise: 9900, currency: 'INR', name: 'SkinFox', description: 'Non-refundable reservation fee' } })
+      .mockRejectedValueOnce(new Error('Request failed (500)'))
+    vi.mocked(openRazorpayCheckout).mockResolvedValue({ razorpay_order_id: 'order_123', razorpay_payment_id: 'pay_123', razorpay_signature: 'valid-signature-value' })
+    const onComplete = vi.fn()
+
+    render(<WaitlistModal open lines={[{ product: products[0], quantity: 1 }]} config={config} apiAvailable onClose={vi.fn()} onComplete={onComplete} />)
+    await screen.findByText(/reserve your place/i)
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: /pay ₹99 & join/i }))
+
+    expect(await screen.findByText('We’re confirming your payment.')).toBeInTheDocument()
+    expect(screen.getByText(/please do not pay again/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /pay ₹99 & join/i })).not.toBeInTheDocument()
+    expect(screen.getByText('SFWL-2026-12AB34CD56')).toBeInTheDocument()
+    expect(onComplete).not.toHaveBeenCalled()
+  })
 })

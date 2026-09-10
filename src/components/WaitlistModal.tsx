@@ -75,6 +75,26 @@ export function WaitlistModal({ open, lines, config, apiAvailable, onClose, onCo
     return () => { active = false }
   }, [apiAvailable, applyCustomer, open])
 
+  useEffect(() => {
+    if (!open || stage !== 'success' || !reservation || reservation.status === 'joined') return
+    let active = true
+    const refreshStatus = () => {
+      void getStorefront<WaitlistReservation[]>('/customer/waitlist').then((reservations) => {
+        if (!active) return
+        const refreshed = reservations.find((entry) => entry.publicToken === reservation.publicToken)
+        if (!refreshed) return
+        setReservation(refreshed)
+        if (refreshed.status === 'joined') onComplete()
+      }).catch(() => {
+        // The webhook remains the source of truth. Keep the calm pending state
+        // visible if the status check is temporarily unavailable.
+      })
+    }
+    refreshStatus()
+    const interval = window.setInterval(refreshStatus, 5000)
+    return () => { active = false; window.clearInterval(interval) }
+  }, [onComplete, open, reservation, stage])
+
   const authenticated = async (response: CustomerAuthResponse) => applyCustomer(response.customer)
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -85,6 +105,8 @@ export function WaitlistModal({ open, lines, config, apiAvailable, onClose, onCo
     if (!/^[6-9]\d{9}$/.test(normalizedPhone)) { setError('Enter a valid 10-digit Indian mobile number.'); return }
     if (!consent) { setError('Please accept the waitlist reservation terms to continue.'); return }
     if (!config.paymentConfigured) { setError('Razorpay is being configured. No payment can be taken yet.'); return }
+    let createdReservation: WaitlistReservation | null = null
+    let paymentAccepted = false
     setBusy(true); setError(''); setReservation(null)
     try {
       const idempotencyKey = crypto.randomUUID()
@@ -94,7 +116,8 @@ export function WaitlistModal({ open, lines, config, apiAvailable, onClose, onCo
         consent: true,
         termsVersion: config.termsVersion,
       }, { ...csrfHeaders(), 'Idempotency-Key': idempotencyKey })
-      setReservation(created.reservation)
+      createdReservation = created.reservation
+      setReservation(createdReservation)
       const payment = await openRazorpayCheckout({
         key: created.checkout.keyId,
         amount: created.checkout.amountPaise,
@@ -107,6 +130,7 @@ export function WaitlistModal({ open, lines, config, apiAvailable, onClose, onCo
         notes: { reservation: created.reservation.publicToken },
         theme: { color: '#7d3f8c' },
       })
+      paymentAccepted = true
       const verified = await postStorefront<{ reservation: WaitlistReservation; confirmed: boolean }>(`/waitlist/reservations/${created.reservation.publicToken}/verify`, {
         razorpayOrderId: payment.razorpay_order_id,
         razorpayPaymentId: payment.razorpay_payment_id,
@@ -115,7 +139,16 @@ export function WaitlistModal({ open, lines, config, apiAvailable, onClose, onCo
       setReservation(verified.reservation)
       setStage('success')
       if (verified.confirmed) onComplete()
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'We could not complete the waitlist payment. Please try again.') } finally { setBusy(false) }
+    } catch (cause) {
+      if (paymentAccepted && createdReservation) {
+        // Razorpay has accepted the payment. Never encourage a second payment
+        // simply because our confirmation request is delayed or unavailable.
+        setReservation(createdReservation)
+        setStage('success')
+        return
+      }
+      setError(cause instanceof Error ? cause.message : 'We could not complete the waitlist payment. Please try again.')
+    } finally { setBusy(false) }
   }
 
   const close = () => { if (!busy) onClose() }

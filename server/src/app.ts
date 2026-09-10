@@ -661,7 +661,11 @@ export function buildApp(): FastifyInstance {
 
   const claimFounderPlace = async (customerId: string) => {
     const result = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(736546683200::bigint)`
+      // pg_advisory_xact_lock returns PostgreSQL's `void` type. `$queryRaw`
+      // tries to deserialize query results, which causes a P2010 error for a
+      // successful lock acquisition. `$executeRaw` is the correct API for a
+      // statement whose return value is intentionally ignored.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(736546683200::bigint)`
       const customer = await tx.customer.findUniqueOrThrow({ where: { id: customerId }, select: { founderNumber: true } })
       if (customer.founderNumber) return { founderNumber: customer.founderNumber, autoLaunched: false }
       const latest = await tx.customer.aggregate({ _max: { founderNumber: true } })
