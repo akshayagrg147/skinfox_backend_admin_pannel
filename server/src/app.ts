@@ -24,12 +24,11 @@ import { analysePhoto, photoAnalysisConfigured, photoNote } from './lib/photoAna
 import { PHOTO_DAILY_LIMIT, PHOTO_DEVICE_COOKIE, checkPhotoQuota, newDeviceId, recordPhotoUse } from './lib/photoQuota.js'
 import { LocalEmailAdapter, LocalStorageAdapter, ManualShippingAdapter, RazorpayAdapter } from './lib/providers.js'
 import { productImageAssetSchema, productMediaInputSchema } from './lib/productAssets.js'
+import { parseStoredWaitlistSettings, waitlistDefaultsFromEnv, waitlistSettingsSchema, type WaitlistSettings } from './lib/waitlistConfig.js'
 
 const secureCookies = () => process.env.COOKIE_SECURE === undefined ? process.env.NODE_ENV === 'production' : process.env.COOKIE_SECURE === 'true'
-const WAITLIST_ENABLED = process.env.WAITLIST_ENABLED !== 'false'
-const WAITLIST_DEPOSIT_PAISE = Math.max(100, Number(process.env.WAITLIST_DEPOSIT_PAISE ?? 9900))
-const WAITLIST_DISCOUNT_PERCENT = Math.min(90, Math.max(1, Number(process.env.WAITLIST_DISCOUNT_PERCENT ?? 25)))
-const WAITLIST_TERMS_VERSION = process.env.WAITLIST_TERMS_VERSION ?? '2026-09-10'
+const defaultWaitlistSettings = waitlistDefaultsFromEnv()
+let activeWaitlistSettings: WaitlistSettings = defaultWaitlistSettings
 
 const productCreateSchema = z.object({
   name: z.string().min(2), slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/), subtitle: z.string().min(2), type: z.string().min(1), packaging: z.string().min(1), category: z.string().min(1), concern: z.string().min(1), concerns: z.array(z.string()).default([]), benefit: z.string().min(2), description: z.string().min(2), pricePaise: z.number().int().positive().nullable().default(null), mrpPaise: z.number().int().positive().nullable().default(null), size: z.string().min(1), usage: z.string().min(1), routineStep: z.string().min(1), highlights: z.array(z.string()).default([]), color: z.string().default('#f5f0eb'), accent: z.string().default('#18243b'), tint: z.string().default('#eee3d4'), image: productImageAssetSchema, storyImage: productImageAssetSchema.nullable().optional(), imageAlt: z.string().min(12), imagePosition: z.string().default('50% 50%'), imageScale: z.number().positive().max(2).default(1), badge: z.string().nullable().optional(), purchaseState: z.nativeEnum(PurchaseState).default(PurchaseState.coming_soon), status: z.nativeEnum(PublicationStatus).default(PublicationStatus.draft), media: z.array(productMediaInputSchema).default([]), sku: z.string().optional() }).superRefine((value, ctx) => { if (value.pricePaise !== null && value.mrpPaise !== null && value.mrpPaise < value.pricePaise) ctx.addIssue({ code: 'custom', path: ['mrpPaise'], message: 'MRP cannot be lower than selling price' }); if (value.purchaseState === PurchaseState.available && value.pricePaise === null) ctx.addIssue({ code: 'custom', path: ['pricePaise'], message: 'Available products require a selling price' }) })
@@ -58,15 +57,15 @@ const sha256Json = (value: unknown) => createHash('sha256').update(canonicalJson
 const hidePriceReferences = (value: string) => value.replace(/MRP\s*₹\s*[\d,.]+/gi, 'MRP detail')
 const publicProduct = (product: any, revealCommercials = false) => ({
   ...product,
-  pricePaise: revealCommercials || !WAITLIST_ENABLED ? product.pricePaise ?? null : null,
-  mrpPaise: revealCommercials || !WAITLIST_ENABLED ? product.mrpPaise ?? null : null,
-  purchaseState: revealCommercials || !WAITLIST_ENABLED ? product.purchaseState : PurchaseState.coming_soon,
-  highlights: revealCommercials || !WAITLIST_ENABLED ? product.highlights : product.highlights?.map((item: string) => hidePriceReferences(item)),
+  pricePaise: revealCommercials || !activeWaitlistSettings.enabled ? product.pricePaise ?? null : null,
+  mrpPaise: revealCommercials || !activeWaitlistSettings.enabled ? product.mrpPaise ?? null : null,
+  purchaseState: revealCommercials || !activeWaitlistSettings.enabled ? product.purchaseState : PurchaseState.coming_soon,
+  highlights: revealCommercials || !activeWaitlistSettings.enabled ? product.highlights : product.highlights?.map((item: string) => hidePriceReferences(item)),
   variants: product.variants?.map((variant: any) => {
     const { inventory: _inventory, ...safeVariant } = variant
-    return revealCommercials || !WAITLIST_ENABLED ? safeVariant : { ...safeVariant, pricePaise: null, mrpPaise: null, purchaseState: PurchaseState.coming_soon }
+    return revealCommercials || !activeWaitlistSettings.enabled ? safeVariant : { ...safeVariant, pricePaise: null, mrpPaise: null, purchaseState: PurchaseState.coming_soon }
   }),
-  media: [...(product.media ?? [])].sort((a: any, b: any) => a.sortOrder - b.sortOrder).map((media: any) => ({ ...media, alt: revealCommercials || !WAITLIST_ENABLED ? media.alt : hidePriceReferences(media.alt), src: media.src, mobileSrc: media.mobileSrc ?? undefined })),
+  media: [...(product.media ?? [])].sort((a: any, b: any) => a.sortOrder - b.sortOrder).map((media: any) => ({ ...media, alt: revealCommercials || !activeWaitlistSettings.enabled ? media.alt : hidePriceReferences(media.alt), src: media.src, mobileSrc: media.mobileSrc ?? undefined })),
 })
 const publicCollection = (collection: any) => ({
   ...collection,
@@ -116,7 +115,7 @@ const documentPath = (path: string, methods: string[], summary: string) => {
   ['/payments/razorpay/verify', ['post'], 'Verify Razorpay payment'], ['/webhooks/payments/razorpay', ['post'], 'Receive Razorpay webhook'], ['/payments/{publicToken}/status', ['get'], 'Get payment status'], ['/orders/{publicToken}', ['get'], 'Get public order'], ['/orders/{publicToken}/tracking', ['get'], 'Get order tracking'], ['/orders/{publicToken}/cancel-request', ['post'], 'Request order cancellation'], ['/orders/{publicToken}/return-request', ['post'], 'Request return'],
   ['/launch-interest', ['post'], 'Capture launch interest'], ['/waitlist/config', ['get'], 'Get priority waitlist configuration'], ['/waitlist/reservations', ['post'], 'Create priority waitlist reservation'], ['/waitlist/reservations/{publicToken}/verify', ['post'], 'Verify waitlist payment'], ['/waitlist/reservations/{publicToken}/cancel', ['post'], 'Cancel and refund waitlist reservation'], ['/customer/waitlist', ['get'], 'List customer waitlist reservations'], ['/newsletter/subscriptions', ['post'], 'Subscribe to newsletter'], ['/newsletter/confirm', ['post'], 'Confirm newsletter subscription'], ['/newsletter/subscriptions/{token}', ['delete'], 'Unsubscribe from newsletter'], ['/contact', ['post'], 'Submit contact form'], ['/events', ['post'], 'Record analytics event'], ['/events/batch', ['post'], 'Record analytics events'],
   ['/admin/auth/login', ['post'], 'Admin login'], ['/admin/auth/logout', ['post'], 'Admin logout'], ['/admin/auth/refresh', ['post'], 'Refresh admin session'], ['/admin/auth/me', ['get'], 'Get current admin'], ['/admin/auth/forgot-password', ['post'], 'Start password reset'], ['/admin/auth/reset-password', ['post'], 'Reset password'], ['/admin/auth/accept-invitation', ['post'], 'Accept admin invitation'], ['/admin/auth/mfa/setup', ['post'], 'Set up MFA'], ['/admin/auth/mfa/verify', ['post'], 'Verify MFA'], ['/admin/auth/logout-all-sessions', ['post'], 'Revoke all admin sessions'], ['/admin/auth/sessions', ['get'], 'List admin sessions'], ['/admin/auth/sessions/{sessionId}', ['delete'], 'Revoke admin session'],
-  ['/admin/dashboard/{metric}', ['get'], 'Admin dashboard metric'], ['/admin/waitlist-reservations', ['get'], 'Admin priority waitlist'], ['/admin/products', ['get', 'post'], 'Admin product list or create'], ['/admin/products/{id}', ['get', 'patch', 'delete'], 'Admin product detail'], ['/admin/products/{id}/publish', ['post'], 'Publish product'], ['/admin/products/{id}/unpublish', ['post'], 'Unpublish product'], ['/admin/products/{id}/revisions', ['get'], 'List product revisions'], ['/admin/products/{id}/restore', ['post'], 'Restore product revision'], ['/admin/products/bulk', ['post'], 'Bulk update products'], ['/admin/products/import', ['post'], 'Import products'], ['/admin/products/export', ['get'], 'Export products'],
+  ['/admin/dashboard/{metric}', ['get'], 'Admin dashboard metric'], ['/admin/waitlist-settings', ['get', 'patch'], 'Admin priority waitlist settings'], ['/admin/waitlist-reservations', ['get'], 'Admin priority waitlist'], ['/admin/products', ['get', 'post'], 'Admin product list or create'], ['/admin/products/{id}', ['get', 'patch', 'delete'], 'Admin product detail'], ['/admin/products/{id}/publish', ['post'], 'Publish product'], ['/admin/products/{id}/unpublish', ['post'], 'Unpublish product'], ['/admin/products/{id}/revisions', ['get'], 'List product revisions'], ['/admin/products/{id}/restore', ['post'], 'Restore product revision'], ['/admin/products/bulk', ['post'], 'Bulk update products'], ['/admin/products/import', ['post'], 'Import products'], ['/admin/products/export', ['get'], 'Export products'],
   ...['submit-review', 'approve', 'schedule', 'archive'].map((action) => [`/admin/products/{id}/${action}`, ['post'], `Product ${action}`]), ['/admin/products/{id}/revisions/{revisionId}/restore', ['post'], 'Restore product revision snapshot'],
   ['/admin/products/{productId}/variants', ['get', 'post'], 'Manage product variants'], ['/admin/products/{productId}/variants/{variantId}', ['patch', 'delete'], 'Update or delete variant'], ['/admin/products/{productId}/media', ['get', 'post'], 'Manage product media'], ['/admin/products/{productId}/media/{mediaId}', ['patch', 'delete'], 'Update or delete product media'], ['/admin/products/{productId}/media/reorder', ['post'], 'Reorder product media'],
   ['/admin/inventory', ['get'], 'List inventory'], ['/admin/inventory/low-stock', ['get'], 'List low stock inventory'], ['/admin/inventory/{variantId}', ['get'], 'Get variant inventory'], ['/admin/inventory/adjustments', ['post'], 'Adjust inventory'], ['/admin/inventory/bulk-adjustments', ['post'], 'Bulk adjust inventory'], ['/admin/inventory/history', ['get'], 'Inventory movement history'], ['/admin/inventory/import', ['post'], 'Import inventory'], ['/admin/inventory/export', ['get'], 'Export inventory'],
@@ -134,6 +133,7 @@ const documentPath = (path: string, methods: string[], summary: string) => {
 ].forEach(([path, methods, summary]) => documentPath(path as string, methods as string[], summary as string))
 
 export function buildApp(): FastifyInstance {
+  activeWaitlistSettings = { ...defaultWaitlistSettings }
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info', redact: ['req.headers.authorization', 'req.headers.cookie', '*.password', '*.token', '*.secret'] }, genReqId: (request) => request.headers['x-request-id']?.toString() ?? randomToken(12) })
   // Razorpay signs the exact webhook bytes. Preserve the original JSON string
   // before parsing so whitespace/key-order changes cannot invalidate verification.
@@ -156,6 +156,11 @@ export function buildApp(): FastifyInstance {
   app.register(swagger, { openapi: { info: { title: 'SkinFox API', version: '1.0.0', description: 'API-backed SkinFox commerce and operations API' }, servers: [{ url: '/api/v1' }], paths: openApiPaths } })
   app.register(swaggerUi, { routePrefix: '/api/docs' })
 
+  app.addHook('onReady', async () => {
+    const stored = await prisma.storeSetting.findUnique({ where: { key: 'waitlist-config' } })
+    activeWaitlistSettings = parseStoredWaitlistSettings(stored?.value, defaultWaitlistSettings)
+    if (stored && activeWaitlistSettings === defaultWaitlistSettings) app.log.warn('Invalid persisted waitlist settings; environment defaults are active.')
+  })
   app.addHook('onRequest', async (request, reply) => { reply.header('x-request-id', request.id); request.log.info({ requestId: request.id, method: request.method, url: request.url }, 'request started') })
   app.setErrorHandler((error, request, reply) => {
     const requestId = request.id
@@ -290,7 +295,7 @@ export function buildApp(): FastifyInstance {
       return { id: item.id, productId: item.product.id, variantId: variant?.id, quantity: item.quantity, product: publicProduct(item.product), unitPricePaise: variant?.pricePaise ?? item.product.pricePaise, availableQuantity: inv, purchaseState: variant?.purchaseState ?? item.product.purchaseState }
     })
     const quote = calculateCart(lines, cart.coupon?.promotion as any, serviceable, cod)
-    if (WAITLIST_ENABLED) return { cartId: cart.publicToken ?? cart.id, lines: lines.map((line: any) => ({ ...line, product: publicProduct(line.product), unitPricePaise: null, purchaseState: PurchaseState.coming_soon })), ...quote, subtotalPaise: 0, discountPaise: 0, taxPaise: 0, shippingPaise: 0, codPaise: 0, totalPaise: 0, purchaseEligible: false, priceHidden: true, validationMessages: [], appliedCoupon: null, currency: cart.currency, expiresAt: cart.expiresAt }
+    if (activeWaitlistSettings.enabled) return { cartId: cart.publicToken ?? cart.id, lines: lines.map((line: any) => ({ ...line, product: publicProduct(line.product), unitPricePaise: null, purchaseState: PurchaseState.coming_soon })), ...quote, subtotalPaise: 0, discountPaise: 0, taxPaise: 0, shippingPaise: 0, codPaise: 0, totalPaise: 0, purchaseEligible: false, priceHidden: true, validationMessages: [], appliedCoupon: null, currency: cart.currency, expiresAt: cart.expiresAt }
     return { cartId: cart.publicToken ?? cart.id, lines, ...quote, appliedCoupon: cart.coupon ? { code: cart.coupon.code, promotion: cart.coupon.promotion } : null, currency: cart.currency, expiresAt: cart.expiresAt }
   }
   const idemReplay = async (request: any, scope: string) => { const key = request.headers['idempotency-key']; if (!key) return null; const record = await prisma.idempotencyRecord.findUnique({ where: { key_scope: { key: String(key), scope } } }); if (!record?.responseBody) return null; if (record.requestHash !== sha256Json(request.body ?? {})) throw new ApiError(409, 'IDEMPOTENCY_KEY_REUSED', 'This idempotency key was already used with a different request.'); return { status: record.responseStatus ?? 200, body: record.responseBody } }
@@ -301,14 +306,15 @@ export function buildApp(): FastifyInstance {
   routes.get('/api/v1/storefront/bootstrap', async (_, reply) => {
     const settings = await prisma.storeSetting.findMany({ where: { key: { in: ['storefront', 'seo'] } } })
     const values = Object.fromEntries(settings.map((setting) => [setting.key, setting.value])) as any
-    return data(reply, { storeName: 'SkinFox', logo: '/brand/skinfox-logo.png', currency: 'INR', announcement: values.storefront?.announcement ?? 'Priority launch waitlist is open', navigation: [{ label: 'Shop', href: '#shop' }, { label: 'Care finder', href: '#care-finder' }], footerLinks: [{ label: 'FAQ', href: '#faq' }], socialLinks: [{ label: 'Instagram', href: '#story' }], freeShippingThresholdPaise: values.storefront?.freeShippingThresholdPaise ?? 99900, featureFlags: { customerOtp: false, firebaseAuth: firebaseAdminIsConfigured(), customerEmailAuth: firebaseAdminIsConfigured(), paymentMode: WAITLIST_ENABLED ? 'waitlist' : 'cod' }, supportContact: { email: values.storefront?.supportEmail ?? 'contact@skinfox.in' }, enabledPaymentMethods: WAITLIST_ENABLED ? ['razorpay_waitlist'] : ['cod'], waitlist: { enabled: WAITLIST_ENABLED, depositPaise: WAITLIST_DEPOSIT_PAISE, discountPercent: WAITLIST_DISCOUNT_PERCENT, refundable: true, paymentConfigured: payment.configured() }, seo: values.seo ?? {} })
+    const waitlist = waitlistConfig()
+    return data(reply, { storeName: 'SkinFox', logo: '/brand/skinfox-logo.png', currency: 'INR', announcement: values.storefront?.announcement ?? (waitlist.enabled ? 'Priority launch waitlist is open' : 'The SkinFox collection is now available'), navigation: [{ label: 'Shop', href: '#shop' }, { label: 'Care finder', href: '#care-finder' }], footerLinks: [{ label: 'FAQ', href: '#faq' }], socialLinks: [{ label: 'Instagram', href: '#story' }], freeShippingThresholdPaise: values.storefront?.freeShippingThresholdPaise ?? 99900, featureFlags: { customerOtp: false, firebaseAuth: firebaseAdminIsConfigured(), customerEmailAuth: firebaseAdminIsConfigured(), paymentMode: waitlist.enabled ? 'waitlist' : 'cod' }, supportContact: { email: values.storefront?.supportEmail ?? 'contact@skinfox.in' }, enabledPaymentMethods: waitlist.enabled ? ['razorpay_waitlist'] : ['cod'], waitlist, seo: values.seo ?? {} })
   })
   routes.get('/api/v1/products', async (request, reply) => {
     const params = pageParams(request)
     const minPrice = request.query?.minPrice === undefined || request.query?.minPrice === '' ? undefined : Number(request.query.minPrice)
     const maxPrice = request.query?.maxPrice === undefined || request.query?.maxPrice === '' ? undefined : Number(request.query.maxPrice)
     if ((minPrice !== undefined && !Number.isInteger(minPrice)) || (maxPrice !== undefined && !Number.isInteger(maxPrice))) throw validationError('Price filters must be integer paise values.', { minPrice: 'Use integer paise.', maxPrice: 'Use integer paise.' })
-    if (WAITLIST_ENABLED && (minPrice !== undefined || maxPrice !== undefined || ['price_asc', 'price_desc'].includes(String(request.query?.sort ?? '')))) throw validationError('Price filtering and sorting will be available after prices are revealed.')
+    if (activeWaitlistSettings.enabled && (minPrice !== undefined || maxPrice !== undefined || ['price_asc', 'price_desc'].includes(String(request.query?.sort ?? '')))) throw validationError('Price filtering and sorting will be available after prices are revealed.')
     const collection = request.query?.collection ? String(request.query.collection) : undefined
     const where: any = {
       status: PublicationStatus.published,
@@ -323,7 +329,7 @@ export function buildApp(): FastifyInstance {
     const [items, total] = await prisma.$transaction([prisma.product.findMany({ where, include: { media: true, variants: true }, orderBy, skip: (params.page - 1) * params.limit, take: params.limit }), prisma.product.count({ where })])
     return data(reply, items.map((item) => publicProduct(item)), { page: params.page, limit: params.limit, total, hasNextPage: params.page * params.limit < total })
   })
-  routes.get('/api/v1/products/:id/availability', async (request, reply) => { const pincode = String(request.query?.pincode ?? ''); if (!isValidPincode(pincode)) throw validationError('Enter a valid six-digit pincode.', { pincode: 'Pincode must contain six digits.' }); const serviceable = await shipping.serviceable(pincode); const product = await prisma.product.findFirst({ where: { OR: [{ id: request.params.id }, { slug: request.params.id }] }, include: { variants: { include: { inventory: true } } } }); if (!product) throw notFound('Product not found.'); return data(reply, { serviceable, purchaseState: WAITLIST_ENABLED ? PurchaseState.coming_soon : product.purchaseState, availableQuantity: WAITLIST_ENABLED ? null : product.variants.reduce((sum, variant) => sum + variant.inventory.reduce((inner, row) => inner + row.availableQty - row.reservedQty, 0), 0), waitlistEligible: WAITLIST_ENABLED }) })
+  routes.get('/api/v1/products/:id/availability', async (request, reply) => { const pincode = String(request.query?.pincode ?? ''); if (!isValidPincode(pincode)) throw validationError('Enter a valid six-digit pincode.', { pincode: 'Pincode must contain six digits.' }); const serviceable = await shipping.serviceable(pincode); const product = await prisma.product.findFirst({ where: { OR: [{ id: request.params.id }, { slug: request.params.id }] }, include: { variants: { include: { inventory: true } } } }); if (!product) throw notFound('Product not found.'); return data(reply, { serviceable, purchaseState: activeWaitlistSettings.enabled ? PurchaseState.coming_soon : product.purchaseState, availableQuantity: activeWaitlistSettings.enabled ? null : product.variants.reduce((sum, variant) => sum + variant.inventory.reduce((inner, row) => inner + row.availableQty - row.reservedQty, 0), 0), waitlistEligible: activeWaitlistSettings.enabled }) })
   routes.get('/api/v1/products/:id', async (request, reply) => { const product = await prisma.product.findFirst({ where: { OR: [{ id: request.params.id }, { slug: request.params.id }], status: PublicationStatus.published }, include: { media: true, variants: true, collections: { include: { collection: true } } } }); if (!product) throw notFound('Product not found.'); return data(reply, publicProduct(product)) })
   routes.get('/api/v1/categories', async (_, reply) => data(reply, await prisma.category.findMany({ orderBy: { sortOrder: 'asc' } })))
   routes.get('/api/v1/concerns', async (_, reply) => data(reply, await prisma.concern.findMany({ orderBy: { sortOrder: 'asc' } })))
@@ -354,7 +360,7 @@ export function buildApp(): FastifyInstance {
     const config = (finder.config && typeof finder.config === 'object' && !Array.isArray(finder.config) ? finder.config : {}) as Record<string, any>
     const area = typeof answers.careArea === 'string' ? answers.careArea : 'skin'
     const packageName = config.packageNames?.[area] ?? 'Your SkinFox care edit'
-    const items = selected.map((item) => ({ product: publicProduct(item.product), role: item.metadata.role ?? 'essential', reason: item.metadata.reason ?? item.product.benefit, frequency: item.metadata.frequency ?? 'Follow the final pack directions', days: item.metadata.days ?? ['As directed'], timeOfDay: item.metadata.timeOfDay ?? 'As directed', instructions: item.metadata.instructions ?? 'Follow the final product pack directions.', stepOrder: item.metadata.stepOrder ?? null, guidanceStatus: item.metadata.guidanceStatus ?? 'needs_review', matchedRules: item.matchedRules, pricePaise: WAITLIST_ENABLED ? null : productPricePaise(item.product), mrpPaise: WAITLIST_ENABLED ? null : productMrpPaise(item.product) }))
+    const items = selected.map((item) => ({ product: publicProduct(item.product), role: item.metadata.role ?? 'essential', reason: item.metadata.reason ?? item.product.benefit, frequency: item.metadata.frequency ?? 'Follow the final pack directions', days: item.metadata.days ?? ['As directed'], timeOfDay: item.metadata.timeOfDay ?? 'As directed', instructions: item.metadata.instructions ?? 'Follow the final product pack directions.', stepOrder: item.metadata.stepOrder ?? null, guidanceStatus: item.metadata.guidanceStatus ?? 'needs_review', matchedRules: item.matchedRules, pricePaise: activeWaitlistSettings.enabled ? null : productPricePaise(item.product), mrpPaise: activeWaitlistSettings.enabled ? null : productMrpPaise(item.product) }))
     const totalPaise = items.reduce((sum, item) => sum + (item.pricePaise ?? 0), 0)
     const mrpTotalPaise = items.reduce((sum, item) => sum + (item.mrpPaise ?? item.pricePaise ?? 0), 0)
     const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -618,12 +624,9 @@ export function buildApp(): FastifyInstance {
   routes.get('/api/v1/customer/orders/:publicToken', async (request, reply) => { const customer = await requireCustomer(request); const order = await prisma.order.findFirst({ where: { publicToken: request.params.publicToken, customerId: customer.id }, include: { items: true, payments: true, shipments: { include: { events: { orderBy: { createdAt: 'asc' } } } }, statusEvents: { orderBy: { createdAt: 'asc' } } } }); if (!order) throw notFound('Order not found.'); return data(reply, order) })
 
   const waitlistConfig = () => ({
-    enabled: WAITLIST_ENABLED,
-    depositPaise: WAITLIST_DEPOSIT_PAISE,
-    discountPercent: WAITLIST_DISCOUNT_PERCENT,
+    ...activeWaitlistSettings,
     currency: 'INR',
     refundable: true,
-    termsVersion: WAITLIST_TERMS_VERSION,
     paymentConfigured: payment.configured(),
     razorpayKeyId: payment.configured() ? process.env.RAZORPAY_KEY_ID : undefined,
   })
@@ -651,7 +654,8 @@ export function buildApp(): FastifyInstance {
     return data(reply, reservations.map(waitlistResponse))
   })
   routes.post('/api/v1/waitlist/reservations', { config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } }, async (request, reply) => {
-    if (!WAITLIST_ENABLED) throw new ApiError(409, 'WAITLIST_CLOSED', 'The priority waitlist is not open right now.')
+    const currentWaitlist = { ...activeWaitlistSettings }
+    if (!currentWaitlist.enabled) throw new ApiError(409, 'WAITLIST_CLOSED', 'The priority waitlist is not open right now.')
     if (!payment.configured()) throw new ApiError(503, 'RAZORPAY_NOT_CONFIGURED', 'Online waitlist payment is being configured. Please try again shortly.')
     const customer = await requireCustomer(request, true)
     if (!customer.emailVerifiedAt) throw new ApiError(400, 'CUSTOMER_EMAIL_UNVERIFIED', 'Verify your email address before joining the priority waitlist.')
@@ -659,8 +663,9 @@ export function buildApp(): FastifyInstance {
       items: z.array(z.object({ productId: z.string().min(1), quantity: z.number().int().min(1).max(8) })).min(1).max(20),
       phone: deliveryPhoneSchema,
       consent: z.literal(true),
-      termsVersion: z.literal(WAITLIST_TERMS_VERSION),
+      termsVersion: z.string().trim().min(1).max(40),
     }).parse(request.body)
+    if (input.termsVersion !== currentWaitlist.termsVersion) throw validationError('The waitlist terms have changed. Review the latest terms and try again.', { termsVersion: 'Please accept the current waitlist terms.' })
     const idempotencyKey = z.string().min(8).max(160).parse(request.headers['idempotency-key'])
     const replay = await prisma.waitlistReservation.findUnique({ where: { idempotencyKey }, include: { items: true } })
     if (replay) {
@@ -677,8 +682,8 @@ export function buildApp(): FastifyInstance {
       data: {
         publicToken,
         customerId: customer.id,
-        depositPaise: WAITLIST_DEPOSIT_PAISE,
-        discountPercent: WAITLIST_DISCOUNT_PERCENT,
+        depositPaise: currentWaitlist.depositPaise,
+        discountPercent: currentWaitlist.discountPercent,
         phone: input.phone,
         consent: input.consent,
         consentAt: new Date(),
@@ -689,7 +694,7 @@ export function buildApp(): FastifyInstance {
       include: { items: true },
     })
     try {
-      const providerOrder = await payment.createOrder({ amountPaise: WAITLIST_DEPOSIT_PAISE, receipt: `sfwl_${reservation.id}`, notes: { reservation: reservation.publicToken, purpose: 'priority_waitlist' } })
+      const providerOrder = await payment.createOrder({ amountPaise: currentWaitlist.depositPaise, receipt: `sfwl_${reservation.id}`, notes: { reservation: reservation.publicToken, purpose: 'priority_waitlist' } })
       const updated = await prisma.waitlistReservation.update({ where: { id: reservation.id }, data: { providerOrderId: providerOrder.providerOrderId }, include: { items: true } })
       return reply.status(201).send({ data: { reservation: waitlistResponse(updated), checkout: { keyId: process.env.RAZORPAY_KEY_ID, orderId: providerOrder.providerOrderId, amountPaise: updated.depositPaise, currency: updated.currency, name: 'SkinFox', description: 'Fully refundable priority waitlist deposit', prefill: { name: customer.fullName, email: customer.email, contact: `+91${input.phone}` } } }, meta: { requestId: request.id } })
     } catch (cause) {
@@ -742,7 +747,7 @@ export function buildApp(): FastifyInstance {
   routes.delete('/api/v1/carts/:cartId/coupon', async (request, reply) => { const cart = await getCart(request); await prisma.cart.update({ where: { id: cart.id }, data: { couponId: null } }); return data(reply, await cartResponse(await getCart(request))) })
 
   routes.get('/api/v1/shipping/serviceability', async (request, reply) => { const pincode = String(request.query?.pincode ?? ''); if (!isValidPincode(pincode)) throw validationError('Enter a valid six-digit pincode.'); return data(reply, { pincode, serviceable: await shipping.serviceable(pincode), codAvailable: Boolean(await prisma.serviceablePincode.findUnique({ where: { pincode, active: true } })) }) })
-  const makeQuote = async (request: any, sessionInput?: any, customer?: any) => { if (WAITLIST_ENABLED) throw new ApiError(409, 'WAITLIST_ONLY', 'Product prices are not revealed yet. Join the refundable priority waitlist instead.'); const cart = await getCart(request); const bodyValue = sessionInput ?? request.body; const parsed = checkoutSchema.parse(bodyValue); if (!customer?.emailVerifiedAt) throw new ApiError(400, 'CUSTOMER_EMAIL_UNVERIFIED', 'Verify your email address before placing an order.'); const serviceable = await shipping.serviceable(parsed.pincode); const response = await cartResponse(cart, true, serviceable); return { ...response, serviceability: serviceable, estimatedDeliveryFrom: serviceable ? new Date(Date.now() + 3 * 86400000).toISOString() : null, estimatedDeliveryTo: serviceable ? new Date(Date.now() + 7 * 86400000).toISOString() : null, quoteExpiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(), checkout: { ...parsed, email: parsed.email ?? customer.email ?? undefined } } }
+  const makeQuote = async (request: any, sessionInput?: any, customer?: any) => { if (activeWaitlistSettings.enabled) throw new ApiError(409, 'WAITLIST_ONLY', 'Product prices are not revealed yet. Join the refundable priority waitlist instead.'); const cart = await getCart(request); const bodyValue = sessionInput ?? request.body; const parsed = checkoutSchema.parse(bodyValue); if (!customer?.emailVerifiedAt) throw new ApiError(400, 'CUSTOMER_EMAIL_UNVERIFIED', 'Verify your email address before placing an order.'); const serviceable = await shipping.serviceable(parsed.pincode); const response = await cartResponse(cart, true, serviceable); return { ...response, serviceability: serviceable, estimatedDeliveryFrom: serviceable ? new Date(Date.now() + 3 * 86400000).toISOString() : null, estimatedDeliveryTo: serviceable ? new Date(Date.now() + 7 * 86400000).toISOString() : null, quoteExpiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(), checkout: { ...parsed, email: parsed.email ?? customer.email ?? undefined } } }
   routes.post('/api/v1/checkout/quote', async (request, reply) => { const customer = await requireCustomer(request); return data(reply, await makeQuote(request, undefined, customer)) })
   routes.post('/api/v1/checkout/sessions', async (request, reply) => {
     const customer = await requireCustomer(request, true)
@@ -993,6 +998,20 @@ export function buildApp(): FastifyInstance {
 
   const transition: Record<string, OrderStatus> = { confirm: OrderStatus.confirmed, process: OrderStatus.processing, pack: OrderStatus.packed, fulfill: OrderStatus.processing, ship: OrderStatus.shipped, deliver: OrderStatus.delivered, cancel: OrderStatus.cancelled }
   routes.get('/api/v1/admin/orders', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT])(request); const params = pageParams(request); const where: any = request.query?.status ? { status: request.query.status } : {}; const [items, total] = await Promise.all([prisma.order.findMany({ where, include: { customer: true, items: true, payments: true }, orderBy: { createdAt: 'desc' }, skip: (params.page - 1) * params.limit, take: params.limit }), prisma.order.count({ where })]); return data(reply, items.map((order) => ({ ...order, customer: maskCustomer(order.customer) })), { page: params.page, limit: params.limit, total }) })
+  const adminWaitlistSettings = () => ({ ...activeWaitlistSettings, currency: 'INR', refundable: true, paymentConfigured: payment.configured() })
+  routes.get('/api/v1/admin/waitlist-settings', async (request, reply) => {
+    await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT, AdminRole.ANALYST])(request)
+    return data(reply, adminWaitlistSettings())
+  })
+  routes.patch('/api/v1/admin/waitlist-settings', async (request, reply) => {
+    const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER])(request)
+    const before = { ...activeWaitlistSettings }
+    const next = waitlistSettingsSchema.parse(request.body)
+    await prisma.storeSetting.upsert({ where: { key: 'waitlist-config' }, update: { value: next }, create: { key: 'waitlist-config', value: next } })
+    activeWaitlistSettings = next
+    await audit(user, request, 'update', 'WaitlistSettings', 'waitlist-config', before, next, next.enabled === before.enabled ? 'Waitlist commercial settings updated' : `Priority waitlist ${next.enabled ? 'opened' : 'closed'}`)
+    return data(reply, adminWaitlistSettings())
+  })
   routes.get('/api/v1/admin/waitlist-reservations', async (request, reply) => {
     await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT, AdminRole.ANALYST])(request)
     const params = pageParams(request)

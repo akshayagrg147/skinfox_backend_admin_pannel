@@ -42,7 +42,7 @@ The customer flow uses Firebase Google sign-in or email/password when the public
 
 In Firebase Console, enable **Google** and **Email/Password** under Authentication → Sign-in method, configure the verification/reset email templates, and add every local/production hostname to Authentication → Settings → Authorized domains. The storefront needs `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, and `VITE_FIREBASE_APP_ID`; the API needs a server-only Firebase service account. Never expose the service-account JSON in the browser bundle.
 
-While `WAITLIST_ENABLED=true`, every published product is presented as a priority-waitlist product: public product, collection, home, care-finder and cart responses suppress MRP and selling prices. A verified customer can reserve the selected products with a configurable refundable deposit (₹99 by default) and a recorded launch-member discount (25% by default). The reservation and cancellation history is available in **My account → Priority waitlist**. Firebase email delivery remains subject to Firebase quotas and authorized domains.
+While the priority waitlist is open, every published product is presented as a priority-waitlist product: public product, collection, home, care-finder and cart responses suppress MRP and selling prices. A verified customer can reserve the selected products with a configurable refundable deposit (₹99 by default) and a recorded launch-member discount (25% by default). The reservation and cancellation history is available in **My account → Priority waitlist**. Super Admins and Order Managers can publish the live waitlist status, deposit, discount and terms version from **Admin → Priority waitlist**; Support Agents and Analysts have read-only monitoring access. Each change is persisted and audited, while existing reservations keep their original commercial terms. Firebase email delivery remains subject to Firebase quotas and authorized domains.
 
 ### Razorpay setup
 
@@ -61,7 +61,7 @@ npm run prisma:deploy --workspace server
 npm run build --workspace server
 ```
 
-`WAITLIST_DEPOSIT_PAISE`, `WAITLIST_DISCOUNT_PERCENT`, and `WAITLIST_TERMS_VERSION` define the accepted terms for new reservations. If Razorpay credentials are absent, the storefront shows that secure payment setup is unavailable and cannot simulate a successful payment. Move to Live keys only after Razorpay account activation/KYC, a successful Test-mode checkout, signed-webhook testing, refund testing, and legal review of the waitlist terms. When prices are approved, retain the reservation records and set `WAITLIST_ENABLED=false` during a controlled release to restore the normal priced checkout experience.
+`WAITLIST_ENABLED`, `WAITLIST_DEPOSIT_PAISE`, `WAITLIST_DISCOUNT_PERCENT`, and `WAITLIST_TERMS_VERSION` provide safe initial defaults. Once an authorized administrator publishes settings from **Admin → Priority waitlist**, the database-backed values take precedence and remain active across API restarts. If Razorpay credentials are absent, the storefront shows that secure payment setup is unavailable and cannot simulate a successful payment. Move to Live keys only after Razorpay account activation/KYC, a successful Test-mode checkout, signed-webhook testing, refund testing, and legal review of the waitlist terms. When prices are approved, retain the reservation records and close the waitlist from Admin during a controlled release to restore the normal priced checkout experience.
 
 ### Affiliate programme
 

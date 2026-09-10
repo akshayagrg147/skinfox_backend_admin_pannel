@@ -9,6 +9,7 @@ type AdminUser = { id: string; email: string; name: string; role: AdminRole; isA
 type Resource = { id: string; name?: string; title?: string; email?: string; status?: string; createdAt?: string; [key: string]: unknown }
 type NavItem = { key: string; label: string; icon: typeof Gauge; permission?: string }
 type ResourceConfig = { endpoint: string; title: string; fields: string[]; createTemplate?: Record<string, unknown> }
+type WaitlistSettings = { enabled: boolean; depositPaise: number; discountPercent: number; termsVersion: string; currency: 'INR'; refundable: true; paymentConfigured: boolean }
 
 const fixedCatalog = [
   { slug: 'rayyvia-sun-protect', image: '/products/rayyvia-sun-protect-primary.webp', alt: 'SkinFox Rayyvia Sun Protect facial suncream 60 g tube in yellow and pink campaign artwork' },
@@ -73,7 +74,7 @@ function App() {
   return <div className="admin-shell"><aside className={`sidebar ${sidebarOpen ? 'sidebar--open' : ''}`}><div className="sidebar-brand"><img src="/brand/skinfox-logo.png" alt="SkinFox" /><button className="icon-button mobile-only" onClick={() => setSidebarOpen(false)} aria-label="Close menu"><X size={18} /></button></div><div className="sidebar-label">Workspace</div><nav aria-label="Admin workspace">{allowedNav.map(({ key, label, icon: Icon }) => <button key={key} className={safeActive === key ? 'nav-item is-active' : 'nav-item'} onClick={() => go(key)}><Icon size={17} /><span>{label}</span>{key === 'orders' && <span className="nav-badge">live</span>}</button>)}</nav><div className="sidebar-bottom"><div className="user-chip"><span className="avatar">{user.name.slice(0, 1).toUpperCase()}</span><span><strong>{user.name}</strong><small>{user.role.replaceAll('_', ' ')}</small></span></div><button className="nav-item" onClick={logout}><LogOut size={17} />Sign out</button></div></aside><div className="main-column"><header className="topbar"><button className="icon-button mobile-only" onClick={() => setSidebarOpen(true)} aria-label="Open menu"><Menu size={20} /></button><div><span className="topbar-breadcrumb">SkinFox / Operations</span><h1>{nav.find((item) => item.key === safeActive)?.label ?? 'Dashboard'}</h1></div><div className="topbar-actions"><span className="environment-pill"><span />Local / safe mode</span><a className="icon-button" href={storefrontUrl()} target="_blank" rel="noreferrer" aria-label="Open storefront"><ArrowLeft size={17} /></a></div></header><main className="content"><View active={safeActive} role={user.role} /></main></div>{sidebarOpen && <button className="sidebar-scrim" onClick={() => setSidebarOpen(false)} aria-label="Close navigation" />}</div>
 }
 
-function View({ active, role }: { active: string; role: AdminRole }) { if (active === 'dashboard') return <Dashboard />; if (active === 'products') return <Products />; if (active === 'inventory') return <Inventory canManage={role === 'SUPER_ADMIN' || role === 'CATALOG_MANAGER'} />; if (active === 'orders') return <Orders canManage={role === 'SUPER_ADMIN' || role === 'ORDER_MANAGER'} />; if (active === 'customers') return <Customers canManage={role === 'SUPER_ADMIN' || role === 'SUPPORT_AGENT'} canAnonymize={role === 'SUPER_ADMIN'} />; if (active === 'affiliates') return <Affiliates />; if (active === 'users') return <UsersView />; if (active === 'care-finder') return <CareFinder />; if (active === 'settings') return <SettingsView />; const config = resourceConfig[active]; return config ? <ResourceView {...config} /> : <Dashboard /> }
+function View({ active, role }: { active: string; role: AdminRole }) { if (active === 'dashboard') return <Dashboard />; if (active === 'products') return <Products />; if (active === 'inventory') return <Inventory canManage={role === 'SUPER_ADMIN' || role === 'CATALOG_MANAGER'} />; if (active === 'orders') return <Orders canManage={role === 'SUPER_ADMIN' || role === 'ORDER_MANAGER'} />; if (active === 'waitlist') return <WaitlistManagement canManage={role === 'SUPER_ADMIN' || role === 'ORDER_MANAGER'} />; if (active === 'customers') return <Customers canManage={role === 'SUPER_ADMIN' || role === 'SUPPORT_AGENT'} canAnonymize={role === 'SUPER_ADMIN'} />; if (active === 'affiliates') return <Affiliates />; if (active === 'users') return <UsersView />; if (active === 'care-finder') return <CareFinder />; if (active === 'settings') return <SettingsView />; const config = resourceConfig[active]; return config ? <ResourceView {...config} /> : <Dashboard /> }
 
 function useTableSearch() {
   const [search, setSearchState] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '')
@@ -95,6 +96,86 @@ function formatPaise(value: unknown) {
 
 function productAssetUrl(path: string) {
   return path
+}
+
+function WaitlistManagement({ canManage }: { canManage: boolean }) {
+  const queryClient = useQueryClient()
+  const [search, setSearch] = useTableSearch()
+  const [status, setStatus] = useState('all')
+  const [enabled, setEnabled] = useState(true)
+  const [depositRupees, setDepositRupees] = useState('99')
+  const [discountPercent, setDiscountPercent] = useState('25')
+  const [termsVersion, setTermsVersion] = useState('2026-09-10')
+  const settings = useQuery({ queryKey: ['waitlist-settings'], queryFn: () => get<WaitlistSettings>('/admin/waitlist-settings') })
+  const reservations = useQuery({ queryKey: ['waitlist-reservations'], queryFn: () => get<Resource[]>('/admin/waitlist-reservations?limit=100') })
+
+  useEffect(() => {
+    if (!settings.data) return
+    setEnabled(settings.data.enabled)
+    setDepositRupees(String(settings.data.depositPaise / 100))
+    setDiscountPercent(String(settings.data.discountPercent))
+    setTermsVersion(settings.data.termsVersion)
+  }, [settings.data])
+
+  const save = useMutation({
+    mutationFn: () => patch<WaitlistSettings>('/admin/waitlist-settings', {
+      enabled,
+      depositPaise: Math.round(Number(depositRupees) * 100),
+      discountPercent: Number(discountPercent),
+      termsVersion: termsVersion.trim(),
+    }),
+    onSuccess: async (next) => {
+      queryClient.setQueryData(['waitlist-settings'], next)
+      await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+
+  const rows = (reservations.data ?? []).map((row) => {
+    const customer = row.customer as Record<string, unknown> | undefined
+    return { ...row, id: String(row.publicToken), customer: customer ? `${String(customer.fullName ?? 'Customer')} · ${String(customer.email ?? '')}` : 'Customer' }
+  }).filter((row) => status === 'all' || row.status === status)
+  const joined = (reservations.data ?? []).filter((row) => row.status === 'joined').length
+  const captured = (reservations.data ?? []).reduce((sum, row) => sum + Number(row.paymentCapturedPaise ?? 0), 0)
+  const refundPending = (reservations.data ?? []).filter((row) => row.status === 'refund_pending').length
+  const invalid = !Number.isFinite(Number(depositRupees)) || Number(depositRupees) < 1 || Number(depositRupees) > 100000 || !Number.isInteger(Number(discountPercent)) || Number(discountPercent) < 1 || Number(discountPercent) > 90 || !termsVersion.trim()
+  const submit = (event: FormEvent) => {
+    event.preventDefault()
+    if (invalid || save.isPending) return
+    if (settings.data?.enabled && !enabled && !window.confirm('Close the priority waitlist and reveal product prices? Existing reservations and refunds will remain available.')) return
+    save.mutate()
+  }
+
+  if (settings.isError || reservations.isError) return <ErrorPanel onRetry={() => { void settings.refetch(); void reservations.refetch() }} />
+  return <>
+    <div className="page-intro"><div><span className="kicker">Launch access / Razorpay</span><h2>Priority waitlist</h2><p className="muted">Control the live customer experience and monitor every paid reservation from one place.</p></div><button className="secondary-button" onClick={() => { void settings.refetch(); void reservations.refetch() }}>Refresh <Activity size={16} /></button></div>
+    <div className="metric-grid waitlist-metrics">
+      <article className="metric-card"><span>Waitlist status</span><strong className={settings.data?.enabled ? 'metric-status--live' : 'metric-status--closed'}>{settings.data?.enabled ? 'Open' : 'Closed'}</strong><small>{settings.data?.enabled ? 'Prices hidden · deposits enabled' : 'Prices visible · checkout enabled'}</small></article>
+      <article className="metric-card"><span>Confirmed places</span><strong>{joined}</strong><small>Razorpay payment captured</small></article>
+      <article className="metric-card"><span>Deposits captured</span><strong>₹{(captured / 100).toLocaleString('en-IN')}</strong><small>Before completed refunds</small></article>
+      <article className="metric-card"><span>Refunds pending</span><strong>{refundPending}</strong><small>Awaiting provider confirmation</small></article>
+    </div>
+    <div className="waitlist-admin-grid">
+      <form className="panel waitlist-control-panel" onSubmit={submit}>
+        <div className="panel-heading"><div><span className="kicker">Live storefront controls</span><h3>Launch configuration</h3></div><span className={`configuration-state ${enabled ? 'is-live' : ''}`}>{enabled ? 'Open' : 'Closed'}</span></div>
+        {settings.isLoading ? <TableSkeleton /> : <>
+          <label className="waitlist-toggle"><span><strong>Accept new waitlist reservations</strong><small>Turning this off reveals configured product prices and returns the storefront to normal checkout.</small></span><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} disabled={!canManage} /><i aria-hidden="true" /></label>
+          <div className="form-grid waitlist-fields">
+            <label>Refundable deposit (₹)<input type="number" min="1" max="100000" step="1" value={depositRupees} onChange={(event) => setDepositRupees(event.target.value)} disabled={!canManage} required /><small>Applied only to new reservations.</small></label>
+            <label>Launch discount (%)<input type="number" min="1" max="90" step="1" value={discountPercent} onChange={(event) => setDiscountPercent(event.target.value)} disabled={!canManage} required /><small>Saved with each new reservation.</small></label>
+            <label className="form-field--wide">Terms version<input maxLength={40} value={termsVersion} onChange={(event) => setTermsVersion(event.target.value)} disabled={!canManage} required /><small>Change this whenever customer-facing waitlist terms change.</small></label>
+          </div>
+          <div className={`payment-readiness ${settings.data?.paymentConfigured ? 'is-ready' : 'is-blocked'}`}><LockKeyhole size={17} /><span><strong>{settings.data?.paymentConfigured ? 'Razorpay is ready' : 'Razorpay is not configured'}</strong><small>{settings.data?.paymentConfigured ? 'Payment credentials remain encrypted on the server.' : 'Keep the waitlist closed until server credentials are configured.'}</small></span></div>
+          {!canManage && <div className="alert"><LockKeyhole size={16} />Your role has read-only waitlist access.</div>}
+          {save.isError && <div className="alert alert--error" role="alert"><CircleAlert size={16} />{save.error instanceof Error ? save.error.message : 'Unable to save waitlist settings.'}</div>}
+          {save.isSuccess && <div className="alert alert--success" role="status"><Check size={16} />Waitlist settings are live on the storefront.</div>}
+          {canManage && <button className="primary-button waitlist-save" type="submit" disabled={invalid || save.isPending}>{save.isPending ? 'Publishing…' : 'Publish waitlist settings'} <Check size={16} /></button>}
+        </>}
+      </form>
+      <section className="panel waitlist-policy"><span className="kicker">Customer protection</span><h3>How updates behave</h3><div className="attention-row"><span className="status-dot status-dot--good"><Check size={11} /></span><span><strong>Existing reservations never change</strong><small>The recorded deposit, discount and accepted terms remain attached to that customer.</small></span></div><div className="attention-row"><span className="status-dot status-dot--good"><Check size={11} /></span><span><strong>Refunds stay fully enabled</strong><small>Customers can cancel eligible reservations and receive the captured deposit through Razorpay.</small></span></div><div className="attention-row"><span className="status-dot status-dot--good"><Check size={11} /></span><span><strong>Every settings change is audited</strong><small>The acting administrator, previous values and new values are recorded server-side.</small></span></div></section>
+    </div>
+    <div className="waitlist-table-heading"><div><span className="kicker">Customer reservations</span><h3>Waitlist activity</h3></div><label>Status<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">All statuses</option>{['payment_pending', 'joined', 'payment_failed', 'cancelled', 'refund_pending', 'refunded', 'converted'].map((item) => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}</select></label></div>
+    {reservations.isLoading ? <TableSkeleton /> : <DataTable rows={rows} fields={['publicToken', 'customer', 'products', 'status', 'depositPaise', 'discountPercent', 'refundStatus', 'createdAt']} searchValue={search} onSearch={setSearch} />}
+  </>
 }
 
 function Products() {
