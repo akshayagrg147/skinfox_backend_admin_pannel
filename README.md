@@ -75,6 +75,14 @@ The production Compose stack serves the storefront at `/`, the Admin panel on po
 
 When DNS is ready, the production nginx configuration is prepared for `skinfox.in`, `www.skinfox.in`, `affiliate.skinfox.in`, and `admin.skinfox.in` on the same Elastic IP. It also mounts a Certbot webroot for Let’s Encrypt HTTP challenges. Do not switch cookies to secure-only or remove public port `8080` until certificates have been issued and each hostname has been verified over HTTPS.
 
+Production API credentials are stored as encrypted AWS Systems Manager Parameter Store values under `/skinfox/prod`. After pushing a verified release, deploy through the EC2 instance role (for example with Systems Manager Run Command):
+
+```bash
+sudo /opt/skinfox/deploy/update-instance.sh
+```
+
+The script fast-forwards from `origin/main`, installs the Anthropic and Razorpay values into the mode-600 server environment file without printing them, rebuilds the Compose services, applies database migrations through the API entrypoint, and waits for the readiness endpoint.
+
 ### API and database
 
 Copy `server/.env.example` to `server/.env`, start the local services, then create and seed the database:
