@@ -53,6 +53,8 @@ echo "Building SkinFox services sequentially for the free-tier instance..."
 # Building both images through Compose's parallel bake process can exhaust the
 # small EC2 instance and leave BuildKit waiting indefinitely. Build each image
 # independently so the currently running release stays available throughout.
+export COMPOSE_BAKE=false
+export COMPOSE_PARALLEL_LIMIT=1
 docker compose -f docker-compose.prod.yml build api
 docker compose -f docker-compose.prod.yml build web
 
