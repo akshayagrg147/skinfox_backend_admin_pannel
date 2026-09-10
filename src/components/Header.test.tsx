@@ -27,7 +27,7 @@ describe('Header mobile menu', () => {
     expect(within(mobileNavigation).getByRole('link', { name: 'Shop the collection' })).toHaveAttribute('href', '#shop')
     expect(within(mobileNavigation).getByRole('button', { name: 'My account' })).toBeInTheDocument()
     expect(within(mobileNavigation).getByRole('button', { name: 'Find my care' })).toBeInTheDocument()
-    expect(within(mobileNavigation).getByRole('link', { name: 'Label transparency' })).toHaveAttribute('href', '#ingredients')
+    expect(within(mobileNavigation).getByRole('link', { name: 'Our range' })).toHaveAttribute('href', '#range')
     expect(within(mobileNavigation).getByRole('link', { name: 'Our story' })).toHaveAttribute('href', '#story')
     expect(within(mobileNavigation).getByRole('link', { name: 'Questions, answered' })).toHaveAttribute('href', '#faq')
 

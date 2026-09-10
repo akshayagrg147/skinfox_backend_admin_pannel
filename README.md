@@ -36,13 +36,32 @@ The JSON document behind the interactive API reference is available at `http://l
 
 The complete templates are [server/.env.example](/Users/akshay/Documents/ChatGPT/skinfox/server/.env.example), [admin/.env.example](/Users/akshay/Documents/ChatGPT/skinfox/admin/.env.example), [affiliate/.env.example](/Users/akshay/Documents/ChatGPT/skinfox/affiliate/.env.example), and [.env.example](/Users/akshay/Documents/ChatGPT/skinfox/.env.example). The server template covers PostgreSQL/Redis (`DATABASE_URL`, `REDIS_URL`), origins and session security (`STOREFRONT_ORIGIN`, `ADMIN_ORIGIN`, `AFFILIATE_ORIGIN`, `COOKIE_SECRET`, `SESSION_TTL_DAYS`), Firebase Admin authentication (`FIREBASE_PROJECT_ID`, `FIREBASE_SERVICE_ACCOUNT_JSON` or `GOOGLE_APPLICATION_CREDENTIALS`), independent affiliate OTP (`AFFILIATE_OTP_*`), first-admin bootstrap (`SEED_ADMIN_*`), and optional Razorpay, S3-compatible storage, and Mailpit provider settings. Keep real values in an ignored `.env` or deployment secret manager.
 
-### Customer Firebase authentication and COD test flow
+### Customer authentication and priority-waitlist payment flow
 
-The customer flow uses Firebase Google sign-in or email/password when the public `VITE_FIREBASE_*` web configuration is present. The backend verifies the Firebase ID token, maps each Firebase project/UID to a `CustomerIdentity`, creates a SkinFox session, and links the guest cart. New email/password accounts collect a valid Indian mobile number for delivery contact, send a Firebase verification email, and keep orders and saved addresses locked until that email is verified. A verified email is required before a COD order can be placed. Password reset and Firebase token revocation invalidate the corresponding SkinFox session. Existing legacy customer rows remain readable and are never silently merged by email; contact `contact@skinfox.in` for support-assisted recovery.
+The customer flow uses Firebase Google sign-in or email/password when the public `VITE_FIREBASE_*` web configuration is present. The backend verifies the Firebase ID token, maps each Firebase project/UID to a `CustomerIdentity`, creates a SkinFox session, and links the guest cart. New email/password accounts collect a valid Indian mobile number for delivery contact, send a Firebase verification email, and keep account data and payment actions locked until that email is verified. Password reset and Firebase token revocation invalidate the corresponding SkinFox session. Existing legacy customer rows remain readable and are never silently merged by email; contact `contact@skinfox.in` for support-assisted recovery.
 
 In Firebase Console, enable **Google** and **Email/Password** under Authentication → Sign-in method, configure the verification/reset email templates, and add every local/production hostname to Authentication → Settings → Authorized domains. The storefront needs `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, and `VITE_FIREBASE_APP_ID`; the API needs a server-only Firebase service account. Never expose the service-account JSON in the browser bundle.
 
-Only COD is available in this release. To exercise the full flow, publish a product with a non-null selling price and `available` purchase state in Admin, then add it to the bag. Firebase Google and email/password providers are configured for the SkinFox project; email delivery remains subject to Firebase quotas and authorized domains. Razorpay is still intentionally disabled until payment-provider credentials and webhook verification are supplied.
+While `WAITLIST_ENABLED=true`, every published product is presented as a priority-waitlist product: public product, collection, home, care-finder and cart responses suppress MRP and selling prices. A verified customer can reserve the selected products with a configurable refundable deposit (₹99 by default) and a recorded launch-member discount (25% by default). The reservation and cancellation history is available in **My account → Priority waitlist**. Firebase email delivery remains subject to Firebase quotas and authorized domains.
+
+### Razorpay setup
+
+Start in Razorpay **Test mode**. Add the Test Key ID and Test Key Secret to the API environment as `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET`; never add the secret to Vite variables or frontend code. Generate a separate webhook secret and set `RAZORPAY_WEBHOOK_SECRET`. Configure the webhook URL as:
+
+```text
+https://skinfox.in/api/v1/webhooks/payments/razorpay
+```
+
+Subscribe it to `payment.captured`, `payment.failed`, `refund.processed`, and `refund.failed`. Enable automatic payment capture in Razorpay. The API creates orders and refunds directly with Razorpay, verifies Checkout signatures using the stored order ID, confirms payment amount/status with Razorpay, validates webhooks against the exact raw request body, and de-duplicates webhook events. It never trusts an amount sent by the browser and never stores card or UPI credentials.
+
+Apply the database migration and restart the API after adding the settings:
+
+```bash
+npm run prisma:deploy --workspace server
+npm run build --workspace server
+```
+
+`WAITLIST_DEPOSIT_PAISE`, `WAITLIST_DISCOUNT_PERCENT`, and `WAITLIST_TERMS_VERSION` define the accepted terms for new reservations. If Razorpay credentials are absent, the storefront shows that secure payment setup is unavailable and cannot simulate a successful payment. Move to Live keys only after Razorpay account activation/KYC, a successful Test-mode checkout, signed-webhook testing, refund testing, and legal review of the waitlist terms. When prices are approved, retain the reservation records and set `WAITLIST_ENABLED=false` during a controlled release to restore the normal priced checkout experience.
 
 ### Affiliate programme
 
@@ -68,6 +87,8 @@ npm run seed --workspace server
 ```
 
 The seed is repeatable and imports all seven products, every existing gallery asset, the campaign slideshow, FAQs, serviceability, and the database-managed care finder from `src/data/products.ts`. Set `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` before seeding to create the first Super Admin; no password is committed.
+
+The seven launch products keep their approved bundled artwork locked. Admin users can still create and manage new products; add their image files to `public/products` first, then enter the matching `/products/...` paths in the product editor. Product images and galleries are deployed with the storefront, so the Admin UI intentionally has no image-upload or media-library control.
 
 For a non-interactive production bootstrap, also provide a base32 `SEED_ADMIN_MFA_SECRET`; otherwise enroll the seeded admin through the MFA setup screen before enabling production traffic.
 
@@ -97,7 +118,8 @@ Security defaults include Argon2id passwords, HttpOnly/SameSite admin and custom
 - A single-product Save Data and reduced-motion fallback for the motion chapter, while the hero and catalogue remain multi-product
 - Search, local cart persistence, quantity controls, and explicit pending-price states
 - Three-step routine finder with tailored recommendations
-- Guest carts with Firebase Google/email authentication, verified-email checkout gating, saved delivery addresses, customer sessions and COD-only checkout
+- Guest carts with Firebase Google/email authentication, verified-email payment gating, saved delivery addresses and customer sessions
+- A Razorpay-backed priority waitlist with hidden prices, configurable refundable deposits and discounts, signed payment verification, idempotent webhooks, customer self-service cancellation/refunds and admin visibility
 - An affiliate dashboard with OTP sign-in, encrypted PAN application details, admin approval, referral-link attribution, 10% commission wallet credits and ₹500+ payout requests
 - Responsive navigation, front-label transparency, editorial product notes, FAQ, and newsletter sections
 - Unit and interaction tests with Vitest and Testing Library
@@ -112,4 +134,4 @@ The animated product chapter is implemented in `src/components/ScrollProductStor
 
 The products and photography reflect the supplied SkinFox range. Hydrelle, Rayyvia and Acnfin artwork visibly include MRP references, which are labelled as MRP rather than treated as confirmed selling prices; products without an artwork price show `Price on launch`. Complete ingredients, directions, manufacturer information, testimonials, and substantiated efficacy claims were not supplied. The interface hides ratings and avoids extending front-label callouts into new claims. Confirm commercial rights for the promo-video audio before publishing it.
 
-The included API persists launch leads, carts, customer checkout data and orders in PostgreSQL. Razorpay, object storage, email, shipping and Redis queue integrations are provider interfaces with local-safe adapters; configure and validate live credentials, webhook signing, backups, observability, retention, legal policies and payment/shipping tax rules before production launch. The seeded products intentionally remain `coming_soon` with null selling prices until commercial approval, so the payable checkout path rejects them.
+The included API persists launch leads, waitlist reservations, carts, customer checkout data and orders in PostgreSQL. Razorpay waitlist payments use the live provider API only when server-side credentials are present; object storage, email, shipping and Redis queue integrations remain provider interfaces with local-safe adapters. Configure and validate live credentials, webhook delivery, backups, observability, retention, legal policies and payment/shipping tax rules before production launch. The seeded products may retain internal commercial data for administrators, but the public API suppresses it while the priority waitlist is enabled.

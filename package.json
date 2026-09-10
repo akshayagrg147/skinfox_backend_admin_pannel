@@ -15,7 +15,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "dev:all": "concurrently -k \"npm run dev --workspace server\" \"npm run dev --workspace admin\" \"npm run dev --workspace affiliate\" \"npm run dev\"",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node scripts/prerender.mjs",
     "build:all": "npm run build && npm run build --workspace server && npm run build --workspace admin && npm run build --workspace affiliate",
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",

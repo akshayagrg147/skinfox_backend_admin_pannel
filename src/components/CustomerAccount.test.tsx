@@ -119,6 +119,13 @@ describe('CustomerAccount', () => {
     fireEvent.click(screen.getByRole('tab', { name: /addresses 1/i }))
     await waitFor(() => expect(screen.getByText(/12 Marine Drive/i)).toBeInTheDocument())
     expect(screen.getByText('Default')).toBeInTheDocument()
+    const addressTab = screen.getByRole('tab', { name: /addresses 1/i })
+    addressTab.focus()
+    fireEvent.keyDown(addressTab, { key: 'Home' })
+    const ordersTab = screen.getByRole('tab', { name: /orders 0/i })
+    expect(ordersTab).toHaveFocus()
+    expect(ordersTab).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tabpanel', { name: /orders 0/i })).toBeInTheDocument()
   })
 
   it('allows a signed-in customer to edit their profile name and phone', async () => {

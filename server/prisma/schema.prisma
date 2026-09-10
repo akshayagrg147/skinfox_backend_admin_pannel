@@ -57,6 +57,16 @@ enum PaymentStatus {
   partially_refunded
 }
 
+enum WaitlistStatus {
+  payment_pending
+  joined
+  payment_failed
+  cancelled
+  refund_pending
+  refunded
+  converted
+}
+
 enum OrderStatus {
   pending_payment
   payment_failed
@@ -229,6 +239,21 @@ model AuditLog {
   @@index([createdAt])
 }
 
+/// Daily photo-analysis usage, keyed per browser (device cookie) and per IP.
+/// Persisted rather than in-memory so a server restart cannot reset the quota.
+model PhotoAnalysisUsage {
+  id        String   @id @default(cuid())
+  scope     String
+  scopeKey  String
+  day       String
+  count     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([scope, scopeKey, day])
+  @@index([day])
+}
+
 model IdempotencyRecord {
   id             String   @id @default(cuid())
   key            String
@@ -295,6 +320,7 @@ model Product {
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
   variants      ProductVariant[]
+  waitlistItems WaitlistItem[]
   media         ProductMedia[]
   collections   CollectionProduct[]
   ingredients   ProductIngredient[]
@@ -613,6 +639,7 @@ model Customer {
   // new customer authentication uses Firebase Google/email identities.
   otpChallenges CustomerOtpChallenge[]
   identities CustomerIdentity[]
+  waitlistReservations WaitlistReservation[]
 }
 
 model CustomerIdentity {
@@ -1189,6 +1216,56 @@ model LaunchInterest {
   status               String   @default("new")
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
+}
+
+/// A paid priority-access reservation. Product prices are deliberately not
+/// copied here: customers join before launch pricing is revealed.
+model WaitlistReservation {
+  id                     String         @id @default(cuid())
+  publicToken            String         @unique
+  customerId             String
+  status                 WaitlistStatus @default(payment_pending)
+  currency               String         @default("INR")
+  depositPaise           Int
+  discountPercent        Int
+  phone                  String
+  consent                Boolean
+  consentAt              DateTime
+  termsVersion           String
+  provider               String         @default("razorpay")
+  providerOrderId        String?        @unique
+  providerPaymentId      String?        @unique
+  providerRefundId       String?        @unique
+  paymentCapturedPaise   Int            @default(0)
+  refundPaise            Int            @default(0)
+  refundStatus           String?
+  joinedAt               DateTime?
+  cancelledAt            DateTime?
+  refundedAt             DateTime?
+  idempotencyKey         String         @unique
+  customer               Customer       @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  items                  WaitlistItem[]
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+
+  @@index([customerId, createdAt])
+  @@index([status, createdAt])
+}
+
+model WaitlistItem {
+  id            String              @id @default(cuid())
+  reservationId String
+  productId     String
+  productName   String
+  productSlug   String
+  size          String
+  quantity      Int
+  reservation   WaitlistReservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  product       Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
+  createdAt     DateTime            @default(now())
+
+  @@unique([reservationId, productId])
+  @@index([productId])
 }
 
 model NewsletterSubscription {

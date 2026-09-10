@@ -1,12 +1,14 @@
 import { ArrowLeft, ArrowRight, FileText, Mail, Scale, ShieldCheck } from 'lucide-react'
-import { ReactNode } from 'react'
+import { ReactNode, useEffect } from 'react'
 import { BrandMark } from './BrandMark'
+import { SiteSeo } from '../seo/SiteSeo'
+import { legalSeo } from '../seo/metadata'
 
 export type LegalPageKind = 'privacy' | 'terms'
 
 type LegalSection = { id: string; title: string; content: ReactNode }
 
-const effectiveDate = '8 September 2026'
+const effectiveDate = '10 September 2026'
 
 const privacySections: LegalSection[] = [
   {
@@ -18,7 +20,7 @@ const privacySections: LegalSection[] = [
   {
     id: 'data', title: '2. Information we collect', content: <>
       <p>We collect only information relevant to providing and improving the store. Depending on how you use SkinFox, this may include:</p>
-      <ul><li><strong>Contact and account information:</strong> your mobile number, name and email address if you provide them.</li><li><strong>Order and delivery information:</strong> products selected, delivery address, order status and customer-support correspondence.</li><li><strong>Technical information:</strong> essential cookies, cart/session identifiers, device and browser information, IP-address-derived security logs, and pages or links used to reach the store.</li><li><strong>Marketing preferences:</strong> your newsletter subscription or other communications preferences.</li></ul>
+      <ul><li><strong>Contact and account information:</strong> your mobile number, name and email address if you provide them.</li><li><strong>Order and waitlist information:</strong> products selected, refundable-deposit status, payment-provider references, delivery address, order status and customer-support correspondence.</li><li><strong>Technical information:</strong> essential cookies, cart/session identifiers, device and browser information, IP-address-derived security logs, and pages or links used to reach the store.</li><li><strong>Marketing preferences:</strong> your newsletter subscription or other communications preferences.</li></ul>
       <p>Please do not send us sensitive personal information unless we specifically ask for it and explain why it is needed.</p>
     </>,
   },
@@ -36,7 +38,7 @@ const privacySections: LegalSection[] = [
   },
   {
     id: 'sharing', title: '5. When we share information', content: <>
-      <p>We may share only the information necessary with service providers that help us host, secure and operate SkinFox. When enabled for an order, this can include delivery partners, payment providers and email providers. Those providers may process data only for the services they perform for us and as permitted by law.</p>
+      <p>We may share only the information necessary with service providers that help us host, secure and operate SkinFox. This includes Razorpay when you choose to pay a refundable priority-waitlist deposit, and can include delivery and email providers. Razorpay processes the payment credentials in its secure checkout; SkinFox stores payment references and status, not your card or UPI credentials.</p>
       <p>We may also disclose information where required to comply with law, enforce our terms, protect the rights, safety or security of SkinFox, our customers or others, or in connection with a lawful business transition.</p>
     </>,
   },
@@ -68,7 +70,7 @@ const privacySections: LegalSection[] = [
 const termsSections: LegalSection[] = [
   {
     id: 'acceptance', title: '1. Agreement to these terms', content: <>
-      <p>These Terms & Conditions govern your use of <strong>skinfox.in</strong>, the SkinFox storefront, customer account, affiliate links and related services. By using them, you agree to these terms and to our <a href="#privacy-policy">Privacy Policy</a>. If you do not agree, please do not use the services.</p>
+      <p>These Terms & Conditions govern your use of <strong>skinfox.in</strong>, the SkinFox storefront, customer account, affiliate links and related services. By using them, you agree to these terms and to our <a href="/privacy-policy">Privacy Policy</a>. If you do not agree, please do not use the services.</p>
       <p>SkinFox may update these terms from time to time. Continued use after an updated version takes effect means you accept the updated terms, to the extent permitted by law.</p>
     </>,
   },
@@ -81,7 +83,14 @@ const termsSections: LegalSection[] = [
   {
     id: 'orders', title: '3. Orders, availability and pricing', content: <>
       <p>Adding an item to a bag or submitting an order request does not guarantee acceptance, stock availability or a price. We may decline, cancel or limit an order where information is inaccurate, stock is unavailable, an order appears unauthorised or fraud prevention requires it. If an accepted order must be cancelled, we will communicate using the contact details provided with the order.</p>
-      <p>Where shown, an MRP is not necessarily the selling price. The applicable selling price, taxes, delivery charges, payment method and any offer terms are shown before order confirmation. Current testing flows may offer cash on delivery only; payment services will be described before they are enabled.</p>
+      <p>Where shown on packaging, an MRP is not necessarily the selling price. While the priority waitlist is open, SkinFox withholds final selling prices. The applicable selling price, taxes, delivery charges, payment method and offer terms will be shown before any product order is confirmed.</p>
+    </>,
+  },
+  {
+    id: 'priority-waitlist', title: '3A. Priority waitlist and refundable deposit', content: <>
+      <p>Before product prices are revealed, you may reserve priority launch access for selected products by paying the deposit shown in the waitlist screen. A waitlist reservation is not a product purchase, does not reserve stock, and does not require you to buy when final prices are announced.</p>
+      <p>The launch-member discount shown when you join is recorded with your reservation and will apply to the eligible products selected in that reservation, subject to the final launch offer terms. The deposit is separate from the undisclosed product price.</p>
+      <p>You may cancel an active reservation from your SkinFox account before it is converted into a completed purchase. SkinFox will request a full refund of the captured deposit to the original payment method through Razorpay. Bank or payment-network processing times may apply. A pending or failed payment does not activate priority access and does not require a refund if no amount was captured.</p>
     </>,
   },
   {
@@ -121,16 +130,21 @@ const termsSections: LegalSection[] = [
 ]
 
 const pageCopy = {
-  privacy: { label: 'Privacy Policy', lead: 'A clear explanation of the personal data SkinFox uses, why we use it, and the choices available to you.', icon: ShieldCheck, sections: privacySections, alternate: 'Terms & Conditions', alternateHash: '#terms-and-conditions' },
-  terms: { label: 'Terms & Conditions', lead: 'The terms that apply when you browse SkinFox, use an account, place an order or share an affiliate link.', icon: Scale, sections: termsSections, alternate: 'Privacy Policy', alternateHash: '#privacy-policy' },
+  privacy: { label: 'Privacy Policy', lead: 'A clear explanation of the personal data SkinFox uses, why we use it, and the choices available to you.', icon: ShieldCheck, sections: privacySections, alternate: 'Terms & Conditions', alternateHash: '/terms-and-conditions' },
+  terms: { label: 'Terms & Conditions', lead: 'The terms that apply when you browse SkinFox, use an account, place an order or share an affiliate link.', icon: Scale, sections: termsSections, alternate: 'Privacy Policy', alternateHash: '/privacy-policy' },
 } satisfies Record<LegalPageKind, { label: string; lead: string; icon: typeof ShieldCheck; sections: LegalSection[]; alternate: string; alternateHash: string }>
 
 export function LegalPage({ kind, onBack }: { kind: LegalPageKind; onBack: () => void }) {
   const page = pageCopy[kind]
   const PageIcon = page.icon
+  useEffect(() => {
+    const id = window.location.hash.slice(1)
+    if (page.sections.some((section) => section.id === id)) document.getElementById(id)?.scrollIntoView({ block: 'start' })
+  }, [page])
   return <div className="legal-page">
+    <SiteSeo page={legalSeo(kind)} />
     <header className="legal-page__header">
-      <button className="legal-page__brand" type="button" onClick={onBack} aria-label="Return to SkinFox home"><BrandMark /></button>
+      <a className="legal-page__brand" href="/" aria-label="Return to SkinFox home"><BrandMark /></a>
       <button className="legal-page__back" type="button" onClick={onBack}><ArrowLeft size={16} /> Back to store</button>
     </header>
     <main>
@@ -153,6 +167,6 @@ export function LegalPage({ kind, onBack }: { kind: LegalPageKind; onBack: () =>
         </article>
       </div>
     </main>
-    <footer className="legal-page__footer"><span>© 2026 SkinFox</span><a href="mailto:contact@skinfox.in"><Mail size={14} /> contact@skinfox.in</a><button type="button" onClick={onBack}>Back to SkinFox</button></footer>
+    <footer className="legal-page__footer"><span>© 2026 SkinFox</span><a href="mailto:contact@skinfox.in"><Mail size={14} /> contact@skinfox.in</a><a href="/">Back to SkinFox</a></footer>
   </div>
 }

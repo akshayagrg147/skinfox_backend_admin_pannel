@@ -14,10 +14,11 @@ describe('ProductPrice', () => {
     expect(screen.getByLabelText(/offer price ₹525.*mrp ₹700.*save ₹175/i)).toBeInTheDocument()
   })
 
-  it('shows MRP and offer price without a savings claim when the values are equal', () => {
+  it('shows the regular price without an offer or savings claim when values are equal', () => {
     render(<ProductPrice product={{ ...products[0], mrp: 700, price: 700 }} />)
 
-    expect(screen.getByText('Offer price')).toBeInTheDocument()
+    expect(screen.getByText('Price')).toBeInTheDocument()
+    expect(screen.queryByText('Offer price')).not.toBeInTheDocument()
     expect(screen.getByText(/MRP ₹700/)).toBeInTheDocument()
     expect(screen.queryByText(/off$/i)).not.toBeInTheDocument()
     expect(screen.getByText('₹700')).toBeInTheDocument()

@@ -32,7 +32,7 @@ export const firebaseAuthConfigured = Boolean(firebaseConfig.apiKey && firebaseC
 let firebaseAuthInstance: ReturnType<typeof getAuth> | null = null
 const googleRedirectIntentKey = 'skinfox-google-redirect-intent'
 
-export type GoogleRedirectIntent = { destination: 'account' | 'checkout'; cartToken?: string }
+export type GoogleRedirectIntent = { destination: 'account' | 'checkout' | 'waitlist'; cartToken?: string }
 
 export const getFirebaseAuth = () => {
   if (!firebaseAuthConfigured) throw new Error('Firebase customer authentication is not configured for this storefront.')

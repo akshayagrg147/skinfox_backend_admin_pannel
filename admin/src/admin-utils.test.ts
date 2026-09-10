@@ -6,6 +6,8 @@ describe('admin role navigation', () => {
     expect(canAccessScreen('ANALYST', 'audit')).toBe(true)
     expect(canAccessScreen('ANALYST', 'products')).toBe(false)
     expect(canAccessScreen('SUPPORT_AGENT', 'users')).toBe(false)
+    expect(canAccessScreen('SUPER_ADMIN', 'media')).toBe(false)
+    expect(canAccessScreen('CATALOG_MANAGER', 'media')).toBe(false)
     expect(defaultScreen('SUPPORT_AGENT')).toBe('orders')
     expect(availableScreens('UNKNOWN')).toEqual([])
   })

@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Bell, ChevronDown, ClipboardList, CircleDollarSign, LogOut, MapPin, Menu, Search, ShoppingBag, Sparkles, UserRound, WalletCards, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { BrandMark } from './BrandMark'
@@ -19,6 +19,10 @@ export function Header({ cartCount, onCart, onQuiz, onSearch, onAccount, onLogou
   const [mobileOpen, setMobileOpen] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const accountMenuRef = useRef<HTMLDivElement>(null)
+  const mobilePanelRef = useRef<HTMLDivElement>(null)
+  const mobileTriggerRef = useRef<HTMLButtonElement>(null)
+  const reduceMotion = useReducedMotion()
+  const homeAnchor = (anchor: string) => typeof window !== 'undefined' && window.location.pathname === '/' ? `#${anchor}` : `/#${anchor}`
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 32)
@@ -32,13 +36,22 @@ export function Header({ cartCount, onCart, onQuiz, onSearch, onAccount, onLogou
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setMobileOpen(false)
+      if (event.key !== 'Tab') return
+      const controls = Array.from(mobilePanelRef.current?.querySelectorAll<HTMLElement>('button, a[href]') ?? [])
+      const first = controls[0]
+      const last = controls.at(-1)
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
     }
 
+    const trigger = mobileTriggerRef.current
     document.body.classList.add('is-locked')
     window.addEventListener('keydown', onKeyDown)
+    mobilePanelRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
     return () => {
       document.body.classList.remove('is-locked')
       window.removeEventListener('keydown', onKeyDown)
+      trigger?.focus()
     }
   }, [mobileOpen])
 
@@ -48,7 +61,18 @@ export function Header({ cartCount, onCart, onQuiz, onSearch, onAccount, onLogou
       if (!accountMenuRef.current?.contains(event.target as Node)) setAccountMenuOpen(false)
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setAccountMenuOpen(false)
+      if (event.key === 'Escape') {
+        setAccountMenuOpen(false)
+        accountMenuRef.current?.querySelector<HTMLButtonElement>('.header-account')?.focus()
+      }
+      const items = Array.from(accountMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])
+      const index = items.indexOf(document.activeElement as HTMLButtonElement)
+      if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault()
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
+        items[next]?.focus()
+      }
+      if (event.key === 'Tab') setAccountMenuOpen(false)
     }
     document.addEventListener('pointerdown', onPointerDown)
     window.addEventListener('keydown', onKeyDown)
@@ -64,17 +88,17 @@ export function Header({ cartCount, onCart, onQuiz, onSearch, onAccount, onLogou
     <>
       <header className={`site-header ${scrolled ? 'site-header--scrolled' : ''}`}>
         <div className="site-header__inner shell">
-          <button className="mobile-menu-button" onClick={() => setMobileOpen(true)} aria-label="Open menu">
+          <button ref={mobileTriggerRef} className="mobile-menu-button" onClick={() => setMobileOpen(true)} aria-label="Open menu" aria-expanded={mobileOpen} aria-controls="mobile-navigation-panel">
             <Menu size={20} />
           </button>
-          <a href="#top" className="brand-link" aria-label="SkinFox home">
+          <a href={homeAnchor('top')} className="brand-link" aria-label="SkinFox home">
             <BrandMark />
           </a>
           <nav className="desktop-nav" aria-label="Main navigation">
-            <a href="#shop">Shop</a>
-            <button onClick={onQuiz}>Care finder</button>
-            <a href="#ingredients">On the label</a>
-            <a href="#story">Our story</a>
+            <a href={homeAnchor('shop')}>Shop</a>
+            <a href={homeAnchor('range')}>Our range</a>
+            <a href={homeAnchor('story')}>Our story</a>
+            <a href={homeAnchor('faq')}>Help</a>
           </nav>
           <div className="header-actions">
             <button className="header-quiz" onClick={onQuiz}>
@@ -100,7 +124,7 @@ export function Header({ cartCount, onCart, onQuiz, onSearch, onAccount, onLogou
       <AnimatePresence>
         {mobileOpen && (
           <motion.div className="mobile-menu" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div className="mobile-menu__panel" initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }}>
+            <motion.div ref={mobilePanelRef} id="mobile-navigation-panel" className="mobile-menu__panel" role="dialog" aria-modal="true" aria-label="SkinFox navigation" initial={reduceMotion ? { opacity: 0 } : { x: '-100%' }} animate={{ x: 0, opacity: 1 }} exit={reduceMotion ? { opacity: 0 } : { x: '-100%' }}>
               <div className="mobile-menu__top">
                 <BrandMark compact />
                 <button className="icon-button" onClick={() => setMobileOpen(false)} aria-label="Close menu">
@@ -108,12 +132,13 @@ export function Header({ cartCount, onCart, onQuiz, onSearch, onAccount, onLogou
                 </button>
               </div>
               <nav aria-label="Mobile navigation">
-                <a href="#shop" onClick={navigate}>Shop the collection</a>
+                <a href={homeAnchor('shop')} onClick={navigate}>Shop the collection</a>
                 <button onClick={() => { navigate(); onAccount() }}>My account</button>
                 <button onClick={() => { navigate(); onQuiz() }}>Find my care</button>
-                <a href="#ingredients" onClick={navigate}>Label transparency</a>
-                <a href="#story" onClick={navigate}>Our story</a>
-                <a href="#faq" onClick={navigate}>Questions, answered</a>
+                <button onClick={() => { navigate(); onSearch() }}>Search products</button>
+                <a href={homeAnchor('range')} onClick={navigate}>Our range</a>
+                <a href={homeAnchor('story')} onClick={navigate}>Our story</a>
+                <a href={homeAnchor('faq')} onClick={navigate}>Questions, answered</a>
               </nav>
               <p>Beautiful care from root to skin.</p>
             </motion.div>

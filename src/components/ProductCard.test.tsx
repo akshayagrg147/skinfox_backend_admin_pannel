@@ -8,10 +8,11 @@ describe('ProductCard pricing', () => {
     const product = { ...products[0], mrp: 700, price: 525 }
     render(<ProductCard product={product} index={0} onView={vi.fn()} onAdd={vi.fn()} />)
 
-    const title = screen.getAllByRole('button', { name: /rayyvia sun protect/i }).find((button) => button.classList.contains('product-card__title'))
+    const title = screen.getByRole('link', { name: /rayyvia sun protect/i })
     const pricing = screen.getByLabelText(/offer price ₹525.*mrp ₹700.*save ₹175/i)
 
     expect(title).toBeDefined()
+    expect(title).toHaveAttribute('href', '/products/rayyvia-sun-protect')
     expect(pricing).toHaveClass('product-card__price')
     expect(title!).not.toContainElement(pricing)
     expect(pricing).toHaveTextContent('Offer price₹525MRP ₹700Save ₹175 · 25% off')

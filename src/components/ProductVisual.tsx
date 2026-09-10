@@ -1,4 +1,5 @@
 import type { Product } from '../types'
+import { productImageSrcSet } from '../utils/productImages'
 
 export function ProductVisual({ product, compact = false }: { product: Product; compact?: boolean }) {
   return (
@@ -9,7 +10,6 @@ export function ProductVisual({ product, compact = false }: { product: Product; 
           '--product-color': product.color,
           '--product-accent': product.accent,
           '--product-tint': product.tint,
-          '--photo-image': `url("${product.image}")`,
           '--photo-position': product.imagePosition,
           // Keep the complete supplied artwork visible inside each card. The
           // scale remains a separate knob for future product-specific tuning.
@@ -17,11 +17,9 @@ export function ProductVisual({ product, compact = false }: { product: Product; 
           '--photo-scale': String(product.imageScale),
         } as React.CSSProperties
       }
-      role={compact ? undefined : 'img'}
-      aria-label={compact ? undefined : product.imageAlt}
       aria-hidden={compact ? true : undefined}
     >
-      <span className="product-visual__photo" />
+      <img className="product-visual__photo" src={product.image} srcSet={productImageSrcSet(product.image)} sizes={compact ? '200px' : '(max-width: 560px) 90vw, (max-width: 1000px) 44vw, 400px'} alt={compact ? '' : product.imageAlt} loading="lazy" decoding="async" width={640} height={640} />
       <span className="product-visual__photo-shade" aria-hidden="true" />
     </div>
   )

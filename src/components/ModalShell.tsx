@@ -1,6 +1,7 @@
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { X } from 'lucide-react'
 import { useEffect, useRef, type ReactNode } from 'react'
+import './commerce-polish.css'
 
 type ModalShellProps = {
   open: boolean
@@ -13,6 +14,7 @@ type ModalShellProps = {
 
 export function ModalShell({ open, onClose, title, children, className = '', drawer = false }: ModalShellProps) {
   const panelRef = useRef<HTMLDivElement>(null)
+  const reduceMotion = useReducedMotion()
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
 
@@ -24,7 +26,7 @@ export function ModalShell({ open, onClose, title, children, className = '', dra
     const getFocusable = () => Array.from(panel?.querySelectorAll<HTMLElement>(selectors) ?? []).filter((item) => !item.hasAttribute('disabled'))
 
     document.body.classList.add('is-locked')
-    window.setTimeout(() => getFocusable()[0]?.focus(), 30)
+    const focusTimer = window.setTimeout(() => getFocusable()[0]?.focus(), 30)
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onCloseRef.current()
@@ -44,6 +46,7 @@ export function ModalShell({ open, onClose, title, children, className = '', dra
 
     document.addEventListener('keydown', handleKeyDown)
     return () => {
+      window.clearTimeout(focusTimer)
       document.removeEventListener('keydown', handleKeyDown)
       document.body.classList.remove('is-locked')
       previousFocus?.focus()
@@ -65,16 +68,16 @@ export function ModalShell({ open, onClose, title, children, className = '', dra
         >
           <motion.div
             ref={panelRef}
-            className={`${drawer ? 'drawer-panel' : 'modal-panel'} ${className}`}
+            className={`sf-dialog ${drawer ? 'drawer-panel' : 'modal-panel'} ${className}`}
             role="dialog"
             aria-modal="true"
             aria-label={title}
-            initial={drawer ? { x: '100%' } : { y: 28, scale: 0.985, opacity: 0 }}
+            initial={reduceMotion ? { opacity: 0 } : drawer ? { x: '100%' } : { y: 28, scale: 0.985, opacity: 0 }}
             animate={drawer ? { x: 0 } : { y: 0, scale: 1, opacity: 1 }}
-            exit={drawer ? { x: '100%' } : { y: 18, scale: 0.99, opacity: 0 }}
-            transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            exit={reduceMotion ? { opacity: 0 } : drawer ? { x: '100%' } : { y: 18, scale: 0.99, opacity: 0 }}
+            transition={reduceMotion ? { duration: 0.12 } : { type: 'spring', damping: 30, stiffness: 300 }}
           >
-            <button className="icon-button modal-close" onClick={onClose} aria-label={`Close ${title}`}>
+            <button type="button" className="icon-button modal-close" onClick={onClose} aria-label={`Close ${title}`}>
               <X size={19} />
             </button>
             {children}

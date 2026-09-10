@@ -24,12 +24,12 @@ export function ProductCard({ product, index, onView, onAdd }: ProductCardProps)
       }
       initial={{ opacity: 0, y: 36 }}
       whileInView={{ opacity: 1, y: 0 }}
+      whileHover={{ y: -4 }}
       viewport={{ once: true, amount: 0.18 }}
       transition={{ duration: 0.72, delay: Math.min(index * 0.07, 0.28), ease: [0.22, 1, 0.36, 1] }}
     >
       <button className="product-card__visual" onClick={() => onView(product)} aria-label={`View ${product.name} ${product.subtitle}`}>
         <span className="product-card__badge">{product.badge}</span>
-        <span className="product-card__index" aria-hidden="true">{String(index + 1).padStart(2, '0')} / 07</span>
         <ProductVisual product={product} />
         <span className="product-card__explore">Explore <ArrowUpRight size={15} /></span>
       </button>
@@ -38,13 +38,17 @@ export function ProductCard({ product, index, onView, onAdd }: ProductCardProps)
           <span>{product.step}</span>
           <span>{product.size}</span>
         </div>
-        <button className="product-card__title" onClick={() => onView(product)}>
-          <span><strong>{product.name}</strong><small>{product.subtitle}</small></span>
-        </button>
+        <a className="product-card__title" href={`/products/${encodeURIComponent(product.id)}`}>
+          <h3>{product.name}</h3><span>{product.subtitle}</span>
+        </a>
         <ProductPrice product={product} compact className="product-card__price" />
         <p>{product.benefit}</p>
-        <button className="quick-add" onClick={() => onAdd(product)}>
-          Add to launch bag <Plus size={17} />
+        <button
+          className="quick-add"
+          onClick={() => onAdd(product)}
+          aria-label={`${product.price === null ? 'Join the waitlist for' : 'Add'} ${product.name} ${product.subtitle}`}
+        >
+          {product.price === null ? 'Join waitlist' : 'Add to bag'} <Plus size={17} />
         </button>
       </div>
     </motion.article>

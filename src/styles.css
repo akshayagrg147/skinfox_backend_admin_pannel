@@ -1110,6 +1110,9 @@ blockquote {
   z-index: 2;
   padding-block: clamp(54px, 6vw, 86px);
   display: grid;
+  /* minmax(0, 1fr) stops the auto track sizing to the media's intrinsic width,
+     which overflowed the viewport on phones. */
+  grid-template-columns: minmax(0, 1fr);
   gap: clamp(28px, 3.6vw, 52px);
 }
 
@@ -4963,7 +4966,7 @@ blockquote {
   border-bottom: 1px solid var(--line);
 }
 
-.faq__list article > button {
+.faq__list article button {
   width: 100%;
   min-height: 104px;
   border: 0;
@@ -4977,22 +4980,22 @@ blockquote {
   cursor: pointer;
 }
 
-.faq__list article > button span {
+.faq__list article button span {
   color: var(--copper);
   font-size: 0.58rem;
 }
 
-.faq__list article > button strong {
+.faq__list article button strong {
   font-family: 'Playfair Display', Georgia, serif;
   font-size: clamp(1.25rem, 2vw, 1.7rem);
   font-weight: 500;
 }
 
-.faq__list article > button svg {
+.faq__list article button svg {
   transition: transform 220ms ease;
 }
 
-.faq__list article.is-open > button svg {
+.faq__list article.is-open button svg {
   transform: rotate(180deg);
 }
 
@@ -9589,7 +9592,7 @@ blockquote {
     margin-bottom: 36px;
   }
 
-  .faq__list article > button {
+  .faq__list article button {
     grid-template-columns: 28px 1fr auto;
     gap: 10px;
   }

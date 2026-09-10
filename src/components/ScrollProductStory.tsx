@@ -38,7 +38,7 @@ function BottleAsset({ product }: { product: Product }) {
         src={product.storyImage ?? product.image}
         alt={`${product.name} ${product.size} ${product.packaging === 'tube' ? 'tube' : 'bottle'} in the SkinFox scroll story`}
         draggable={false}
-        loading="eager"
+        loading="lazy"
         decoding="async"
       />
     </span>

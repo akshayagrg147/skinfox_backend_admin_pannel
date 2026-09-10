@@ -1,4 +1,4 @@
-import { ArrowRight, Search } from 'lucide-react'
+import { ArrowRight, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { products } from '../data/products'
 import type { Product } from '../types'
@@ -26,23 +26,25 @@ export function SearchOverlay({ open, onClose, onView, catalogue = products, api
 
   return (
     <ModalShell open={open} onClose={onClose} title="Search SkinFox" className="search-modal">
-      <span className="eyebrow">Search the edit</span>
-      <h2>What kind of care are you looking for?</h2>
+      <span className="eyebrow">Find your everyday essentials</span>
+      <h2>A little help finding your care.</h2>
+      <p className="search-intro">Search by product, ingredient or the care you’re looking for.</p>
       <label className="search-field">
         <Search size={20} />
         <span className="sr-only">Search products or concerns</span>
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Try suncream, face wash or Hydrelle" autoFocus />
+        <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Try sunscreen, face wash or Hydrelle" autoFocus />
+        {query && <button type="button" className="search-clear" aria-label="Clear search" onClick={() => setQuery('')}><X size={17} /></button>}
       </label>
-      <p className="search-count">{query ? `${results.length} result${results.length === 1 ? '' : 's'}` : 'A few thoughtful places to begin'}</p>
+      <p className="search-count" role="status" aria-live="polite">{query ? `${results.length} result${results.length === 1 ? '' : 's'}` : 'A few thoughtful places to begin'}</p>
       <div className="search-results">
         {results.map((product) => (
-          <button key={product.id} onClick={() => { onClose(); onView(product) }}>
+          <button type="button" key={product.id} aria-label={`View ${product.name} — ${product.subtitle}`} onClick={() => { onClose(); onView(product) }}>
             <span className="search-result__visual" style={{ background: product.tint }}><ProductVisual product={product} compact /></span>
             <span><small>{product.concern}</small><strong>{product.name}</strong><i>{product.subtitle}</i></span>
             <ArrowRight size={18} />
           </button>
         ))}
-        {results.length === 0 && <p className="search-empty">No exact match yet. Try “Sun Protect”, “face wash” or “Hydrelle”.</p>}
+        {results.length === 0 && <div className="search-empty"><Search size={24} aria-hidden="true" /><h3>No matches just yet.</h3><p>Try a product name such as “Sun Protect”, or a simpler phrase like “face wash”.</p><button type="button" className="account-text-button" onClick={() => setQuery('')}>Browse suggestions</button></div>}
       </div>
     </ModalShell>
   )

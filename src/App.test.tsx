@@ -30,7 +30,7 @@ describe('SkinFox storefront', () => {
       .find((button) => button.classList.contains('product-card__visual'))
     const hydrelleCard = hydrelleCardTrigger?.closest('article')
     expect(hydrelleCard).not.toBeNull()
-    fireEvent.click(within(hydrelleCard!).getByRole('button', { name: /add to launch bag/i }))
+    fireEvent.click(within(hydrelleCard!).getByRole('button', { name: /join the waitlist for hydrelle dry skin specialist/i }))
 
     await waitFor(() => expect(screen.getByRole('dialog', { name: 'Shopping bag' })).toBeInTheDocument())
     expect(screen.getByRole('button', { name: /open bag with 1 items/i })).toBeInTheDocument()
@@ -95,16 +95,24 @@ describe('SkinFox storefront', () => {
     expect(screen.queryByText(/different needs deserve distinct care moments/i)).not.toBeInTheDocument()
   })
 
-  it('switches the editorial care-moment stage between real products', async () => {
+  it('groups the catalogue into care ranges that link to real product pages', () => {
     render(<App />)
 
-    const ritual = screen.getByRole('region', { name: /explore by care moment/i })
-    fireEvent.click(within(ritual).getByRole('button', { name: /02 face cleanse acnfin soft/i }))
+    const ranges = within(screen.getByRole('list', { name: 'SkinFox care ranges' }))
+      .getAllByRole('listitem')
+      .filter((item) => item.classList.contains('range-card'))
+    expect(ranges.map((range) => within(range).getByRole('heading').textContent)).toEqual(['Skin', 'Body', 'Hair', 'Scalp'])
 
-    await waitFor(() => {
-      expect(within(ritual).getByRole('img', { name: /acnfin soft acne-prone skin foaming face wash/i })).toBeInTheDocument()
-    })
-    expect(within(ritual).getByRole('heading', { name: 'Acnfin Soft' })).toBeInTheDocument()
+    const skin = ranges[0]
+    expect(within(skin).getByRole('link', { name: /rayyvia sun protect/i })).toHaveAttribute('href', '/products/rayyvia-sun-protect')
+    expect(within(skin).getByRole('link', { name: /acnfin soft/i })).toHaveAttribute('href', '/products/acnfin-soft-face-wash')
+
+    const scalp = ranges[3]
+    expect(within(scalp).getByText('1 product')).toBeInTheDocument()
+    expect(within(scalp).getByRole('link', { name: /intensive scalp & hair treatment/i })).toHaveAttribute(
+      'href',
+      '/products/intensive-scalp-hair-treatment',
+    )
   })
 
   it('shows every launch product by default, then filters and restores the collection', async () => {
@@ -130,9 +138,10 @@ describe('SkinFox storefront', () => {
     render(<App />)
 
     fireEvent.click(screen.getAllByRole('button', { name: /find my care/i })[0])
-    const quiz = screen.getByRole('dialog', { name: 'SkinFox ritual finder' })
+    const quiz = screen.getByRole('dialog', { name: 'Find my care' })
     expect(quiz).toBeInTheDocument()
 
+    fireEvent.click(within(quiz).getByRole('button', { name: 'Continue without a photo' }))
     fireEvent.click(within(quiz).getByRole('button', { name: /^hair /i }))
     await waitFor(() => expect(within(quiz).getByText(/what would you most like to shop for/i)).toBeInTheDocument())
 

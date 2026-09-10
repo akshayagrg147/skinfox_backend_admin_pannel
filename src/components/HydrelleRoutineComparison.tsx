@@ -13,6 +13,8 @@ const supportingStudies = [
     title: 'The look of visible pores',
     copy: 'A close three-quarter view keeps natural pores visible while illustrating a softer-looking, hydrated finish.',
     src: '/products/hydrelle-pore-appearance-study-v1.webp',
+    width: 1586,
+    height: 992,
     alt: 'Illustrative before-and-after comparison focused on the appearance of visible pores on the same fictional adult model',
     before: 'Visible pores',
     after: 'Softer-looking texture',
@@ -22,6 +24,8 @@ const supportingStudies = [
     title: 'Uneven tone & pigmentation',
     copy: 'A matching side profile illustrates pigmentation appearing less prominent and tone looking more even without changing natural skin colour.',
     src: '/products/hydrelle-pigmentation-study-v1.webp',
+    width: 1537,
+    height: 1023,
     alt: 'Illustrative before-and-after comparison focused on uneven pigmentation on the same fictional adult model',
     before: 'Uneven-looking tone',
     after: 'More even-looking tone',
@@ -66,6 +70,8 @@ export function HydrelleRoutineComparison({ product, onView }: HydrelleRoutineCo
             <img
               src="/products/hydrelle-routine-comparison-v1.webp"
               alt="Illustrative side-by-side moisture ritual visual featuring the same fictional adult model"
+              width={1587}
+              height={991}
               loading="lazy"
               decoding="async"
             />
@@ -89,6 +95,8 @@ export function HydrelleRoutineComparison({ product, onView }: HydrelleRoutineCo
               <img
                 src={productImage}
                 alt={`${product.name} ${product.size} moisturising lotion tube`}
+                width={1023}
+                height={1537}
                 loading="lazy"
                 decoding="async"
               />
@@ -135,7 +143,7 @@ export function HydrelleRoutineComparison({ product, onView }: HydrelleRoutineCo
                 transition={{ duration: 0.78, delay: index * 0.08 }}
               >
                 <div className="routine-comparison__study-media">
-                  <img src={study.src} alt={study.alt} loading="lazy" decoding="async" />
+                  <img src={study.src} alt={study.alt} width={study.width} height={study.height} loading="lazy" decoding="async" />
                   <div className="routine-comparison__labels routine-comparison__labels--study" aria-hidden="true">
                     <span><small>Before</small><strong>{study.before}</strong></span>
                     <span><small>After</small><strong>{study.after}</strong></span>

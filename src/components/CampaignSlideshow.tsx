@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { ArrowLeft, ArrowRight, Pause, Play, Volume2, VolumeX } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
@@ -54,49 +54,81 @@ const defaultCampaignSlides: CampaignSlide[] = [
   },
 ]
 
+const isBrowser = typeof window !== 'undefined'
+
+const prefersCalmPlayback = () => {
+  if (!isBrowser) return false
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const saveData = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData
+  return reducedMotion || Boolean(saveData)
+}
+
 export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
   const campaignSlides = slides?.length ? slides : defaultCampaignSlides
   const [activeIndex, setActiveIndex] = useState(0)
-  const [isPlaying, setIsPlaying] = useState(true)
+  const prefersReducedMotion = useReducedMotion()
+  const [isPlaying, setIsPlaying] = useState(() => !prefersCalmPlayback())
   const [isMuted, setIsMuted] = useState(true)
+  const [isVisible, setIsVisible] = useState(true)
+  const [isPageVisible, setIsPageVisible] = useState(() => !isBrowser || document.visibilityState !== 'hidden')
+  const sectionRef = useRef<HTMLElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const safeIndex = Math.min(activeIndex, campaignSlides.length - 1)
   const slide = campaignSlides[safeIndex]
   const hasMultipleSlides = campaignSlides.length > 1
-  const campaignImageKey = campaignSlides.map((item) => `${item.id}:${item.src}:${item.mobileSrc ?? ''}`).join('|')
+  const playbackActive = isPlaying && isVisible && isPageVisible
+
+  useEffect(() => {
+    const section = sectionRef.current
+    if (!section) return
+    if (typeof IntersectionObserver === 'undefined') return
+    const visibilityObserver = new IntersectionObserver(([entry]) => {
+      setIsVisible(Boolean(entry?.isIntersecting))
+    }, { threshold: 0.1 })
+    visibilityObserver.observe(section)
+    return () => visibilityObserver.disconnect()
+  }, [])
+
+  useEffect(() => {
+    const updateVisibility = () => setIsPageVisible(document.visibilityState !== 'hidden')
+    document.addEventListener('visibilitychange', updateVisibility)
+    return () => document.removeEventListener('visibilitychange', updateVisibility)
+  }, [])
+
+  useEffect(() => {
+    if (prefersReducedMotion) setIsPlaying(false)
+  }, [prefersReducedMotion])
 
   useEffect(() => {
     if (activeIndex >= campaignSlides.length) setActiveIndex(0)
   }, [activeIndex, campaignSlides.length])
 
   useEffect(() => {
-    if (!hasMultipleSlides || slide.kind !== 'image' || !isPlaying) return
+    if (!hasMultipleSlides || slide.kind !== 'image' || !playbackActive) return
     const timer = window.setTimeout(() => {
       setActiveIndex((current) => (current + 1) % campaignSlides.length)
     }, slide.durationMs)
     return () => window.clearTimeout(timer)
-  }, [hasMultipleSlides, slide.durationMs, slide.kind, isPlaying, campaignSlides.length])
+  }, [hasMultipleSlides, slide.durationMs, slide.kind, playbackActive, campaignSlides.length, slide.id])
 
   useEffect(() => {
-    campaignSlides.forEach((item) => {
-      if (item.kind !== 'image') return
-      const image = new Image()
-      image.src = item.src
-      if (item.mobileSrc) {
-        const mobileImage = new Image()
-        mobileImage.src = item.mobileSrc
-      }
-    })
-  }, [campaignImageKey, campaignSlides])
+    const video = videoRef.current
+    if (slide.kind !== 'video' || !video) return
+    let active = true
+    if (playbackActive) {
+      // play() resolves to a promise in browsers, but to undefined in some environments.
+      const started = video.play() as Promise<void> | undefined
+      started?.catch(() => { if (active) setIsPlaying(false) })
+    } else if (!video.paused) video.pause()
+    return () => { active = false }
+  }, [playbackActive, slide.id, slide.kind])
 
   const move = (direction: -1 | 1) => {
     setActiveIndex((current) => (current + direction + campaignSlides.length) % campaignSlides.length)
-    setIsPlaying(true)
   }
 
   const goTo = (index: number) => {
     setActiveIndex(index)
-    setIsPlaying(true)
   }
 
   const advanceWhenActive = (expectedSlideId: string) => {
@@ -105,21 +137,10 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
         ? (current + 1) % campaignSlides.length
         : current
     ))
-    setIsPlaying(true)
   }
 
   const togglePlayback = () => {
-    const video = videoRef.current
-    if (slide.kind !== 'video' || !video) {
-      setIsPlaying((current) => !current)
-      return
-    }
-
-    if (video.paused) {
-      void video.play().catch(() => setIsPlaying(false))
-    } else {
-      video.pause()
-    }
+    setIsPlaying((current) => !current)
   }
 
   const toggleMute = () => {
@@ -129,17 +150,18 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
     setIsMuted(video.muted)
   }
 
-  const poster = slide.poster ?? slide.src
+  const poster = slide.poster ?? (slide.kind === 'image' ? slide.src : undefined)
 
   return (
     <section
-      className={`campaign-slideshow campaign-slideshow--${slide.orientation} campaign-slideshow--${slide.kind} ${isPlaying ? '' : 'is-paused'}`}
+      ref={sectionRef}
+      className={`campaign-slideshow campaign-slideshow--${slide.orientation} campaign-slideshow--${slide.kind} ${playbackActive ? '' : 'is-paused'}`}
       role="region"
       aria-labelledby="campaign-slideshow-title"
       aria-roledescription="carousel"
       style={
         {
-          '--campaign-poster': `url("${poster}")`,
+          '--campaign-poster': poster ? `url("${poster}")` : 'none',
           '--campaign-duration': `${slide.durationMs}ms`,
           '--campaign-count': campaignSlides.length,
         } as React.CSSProperties
@@ -154,7 +176,7 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
             <span className="section-number section-number--light">01 / Campaign reel</span>
             <h2 id="campaign-slideshow-title">Daily care,<br /><em>in motion.</em></h2>
           </div>
-          <div className="campaign-slideshow__intro-copy" aria-live="polite">
+          <div className="campaign-slideshow__intro-copy" aria-live={playbackActive ? 'off' : 'polite'}>
             <span className="campaign-slideshow__eyebrow">{slide.eyebrow}</span>
             <p>{slide.description}</p>
           </div>
@@ -165,10 +187,10 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
             <motion.figure
               key={slide.id}
               className="campaign-slideshow__slide"
-              initial={{ opacity: 0, scale: 1.012 }}
+              initial={{ opacity: 0, scale: prefersReducedMotion ? 1 : 1.012 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 1.008 }}
-              transition={{ duration: 0.58, ease: [0.22, 1, 0.36, 1] }}
+              exit={{ opacity: 0, scale: prefersReducedMotion ? 1 : 1.008 }}
+              transition={{ duration: prefersReducedMotion ? 0 : 0.58, ease: [0.22, 1, 0.36, 1] }}
             >
               <div className="campaign-slideshow__media">
                 <span className="campaign-slideshow__media-backdrop" aria-hidden="true" />
@@ -178,19 +200,18 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
                     src={slide.src}
                     poster={slide.poster}
                     aria-label={slide.alt}
-                    autoPlay
+                    autoPlay={playbackActive}
                     muted={isMuted}
                     loop={!hasMultipleSlides}
                     playsInline
                     preload="metadata"
-                    onPlay={() => setIsPlaying(true)}
-                    onPause={() => setIsPlaying(false)}
+                    onPause={(event) => { if (playbackActive && videoRef.current === event.currentTarget) setIsPlaying(false) }}
                     onEnded={() => hasMultipleSlides && advanceWhenActive(slide.id)}
                   />
                 ) : (
                   <picture>
                     {slide.mobileSrc && <source media="(max-width: 720px)" srcSet={slide.mobileSrc} />}
-                    <img src={slide.src} alt={slide.alt} decoding="async" />
+                    <img src={slide.src} alt={slide.alt} decoding="async" loading="lazy" width={slide.orientation === 'landscape' ? 1600 : 1000} height={slide.orientation === 'landscape' ? 900 : 1400} />
                   </picture>
                 )}
                 <span className="campaign-slideshow__scrim" aria-hidden="true" />

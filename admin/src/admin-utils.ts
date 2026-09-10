@@ -1,12 +1,12 @@
 export type AdminRole = 'SUPER_ADMIN' | 'CATALOG_MANAGER' | 'CONTENT_EDITOR' | 'ORDER_MANAGER' | 'SUPPORT_AGENT' | 'ANALYST'
 
 const screenAccess: Record<AdminRole, string[]> = {
-  SUPER_ADMIN: ['dashboard', 'products', 'catalogue', 'inventory', 'orders', 'customers', 'affiliates', 'campaigns', 'content', 'media', 'care-finder', 'promotions', 'shipping', 'leads', 'analytics', 'users', 'audit', 'settings'],
-  CATALOG_MANAGER: ['dashboard', 'products', 'catalogue', 'inventory', 'media'],
-  CONTENT_EDITOR: ['dashboard', 'campaigns', 'content', 'media', 'care-finder'],
-  ORDER_MANAGER: ['dashboard', 'inventory', 'orders', 'customers', 'shipping'],
-  SUPPORT_AGENT: ['orders', 'customers', 'leads'],
-  ANALYST: ['dashboard', 'leads', 'analytics', 'audit'],
+  SUPER_ADMIN: ['dashboard', 'products', 'catalogue', 'inventory', 'orders', 'waitlist', 'customers', 'affiliates', 'campaigns', 'content', 'care-finder', 'promotions', 'shipping', 'leads', 'analytics', 'users', 'audit', 'settings'],
+  CATALOG_MANAGER: ['dashboard', 'products', 'catalogue', 'inventory'],
+  CONTENT_EDITOR: ['dashboard', 'campaigns', 'content', 'care-finder'],
+  ORDER_MANAGER: ['dashboard', 'inventory', 'orders', 'waitlist', 'customers', 'shipping'],
+  SUPPORT_AGENT: ['orders', 'waitlist', 'customers', 'leads'],
+  ANALYST: ['dashboard', 'waitlist', 'leads', 'analytics', 'audit'],
 }
 
 export function availableScreens(role: string): string[] {

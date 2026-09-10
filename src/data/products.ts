@@ -1,6 +1,7 @@
 import type { Product } from '../types'
+import { normalizeProductCopy } from './productCopy'
 
-export const products: Product[] = [
+const suppliedProducts: Product[] = [
   {
     id: 'rayyvia-sun-protect',
     name: 'Rayyvia Sun Protect',
@@ -226,6 +227,8 @@ export const products: Product[] = [
     badge: 'Oil ritual',
   },
 ]
+
+export const products = suppliedProducts.map(normalizeProductCopy)
 
 export const formatPrice = (value: number) =>
   new Intl.NumberFormat('en-IN', {

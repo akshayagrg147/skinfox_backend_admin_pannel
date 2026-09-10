@@ -1,4 +1,4 @@
-import { Check, Minus, Play, Plus } from 'lucide-react'
+import { ArrowUpRight, Check, Minus, Play, Plus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { Product, ProductMedia } from '../types'
 import { ModalShell } from './ModalShell'
@@ -65,7 +65,7 @@ export function QuickView({ product, onClose, onAdd }: QuickViewProps) {
                       aria-label={`Show ${item.type} ${index + 1} of ${media.length}: ${item.alt}`}
                       aria-pressed={isActive}
                     >
-                      <img src={item.type === 'video' ? (item.poster ?? product.image) : item.src} alt="" />
+                      <img src={item.type === 'video' ? (item.poster ?? product.image) : item.src} alt="" width={80} height={80} loading="lazy" decoding="async" />
                       {item.type === 'video' && (
                         <span className="quick-view__media-play" aria-hidden="true">
                           <Play size={12} fill="currentColor" />
@@ -79,14 +79,14 @@ export function QuickView({ product, onClose, onAdd }: QuickViewProps) {
             <span className="viewer-hint">Original SkinFox pack · {product.size}</span>
           </div>
           <div className="quick-view__content">
-            <span className="eyebrow">Actual SkinFox product · {product.step}</span>
+            <span className="eyebrow">SkinFox · {product.step}</span>
             <h2>{product.name}</h2>
             <p className="quick-view__subtitle">{product.subtitle}</p>
             <div className="quick-view__pricing">
               <ProductPrice product={product} />
               <span className="quick-view__availability">
                 {product.price === null
-                  ? product.mrp !== null ? 'MRP is shown; selling price is pending.' : 'Launch pricing is being finalised.'
+                  ? 'Join now for priority access. Final pricing will be revealed before purchase.'
                   : offerDetails?.hasOffer ? 'Offer applied automatically at checkout.' : 'Available to order online.'}
               </span>
             </div>
@@ -106,10 +106,11 @@ export function QuickView({ product, onClose, onAdd }: QuickViewProps) {
                 <button onClick={() => setQuantity((value) => Math.min(8, value + 1))} aria-label="Increase quantity"><Plus size={15} /></button>
               </div>
               <button className="button button--dark quick-view__add" onClick={() => { onAdd(product, quantity); onClose() }}>
-                {product.price === null ? 'Add to bag · Price on launch' : 'Add to bag'}
+                {product.price === null ? 'Add to priority waitlist' : 'Add to bag'}
               </button>
             </div>
-            <p className="prototype-note">Complete ingredients, directions and final selling details will be published with the launch pack information.</p>
+            <a className="text-link" href={`/products/${encodeURIComponent(product.id)}`}>View full product details <ArrowUpRight size={16} /></a>
+            <p className="prototype-note">Check the product label for complete ingredients and directions before use.</p>
           </div>
         </div>
       )}

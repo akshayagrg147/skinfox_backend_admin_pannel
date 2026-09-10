@@ -19,10 +19,3 @@ export const get = <T>(path: string) => api<T>(path)
 export const post = <T>(path: string, value: unknown) => api<T>(path, { method: 'POST', body: JSON.stringify(value) })
 export const patch = <T>(path: string, value: unknown) => api<T>(path, { method: 'PATCH', body: JSON.stringify(value) })
 export const remove = <T>(path: string) => api<T>(path, { method: 'DELETE' })
-
-export async function uploadBinary(path: string, body: Blob, contentType: string): Promise<void> {
-  const csrf = csrfToken()
-  const target = /^https?:\/\//.test(path) ? path : `${apiBase}/api/v1${path}`
-  const response = await fetch(target, { method: 'PUT', body, headers: { 'content-type': contentType, ...(csrf ? { 'x-csrf-token': csrf } : {}) }, credentials: 'include' })
-  if (!response.ok) throw new Error(`Upload failed (${response.status})`)
-}

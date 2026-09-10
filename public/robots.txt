@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /affiliate/
+Disallow: /account/
+Disallow: /checkout/
+
+Sitemap: https://skinfox.in/sitemap.xml
