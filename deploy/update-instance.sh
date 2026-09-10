@@ -49,8 +49,15 @@ sync_secret RAZORPAY_KEY_ID "$parameter_prefix/razorpay-key-id"
 sync_secret RAZORPAY_KEY_SECRET "$parameter_prefix/razorpay-key-secret"
 sync_secret RAZORPAY_WEBHOOK_SECRET "$parameter_prefix/razorpay-webhook-secret"
 
-echo "Building and restarting SkinFox services..."
-docker compose -f docker-compose.prod.yml up -d --build
+echo "Building SkinFox services sequentially for the free-tier instance..."
+# Building both images through Compose's parallel bake process can exhaust the
+# small EC2 instance and leave BuildKit waiting indefinitely. Build each image
+# independently so the currently running release stays available throughout.
+docker compose -f docker-compose.prod.yml build api
+docker compose -f docker-compose.prod.yml build web
+
+echo "Restarting SkinFox services..."
+docker compose -f docker-compose.prod.yml up -d --no-build
 
 for attempt in $(seq 1 36); do
   if curl -fsS http://127.0.0.1/api/v1/ready >/dev/null; then
