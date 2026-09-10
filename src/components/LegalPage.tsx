@@ -20,7 +20,7 @@ const privacySections: LegalSection[] = [
   {
     id: 'data', title: '2. Information we collect', content: <>
       <p>We collect only information relevant to providing and improving the store. Depending on how you use SkinFox, this may include:</p>
-      <ul><li><strong>Contact and account information:</strong> your mobile number, name and email address if you provide them.</li><li><strong>Order and waitlist information:</strong> products selected, refundable-deposit status, payment-provider references, delivery address, order status and customer-support correspondence.</li><li><strong>Technical information:</strong> essential cookies, cart/session identifiers, device and browser information, IP-address-derived security logs, and pages or links used to reach the store.</li><li><strong>Marketing preferences:</strong> your newsletter subscription or other communications preferences.</li></ul>
+      <ul><li><strong>Contact and account information:</strong> your mobile number, name and email address if you provide them.</li><li><strong>Order and waitlist information:</strong> products selected, reservation-payment status, payment-provider references, delivery address, order status and customer-support correspondence.</li><li><strong>Technical information:</strong> essential cookies, cart/session identifiers, device and browser information, IP-address-derived security logs, and pages or links used to reach the store.</li><li><strong>Marketing preferences:</strong> your newsletter subscription or other communications preferences.</li></ul>
       <p>Please do not send us sensitive personal information unless we specifically ask for it and explain why it is needed.</p>
     </>,
   },
@@ -38,7 +38,7 @@ const privacySections: LegalSection[] = [
   },
   {
     id: 'sharing', title: '5. When we share information', content: <>
-      <p>We may share only the information necessary with service providers that help us host, secure and operate SkinFox. This includes Razorpay when you choose to pay a refundable priority-waitlist deposit, and can include delivery and email providers. Razorpay processes the payment credentials in its secure checkout; SkinFox stores payment references and status, not your card or UPI credentials.</p>
+      <p>We may share only the information necessary with service providers that help us host, secure and operate SkinFox. This includes Razorpay when you choose to pay a priority-waitlist reservation fee, and can include delivery and email providers. Razorpay processes the payment credentials in its secure checkout; SkinFox stores payment references and status, not your card or UPI credentials.</p>
       <p>We may also disclose information where required to comply with law, enforce our terms, protect the rights, safety or security of SkinFox, our customers or others, or in connection with a lawful business transition.</p>
     </>,
   },
@@ -87,10 +87,11 @@ const termsSections: LegalSection[] = [
     </>,
   },
   {
-    id: 'priority-waitlist', title: '3A. Priority waitlist and refundable deposit', content: <>
-      <p>Before product prices are revealed, you may reserve priority launch access for selected products by paying the deposit shown in the waitlist screen. A waitlist reservation is not a product purchase, does not reserve stock, and does not require you to buy when final prices are announced.</p>
-      <p>The launch-member discount shown when you join is recorded with your reservation and will apply to the eligible products selected in that reservation, subject to the final launch offer terms. The deposit is separate from the undisclosed product price.</p>
-      <p>You may cancel an active reservation from your SkinFox account before it is converted into a completed purchase. SkinFox will request a full refund of the captured deposit to the original payment method through Razorpay. Bank or payment-network processing times may apply. A pending or failed payment does not activate priority access and does not require a refund if no amount was captured.</p>
+    id: 'priority-waitlist', title: '3A. Priority waitlist reservation fee', content: <>
+      <p>Before product prices are revealed, you may reserve priority launch access for selected products by paying the per-product-unit reservation fee shown in the waitlist screen. The total fee is the displayed per-unit amount multiplied by the total quantity selected. A waitlist reservation is not a product purchase, does not reserve stock, and does not require you to buy when final prices are announced.</p>
+      <p>Founding membership is limited to the capacity displayed when you join. A member number is assigned only after the payment provider confirms capture. Exclusive launch-price eligibility is linked to the signed-in customer account and eligible products in a confirmed reservation. The reservation fee is separate from the undisclosed product price.</p>
+      <p>The planned price journey may be shown for transparency: a member launch price for eligible founding members, a later public Launch Price, and the Regular Price/MRP. SkinFox will show the exact applicable selling price and any time limit before asking you to place a product order.</p>
+      <p>The waitlist reservation fee is non-refundable and cannot be cancelled for a change of mind. This does not limit any remedy that must be provided under applicable law, including where a payment is duplicated, processed incorrectly, or the service materially differs from what was represented. A pending or failed payment does not activate priority access if no amount was captured.</p>
     </>,
   },
   {

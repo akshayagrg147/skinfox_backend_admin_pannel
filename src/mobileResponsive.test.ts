@@ -3,8 +3,16 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const styles = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
+const polishStyles = readFileSync(resolve(process.cwd(), 'src/storefront-polish.css'), 'utf8')
 
 describe('mobile responsive stylesheet contracts', () => {
+  it('keeps the waitlist banner visible and the floating header below it while scrolling', () => {
+    expect(polishStyles).toMatch(/\.announcement \{[^}]*position: sticky;[^}]*top: 0;/)
+    expect(polishStyles).toMatch(/\.announcement \{[^}]*z-index: 118;/)
+    expect(polishStyles).toMatch(/\.site-header--scrolled \{ top: 46px; \}/)
+    expect(polishStyles).toMatch(/@media \(max-width: 680px\) \{[\s\S]*?\.site-header--scrolled \{ top: 44px; \}/)
+  })
+
   it('keeps the slide-out menu constrained to the phone viewport and independently scrollable', () => {
     const mobileMenu = styles.slice(styles.indexOf('.mobile-menu__panel {'), styles.indexOf('.mobile-menu__top {'))
 

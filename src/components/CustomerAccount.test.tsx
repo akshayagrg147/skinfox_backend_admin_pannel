@@ -176,4 +176,28 @@ describe('CustomerAccount', () => {
     expect(postMock).toHaveBeenCalledWith('/customer/addresses', expect.objectContaining({ label: 'Work', addressLine1: '12 Marine Drive', city: 'Mumbai', pincode: '400001' }), {})
     expect(screen.getByText(/address saved successfully/i)).toBeInTheDocument()
   })
+
+  it('shows the customer-facing waitlist ID in reservation history', async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === '/customer/auth/me') return Promise.resolve({ customer: { id: 'customer-1', fullName: 'Asha Sharma', email: 'asha@example.com', phone: '9876543210', emailVerified: true } }) as never
+      if (path === '/customer/orders' || path === '/customer/addresses') return Promise.resolve([]) as never
+      if (path === '/customer/waitlist') return Promise.resolve([{
+        publicToken: 'private-reservation-token',
+        waitlistId: 'SFWL-2026-12AB34CD56',
+        status: 'joined',
+        depositPaise: 19800,
+        discountPercent: 25,
+        refundPaise: 0,
+        createdAt: '2026-09-10T00:00:00.000Z',
+        items: [{ productId: 'product-1', productName: 'Rayyvia Sun Protect', productSlug: 'rayyvia-sun-protect', size: '60 g', quantity: 2 }],
+      }]) as never
+      return Promise.resolve({}) as never
+    })
+
+    render(<CustomerAccount open onClose={() => undefined} apiAvailable onCustomerChange={() => undefined} initialSection="waitlist" />)
+
+    expect(await screen.findByText('SFWL-2026-12AB34CD56')).toBeInTheDocument()
+    expect(screen.getByText(/use your waitlist id whenever you contact skinfox/i)).toBeInTheDocument()
+    expect(screen.queryByText('private-reservation-token')).not.toBeInTheDocument()
+  })
 })

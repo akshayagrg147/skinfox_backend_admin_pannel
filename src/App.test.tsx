@@ -22,19 +22,62 @@ describe('SkinFox storefront', () => {
     expect(document.querySelector('.site-footer__wordmark')).toHaveAttribute('src', '/brand/skinfox-logo.png')
   })
 
-  it('adds an actual product, opens the launch bag, and updates quantity', async () => {
+  it('shows a sliding waitlist banner using the live member capacity', () => {
+    render(<App />)
+
+    const banner = screen.getByRole('link', { name: /join the waitlist for ₹99 per product/i })
+    expect(banner).toHaveAttribute('href', '/#shop')
+    expect(banner).toHaveTextContent('Join Waitlist @ ₹99/-')
+    expect(banner).toHaveTextContent('Early access for the first 200 members')
+    expect(banner).toHaveTextContent('Priority reservation access')
+    expect(banner).not.toHaveTextContent(/refundable/i)
+    expect(banner.querySelector('.announcement__track')).toBeInTheDocument()
+  })
+
+  it('keeps the footer concise and presents contact and affiliate actions', () => {
+    render(<App />)
+
+    const footer = within(document.querySelector('.site-footer') as HTMLElement)
+    expect(footer.queryByText('Our story')).not.toBeInTheDocument()
+    expect(footer.queryByText('My orders')).not.toBeInTheDocument()
+    expect(footer.queryByText('Frequently asked questions')).not.toBeInTheDocument()
+    expect(footer.getByRole('link', { name: 'SkinFox on Facebook' })).toHaveAttribute(
+      'href',
+      'https://www.facebook.com/profile.php?id=61593882756421',
+    )
+    expect(footer.getByRole('link', { name: 'SkinFox on Instagram' })).toHaveAttribute(
+      'href',
+      'https://www.instagram.com/skinfox_official/',
+    )
+    expect(footer.getByRole('link', { name: /contact@skinfox.in/i })).toHaveAttribute('href', 'mailto:contact@skinfox.in')
+    expect(footer.getByText('Good to know').parentElement).toHaveTextContent('Shipping & returns')
+    expect(footer.getByText('Become an affiliate')).toBeInTheDocument()
+    expect(footer.getByRole('link', { name: 'Join the SkinFox affiliate programme' })).toHaveAttribute(
+      'href',
+      'https://affiliate.skinfox.in/',
+    )
+    expect(footer.getByText(/Designed By Suprix Solution LLP/)).toHaveTextContent(
+      '© 2026 SkinFox. All rights reserved. | Designed By Suprix Solution LLP',
+    )
+  })
+
+  it('adds a product without opening checkout, then opens the bag only from the bag button', async () => {
     render(<App />)
 
     const hydrelleCardTrigger = screen
-      .getAllByRole('button', { name: /view hydrelle dry skin specialist/i })
-      .find((button) => button.classList.contains('product-card__visual'))
+      .getAllByRole('link', { name: /view full details for hydrelle dry skin specialist/i })
+      .find((link) => link.classList.contains('product-card__visual'))
     const hydrelleCard = hydrelleCardTrigger?.closest('article')
     expect(hydrelleCard).not.toBeNull()
-    fireEvent.click(within(hydrelleCard!).getByRole('button', { name: /join the waitlist for hydrelle dry skin specialist/i }))
+    fireEvent.click(within(hydrelleCard!).getByRole('button', { name: /join waitlist at ₹99 for hydrelle dry skin specialist/i }))
 
+    const bagButton = await screen.findByRole('button', { name: /open bag with 1 items/i })
+    expect(screen.queryByRole('dialog', { name: 'Shopping bag' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'SkinFox priority waitlist' })).not.toBeInTheDocument()
+
+    fireEvent.click(bagButton)
     await waitFor(() => expect(screen.getByRole('dialog', { name: 'Shopping bag' })).toBeInTheDocument())
-    expect(screen.getByRole('button', { name: /open bag with 1 items/i })).toBeInTheDocument()
-    expect(screen.getAllByText(/price on launch/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/launch price/i).length).toBeGreaterThan(0)
 
     fireEvent.click(screen.getByRole('button', { name: /increase hydrelle quantity/i }))
     expect(screen.getByRole('button', { name: /open bag with 2 items/i })).toBeInTheDocument()
@@ -119,17 +162,17 @@ describe('SkinFox storefront', () => {
     render(<App />)
 
     const collection = screen.getByRole('list', { name: 'SkinFox product collection' })
-    expect(within(collection).getAllByRole('button', { name: /^view .+/i })).toHaveLength(products.length)
+    expect(within(collection).getAllByRole('link', { name: /^view full details for .+/i })).toHaveLength(products.length)
 
     fireEvent.click(screen.getByRole('button', { name: /hair wash 1/i }))
     await waitFor(() => {
-      expect(within(collection).getAllByRole('button', { name: /view onion shampoo gentle cleansing hair wash/i })).toHaveLength(1)
-      expect(within(collection).queryByRole('button', { name: /view hydrelle dry skin specialist/i })).not.toBeInTheDocument()
+      expect(within(collection).getAllByRole('link', { name: /view full details for onion shampoo gentle cleansing hair wash/i })).toHaveLength(1)
+      expect(within(collection).queryByRole('link', { name: /view full details for hydrelle dry skin specialist/i })).not.toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByRole('button', { name: new RegExp(`all ${products.length}`, 'i') }))
     await waitFor(() => {
-      const collectionTriggers = within(collection).getAllByRole('button', { name: /^view .+/i })
+      const collectionTriggers = within(collection).getAllByRole('link', { name: /^view full details for .+/i })
       expect(collectionTriggers).toHaveLength(products.length)
     })
   })
@@ -154,38 +197,22 @@ describe('SkinFox storefront', () => {
     expect(within(quiz).getAllByText('Intensive Scalp & Hair Treatment').length).toBeGreaterThan(0)
   })
 
-  it('opens a supplied multi-image gallery and switches to the selected product artwork', async () => {
+  it('links the Coco Kiss product image directly to its complete product page', () => {
     render(<App />)
 
-    const cocoTrigger = screen
-      .getAllByRole('button', { name: /view coco kiss moisturizing lotion/i })
-      .find((button) => button.classList.contains('product-card__visual'))
-    expect(cocoTrigger).toBeDefined()
-    fireEvent.click(cocoTrigger!)
-
-    const dialog = await screen.findByRole('dialog', { name: 'Coco Kiss product details' })
-    const gallery = within(dialog).getByRole('group', { name: 'Coco Kiss media gallery' })
-    expect(within(gallery).getAllByRole('button')).toHaveLength(2)
-    fireEvent.click(within(gallery).getByRole('button', { name: /show image 2 of 2/i }))
-    expect(within(dialog).getByRole('img', { name: /lifestyle campaign artwork/i })).toBeInTheDocument()
+    const cocoLink = screen
+      .getAllByRole('link', { name: /view full details for coco kiss moisturizing lotion/i })
+      .find((link) => link.classList.contains('product-card__visual'))
+    expect(cocoLink).toHaveAttribute('href', '/products/coco-kiss-moisturizing-lotion')
   })
 
-  it('offers the supplied Onion Shampoo video as user-controlled gallery media', async () => {
+  it('links the Onion Shampoo product image directly to its complete product page', () => {
     render(<App />)
 
-    const shampooTrigger = screen
-      .getAllByRole('button', { name: /view onion shampoo gentle cleansing hair wash/i })
-      .find((button) => button.classList.contains('product-card__visual'))
-    expect(shampooTrigger).toBeDefined()
-    fireEvent.click(shampooTrigger!)
-
-    const dialog = await screen.findByRole('dialog', { name: 'Onion Shampoo product details' })
-    fireEvent.click(within(dialog).getByRole('button', { name: /show video 5 of 5/i }))
-    const video = dialog.querySelector('video')
-    expect(video).not.toBeNull()
-    expect(video).toHaveAttribute('controls')
-    expect(video).toHaveProperty('muted', true)
-    expect(video).not.toHaveAttribute('autoplay')
+    const shampooLink = screen
+      .getAllByRole('link', { name: /view full details for onion shampoo gentle cleansing hair wash/i })
+      .find((link) => link.classList.contains('product-card__visual'))
+    expect(shampooLink).toHaveAttribute('href', '/products/onion-shampoo')
   })
 
   it('shows the photographed Hydrelle MRP without treating it as a selling price', () => {

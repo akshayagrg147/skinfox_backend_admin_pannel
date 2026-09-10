@@ -7,12 +7,12 @@ import {
 } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
+import { productPath } from '../seo/metadata'
 import type { Product } from '../types'
 import { SCALP_STORY_MOTION, getScrollStoryStep, shouldUseEnhancedStory } from './scrollStory'
 
 type ScrollProductStoryProps = {
   product: Product
-  onView: (product: Product) => void
 }
 
 function canUseEnhancedStory() {
@@ -45,7 +45,7 @@ function BottleAsset({ product }: { product: Product }) {
   )
 }
 
-function StaticStory({ product, onView }: ScrollProductStoryProps) {
+function StaticStory({ product }: ScrollProductStoryProps) {
   return (
     <section
       className="scroll-story scroll-story--static"
@@ -67,9 +67,9 @@ function StaticStory({ product, onView }: ScrollProductStoryProps) {
           role="listitem"
           data-product-id={product.id}
         >
-          <button type="button" onClick={() => onView(product)} aria-label={`View ${product.name} product details`}>
+          <a href={productPath(product)} aria-label={`View full details for ${product.name}`}>
             <BottleAsset product={product} />
-          </button>
+          </a>
           <figcaption>{product.name} · {product.size}</figcaption>
         </figure>
 
@@ -78,9 +78,9 @@ function StaticStory({ product, onView }: ScrollProductStoryProps) {
           <article><span>02</span><div><h3>Generous tube format</h3><p>A 200 g navy-and-white tube gives the moisturising ritual a clear, distinctive presence.</p></div></article>
           <article><span>03</span><div><h3>One continuous product story</h3><p>The same Hydrelle tube stays present from introduction through detail—without product swaps or visual jumps.</p></div></article>
           <div className="scroll-story__actions">
-            <button className="button button--dark" type="button" onClick={() => onView(product)}>
+            <a className="button button--dark" href={productPath(product)}>
               Explore Hydrelle <ArrowRight size={16} />
-            </button>
+            </a>
             <a className="button button--ghost" href="#shop">View all products</a>
           </div>
         </div>
@@ -116,7 +116,7 @@ export function ScrollProductStory(props: ScrollProductStoryProps) {
   return enhanced ? <EnhancedStory {...props} /> : <StaticStory {...props} />
 }
 
-function EnhancedStory({ product, onView }: ScrollProductStoryProps) {
+function EnhancedStory({ product }: ScrollProductStoryProps) {
   const sectionRef = useRef<HTMLElement>(null)
   const activeStepRef = useRef(0)
   const [activeStep, setActiveStep] = useState(0)
@@ -191,9 +191,9 @@ function EnhancedStory({ product, onView }: ScrollProductStoryProps) {
             data-motion-path="pinned-chapters"
             style={{ rotate: bottleRotate, scale: bottleScale }}
           >
-            <button type="button" onClick={() => onView(product)} aria-label={`View ${product.name} product details`}>
+            <a href={productPath(product)} aria-label={`View full details for ${product.name}`}>
               <BottleAsset product={product} />
-            </button>
+            </a>
           </motion.figure>
         </motion.div>
 
@@ -249,9 +249,9 @@ function EnhancedStory({ product, onView }: ScrollProductStoryProps) {
             <h2>A focused ritual.<br /><em>Beautifully SkinFox.</em></h2>
             <p>The same Hydrelle Dry Skin Specialist tube stays with you through every chapter—no product swaps and no visual jumps.</p>
             <div className="scroll-story__actions">
-              <button className="button button--light" type="button" onClick={() => onView(product)}>
+              <a className="button button--light" href={productPath(product)}>
                 Explore Hydrelle <ArrowRight size={16} />
-              </button>
+              </a>
               <a className="button scroll-story__shop-link" href="#shop">View all products</a>
             </div>
           </motion.article>

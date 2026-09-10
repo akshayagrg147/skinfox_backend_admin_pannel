@@ -10,7 +10,7 @@ import {
   signInWithGoogle,
 } from '../lib/firebaseAuth'
 
-export type CustomerAuthCustomer = { id: string; fullName: string; email?: string | null; phone?: string | null; phoneVerified?: boolean; emailVerified?: boolean; createdAt?: string }
+export type CustomerAuthCustomer = { id: string; fullName: string; email?: string | null; phone?: string | null; phoneVerified?: boolean; emailVerified?: boolean; founderNumber?: number | null; founderJoinedAt?: string | null; createdAt?: string }
 export type CustomerAuthResponse = { customer: CustomerAuthCustomer; provider?: string; requiresEmailVerification?: boolean }
 
 type AuthMode = 'signin' | 'signup' | 'reset'
@@ -96,7 +96,7 @@ export function CustomerAuthForm({ apiAvailable, cartToken, destination, onAuthe
     <div className="customer-auth-form__intro">
       <span className="eyebrow"><UserRound size={14} /> SkinFox account</span>
       <h2>{title}</h2>
-      <p>{mode === 'signup' ? 'A little less to fill in next time. Save delivery details and follow your orders in one place.' : mode === 'reset' ? 'Enter your email and we’ll send you a link to choose a new password.' : destination === 'checkout' ? 'Sign in to continue to delivery and keep your order connected to your account.' : destination === 'waitlist' ? 'Sign in to reserve priority launch access and keep your refundable deposit connected to your account.' : 'Your orders, delivery details and everyday care, all in one place.'}</p>
+      <p>{mode === 'signup' ? 'A little less to fill in next time. Save delivery details and follow your orders in one place.' : mode === 'reset' ? 'Enter your email and we’ll send you a link to choose a new password.' : destination === 'checkout' ? 'Sign in to continue to delivery and keep your order connected to your account.' : destination === 'waitlist' ? 'Sign in to reserve priority launch access and keep your waitlist payment connected to your account.' : 'Your orders, delivery details and everyday care, all in one place.'}</p>
     </div>
     {!firebaseAuthConfigured && <p className="auth-config-note" role="status">Sign-in is temporarily unavailable. Please try again later or contact <a href="mailto:contact@skinfox.in">our support team</a>.</p>}
     {!apiAvailable && <p className="auth-config-note" role="status">We’re having trouble connecting to your account. Please try again shortly.</p>}

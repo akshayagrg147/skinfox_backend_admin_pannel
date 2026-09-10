@@ -77,10 +77,10 @@ const guideMessage = (step: number, total: number) => {
 
 const PhotoReference = ({ photo, onRetake, onRemove }: { photo: string; onRetake: () => void; onRemove: () => void }) => (
   <figure className="care-photo-reference">
-    <img src={photo} alt="Your reference photo, shown only on this device" />
+    <img src={photo} alt="Your reference photo" />
     <figcaption>
       <strong>Your reference photo</strong>
-      <small>On your device only</small>
+      <small>Used for this check only</small>
       <span>
         <button type="button" onClick={onRetake}><Camera size={13} aria-hidden="true" /> Retake</button>
         <button type="button" onClick={onRemove}><Trash2 size={13} aria-hidden="true" /> Remove</button>

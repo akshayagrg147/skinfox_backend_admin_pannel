@@ -5,8 +5,11 @@ import {
   ArrowRight,
   Check,
   ChevronDown,
+  Facebook,
   HeartHandshake,
+  Instagram,
   Leaf,
+  Mail,
   ShieldCheck,
   Sparkles,
   TestTube2,
@@ -26,7 +29,6 @@ import { defaultFaqs } from './seo/content'
 import { HydrelleRoutineComparison } from './components/HydrelleRoutineComparison'
 import { LegalPage, type LegalPageKind } from './components/LegalPage'
 import { ProductCard } from './components/ProductCard'
-import { QuickView } from './components/QuickView'
 import { RoutineQuiz } from './components/RoutineQuiz'
 import { ScrollProductStory } from './components/ScrollProductStory'
 import { SearchOverlay } from './components/SearchOverlay'
@@ -89,7 +91,6 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
   const [accountOpen, setAccountOpen] = useState(false)
   const [accountSection, setAccountSection] = useState<AccountSection>('orders')
   const [customer, setCustomer] = useState<StorefrontCustomer | null>(null)
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [activeFilter, setActiveFilter] = useState('All')
   const [openFaq, setOpenFaq] = useState<number | null>(0)
   const [toast, setToast] = useState('')
@@ -246,11 +247,27 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
       {!productSlug && <SiteSeo faqs={visibleFaqs.map(([question, answer]) => ({ question, answer }))} />}
       <a className="skip-link" href="#main-content">Skip to content</a>
       <motion.div className="scroll-progress" style={{ scaleX: progress }} />
-      <div className="announcement">
-        <span>Priority waitlist open · refundable access</span>
-        <p>Skin · body · hair · scalp care</p>
-        <span>India · INR</span>
-      </div>
+      <a
+        className="announcement"
+        href="/#shop"
+        aria-label={storefront.waitlist.foundingClosed
+          ? 'Waitlist access is closed. Explore the SkinFox collection.'
+          : `Join the waitlist for ₹99 per product. Early access is limited to the first ${storefront.waitlist.founderCapacity} members.`}
+      >
+        <div className="announcement__viewport">
+          <div className="announcement__track" aria-hidden="true">
+            {[0, 1].map((copy) => <div className="announcement__group" key={copy}>
+              <strong>{storefront.waitlist.foundingClosed ? 'Waitlist access closed' : 'Join Waitlist @ ₹99/-'}</strong>
+              <i>•</i>
+              <b>{storefront.waitlist.foundingClosed ? 'Explore the launch collection' : `Early access for the first ${storefront.waitlist.founderCapacity} members`}</b>
+              <i>•</i>
+              <em>{storefront.waitlist.foundingClosed ? 'Launch access available next' : 'Priority reservation access'}</em>
+              <i>•</i>
+              <span>{storefront.waitlist.foundingClosed ? 'Explore now' : 'Join now'} <ArrowRight size={14} /></span>
+            </div>)}
+          </div>
+        </div>
+      </a>
       {storefront.error && (
         <div className="api-error-banner" role="alert">
           <span>We’re having trouble loading the collection. Please try again.</span>
@@ -260,7 +277,7 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
       <Header cartCount={cartCount} onCart={() => setCartOpen(true)} onQuiz={() => setQuizOpen(true)} onSearch={() => setSearchOpen(true)} onAccount={openAccount} onLogout={() => void logoutCustomer()} customerName={customer?.fullName} />
 
       <main id="main-content" tabIndex={-1}>
-        {productSlug ? <ProductPage product={collectionProducts.find((product) => product.id === productSlug)} productSlug={productSlug} catalogProducts={collectionProducts} loading={storefront.loading} error={storefront.error} onAdd={(product, quantity) => addToCart(product, quantity, true)} onFindCare={() => setQuizOpen(true)} /> : <>
+        {productSlug ? <ProductPage product={collectionProducts.find((product) => product.id === productSlug)} productSlug={productSlug} catalogProducts={collectionProducts} loading={storefront.loading} error={storefront.error} waitlist={storefront.waitlist} founderNumber={customer?.founderNumber} onAdd={(product, quantity) => addToCart(product, quantity)} onFindCare={() => setQuizOpen(true)} /> : <>
         <section className="hero" aria-labelledby="hero-title">
           <div className="hero__wash" aria-hidden="true" />
           <div className="hero__copy">
@@ -273,7 +290,7 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
             </div>
             <div className="hero__reassurance"><span><Check size={15} /> Care for your routine</span><span><Check size={15} /> Clear product details</span></div>
           </div>
-          <HeroCollectionShowcase products={collectionProducts} onView={setSelectedProduct} loading={storefront.loading} />
+          <HeroCollectionShowcase products={collectionProducts} loading={storefront.loading} />
         </section>
 
         <section className="proof-strip" aria-label="SkinFox principles">
@@ -308,7 +325,7 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
               <AnimatePresence mode="popLayout">
                 {visibleProducts.map((product) => (
                   <motion.div key={product.id} layout role="listitem" data-product-id={product.id} initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }}>
-                    <ProductCard product={product} index={collectionProducts.indexOf(product)} onView={setSelectedProduct} onAdd={(item) => addToCart(item, 1, true)} />
+                    <ProductCard product={product} index={collectionProducts.indexOf(product)} onAdd={(item) => addToCart(item, 1)} />
                   </motion.div>
                 ))}
               </AnimatePresence>
@@ -316,9 +333,9 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
           </div>
         </section>
 
-        <ScrollProductStory product={activeHydrelle} onView={setSelectedProduct} />
+        <ScrollProductStory product={activeHydrelle} />
 
-        <HydrelleRoutineComparison product={activeHydrelle} onView={setSelectedProduct} />
+        <HydrelleRoutineComparison product={activeHydrelle} />
 
         <section id="range" className="range-section section-pad" aria-labelledby="range-title">
           <div className="shell">
@@ -416,19 +433,33 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
 
       <footer className="site-footer">
         <div className="shell site-footer__top">
-          <div><div className="site-footer__logo"><BrandMark /></div><p>Beautiful care from root to skin.</p></div>
-          <div><span>Explore</span><a href="/#shop">Shop all products</a><button onClick={() => setQuizOpen(true)}>Find my care</button><a href="/#range">Explore the range</a><a href="/#story">Our story</a></div>
-          <div><span>Customer care</span><button onClick={() => openAccount('orders')}>My orders</button><a href="/#faq">Frequently asked questions</a><a href="/terms-and-conditions#delivery">Shipping & returns</a><a href="mailto:contact@skinfox.in">contact@skinfox.in</a></div>
-          <div><span>Good to know</span><a href="/privacy-policy">Privacy policy</a><a href="/terms-and-conditions">Terms & conditions</a><a href="https://affiliate.skinfox.in/">Become an affiliate</a></div>
+          <div className="site-footer__brand">
+            <div className="site-footer__logo"><BrandMark /></div>
+            <p className="site-footer__brand-kicker">Thoughtful care, from root to skin.</p>
+            <p className="site-footer__brand-intro">Considered skin, body, hair and scalp essentials—made to bring more clarity and ease to your everyday ritual.</p>
+            <div className="site-footer__values" aria-label="SkinFox brand principles"><span>Care-led rituals</span><i aria-hidden="true" /><span>Clear by design</span></div>
+            <div className="site-footer__social" aria-label="Connect with SkinFox">
+              <a href="https://www.facebook.com/profile.php?id=61593882756421" target="_blank" rel="noreferrer" aria-label="SkinFox on Facebook"><Facebook size={18} aria-hidden="true" /></a>
+              <a href="https://www.instagram.com/skinfox_official/" target="_blank" rel="noreferrer" aria-label="SkinFox on Instagram"><Instagram size={18} aria-hidden="true" /></a>
+              <a className="site-footer__email" href="mailto:contact@skinfox.in"><Mail size={17} aria-hidden="true" /> contact@skinfox.in</a>
+            </div>
+          </div>
+          <div><span>Explore</span><a href="/#shop">Shop all products</a><button onClick={() => setQuizOpen(true)}>Find my care</button><a href="/#range">Explore the range</a></div>
+          <div><span>Good to know</span><a href="/privacy-policy">Privacy policy</a><a href="/terms-and-conditions">Terms & conditions</a><a href="/terms-and-conditions#delivery">Shipping & returns</a></div>
+          <div className="site-footer__affiliate">
+            <span>Become an affiliate</span>
+            <strong>Grow with SkinFox.</strong>
+            <p>Share thoughtful care with your community and enjoy member rewards.</p>
+            <a href="https://affiliate.skinfox.in/" aria-label="Join the SkinFox affiliate programme">Join now <ArrowRight size={16} /></a>
+          </div>
         </div>
-        <div className="shell site-footer__bottom"><p>© {new Date().getFullYear()} SkinFox. All rights reserved.</p><p>Thoughtful care, from root to skin.</p><a href="#top">Back to top ↑</a></div>
+        <div className="shell site-footer__bottom"><p>© 2026 SkinFox. All rights reserved. <span aria-hidden="true">|</span> Designed By Suprix Solution LLP</p></div>
         <img className="site-footer__wordmark" src="/brand/skinfox-logo.png" alt="" aria-hidden="true" />
       </footer>
 
-      <QuickView product={selectedProduct} onClose={() => setSelectedProduct(null)} onAdd={(product, quantity) => addToCart(product, quantity, true)} />
-      <CartDrawer open={cartOpen} lines={cart} onClose={() => setCartOpen(false)} onQuantity={updateQuantity} onRemove={(id) => updateQuantity(id, 0)} waitlistDepositPaise={storefront.waitlist.depositPaise} waitlistDiscountPercent={storefront.waitlist.discountPercent} onCheckout={() => { setCartOpen(false); if (cart.some((line) => line.product.price === null) || storefront.waitlist.enabled) setWaitlistOpen(true); else setCheckoutOpen(true) }} />
+      <CartDrawer open={cartOpen} lines={cart} onClose={() => setCartOpen(false)} onQuantity={updateQuantity} onRemove={(id) => updateQuantity(id, 0)} waitlistDepositPaise={storefront.waitlist.depositPaise} waitlistDiscountPercent={storefront.waitlist.discountPercent} onCheckout={() => { setCartOpen(false); const canClaimFounderPrice = ['founder_reveal', 'launch'].includes(storefront.waitlist.stage) && Boolean(customer?.founderNumber); if ((cart.some((line) => line.product.price === null) || storefront.waitlist.enabled) && !canClaimFounderPrice) setWaitlistOpen(true); else setCheckoutOpen(true) }} />
       <RoutineQuiz open={quizOpen} onClose={() => setQuizOpen(false)} onAdd={(product) => addToCart(product)} catalogue={collectionProducts} finder={storefront.careFinder ?? undefined} />
-      <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} onView={setSelectedProduct} catalogue={collectionProducts} apiMode={storefront.apiMode} />
+      <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} catalogue={collectionProducts} apiMode={storefront.apiMode} />
       <CheckoutModal open={checkoutOpen} lines={cart} cartToken={cartToken} apiAvailable={storefront.apiMode} onCustomerChange={setCustomer} onClose={() => setCheckoutOpen(false)} onComplete={() => { setCart([]); if (cartToken) localStorage.removeItem('skinfox-cart-token'); setCartToken('') }} />
       <WaitlistModal open={waitlistOpen} lines={cart} config={storefront.waitlist} apiAvailable={storefront.apiMode} onCustomerChange={setCustomer} onClose={() => setWaitlistOpen(false)} onComplete={() => { setCart([]); if (cartToken) localStorage.removeItem('skinfox-cart-token'); setCartToken('') }} />
       <CustomerAccount open={accountOpen} onClose={() => setAccountOpen(false)} apiAvailable={storefront.apiMode} onCustomerChange={setCustomer} initialSection={accountSection} />

@@ -1,10 +1,10 @@
 import { ArrowRight, Droplets, ShieldCheck } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { productPath } from '../seo/metadata'
 import type { Product } from '../types'
 
 type HydrelleRoutineComparisonProps = {
   product: Product
-  onView: (product: Product) => void
 }
 
 const supportingStudies = [
@@ -32,7 +32,7 @@ const supportingStudies = [
   },
 ]
 
-export function HydrelleRoutineComparison({ product, onView }: HydrelleRoutineComparisonProps) {
+export function HydrelleRoutineComparison({ product }: HydrelleRoutineComparisonProps) {
   const productImage = product.storyImage ?? product.image
 
   return (
@@ -105,9 +105,9 @@ export function HydrelleRoutineComparison({ product, onView }: HydrelleRoutineCo
               <p>{product.name}</p>
               <h3>{product.subtitle}</h3>
               <span>{product.size} · photographed SkinFox pack</span>
-              <button className="button button--copper" type="button" onClick={() => onView(product)}>
+              <a className="button button--copper" href={productPath(product)}>
                 Explore Hydrelle <ArrowRight size={16} />
-              </button>
+              </a>
             </div>
           </motion.aside>
         </div>

@@ -897,13 +897,15 @@ blockquote {
   margin: 0;
 }
 
-.hero-collection__card > button {
+.hero-collection__card > a {
   width: 100%;
   border: 1px solid rgba(57, 37, 65, .12);
   border-radius: 22px;
   padding: 8px;
   overflow: hidden;
   display: block;
+  color: inherit;
+  text-decoration: none;
   background: rgba(255,255,255,.67);
   box-shadow: 0 22px 58px rgba(74,44,80,.16);
   cursor: pointer;
@@ -911,17 +913,17 @@ blockquote {
   transition: transform 500ms var(--ease-out), box-shadow 500ms ease;
 }
 
-.hero-collection__card:nth-child(1) > button,
-.hero-collection__card:nth-child(4) > button {
+.hero-collection__card:nth-child(1) > a,
+.hero-collection__card:nth-child(4) > a {
   transform: translateY(12px) rotate(-1.2deg);
 }
 
-.hero-collection__card:nth-child(2) > button,
-.hero-collection__card:nth-child(3) > button {
+.hero-collection__card:nth-child(2) > a,
+.hero-collection__card:nth-child(3) > a {
   transform: translateY(-12px) rotate(1.2deg);
 }
 
-.hero-collection__card > button:hover {
+.hero-collection__card > a:hover {
   transform: translateY(-7px) rotate(0);
   box-shadow: 0 30px 72px rgba(74,44,80,.22);
 }
@@ -943,7 +945,7 @@ blockquote {
   transition: transform 750ms var(--ease-out), filter 450ms ease;
 }
 
-.hero-collection__card > button:hover img {
+.hero-collection__card > a:hover img {
   transform: scale(1);
   filter: saturate(1.04) contrast(1.02);
 }
@@ -1643,6 +1645,7 @@ blockquote {
 }
 
 .product-card__visual {
+  display: block;
   width: calc(100% - 20px);
   aspect-ratio: 1;
   margin: 10px 10px 0;
@@ -1655,6 +1658,8 @@ blockquote {
     radial-gradient(circle at 70% 20%, rgba(255, 255, 255, 0.82), transparent 28%),
     linear-gradient(145deg, color-mix(in srgb, var(--card-tint) 38%, #f2ede6), #dfd5c8);
   cursor: pointer;
+  color: inherit;
+  text-decoration: none;
 }
 
 .product-grid > div:nth-child(2n) .product-card__visual {
@@ -2531,7 +2536,7 @@ blockquote {
   aspect-ratio: 1023 / 1537;
 }
 
-.scroll-story__product--solo > button {
+.scroll-story__product--solo > a {
   width: 100%;
   height: 100%;
   border: 0;
@@ -2542,11 +2547,11 @@ blockquote {
   pointer-events: auto;
 }
 
-.scroll-story__product--solo > button:focus-visible {
+.scroll-story__product--solo > a:focus-visible {
   outline: 0;
 }
 
-.scroll-story__product--solo > button:focus-visible .scroll-story__bottle-window {
+.scroll-story__product--solo > a:focus-visible .scroll-story__bottle-window {
   filter:
     drop-shadow(0 0 2px rgba(255, 255, 255, .95))
     drop-shadow(0 0 8px rgba(83, 50, 99, .78));
@@ -2921,7 +2926,7 @@ blockquote {
     linear-gradient(150deg, #f3e7e8, #dce4ec);
 }
 
-.scroll-story-static__visual--solo > button {
+.scroll-story-static__visual--solo > a {
   width: 100%;
   height: 100%;
   border: 0;
@@ -6351,7 +6356,7 @@ blockquote {
   border-top: 1px solid var(--line);
 }
 
-.search-results > button {
+.search-results > a {
   width: 100%;
   min-height: 100px;
   border: 0;
@@ -6363,14 +6368,16 @@ blockquote {
   gap: 17px;
   text-align: left;
   background: transparent;
+  color: inherit;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .search-result__visual {
   height: 76px;
 }
 
-.search-results button > span:nth-child(2) {
+.search-results a > span:nth-child(2) {
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -9023,7 +9030,7 @@ blockquote {
     gap: 9px;
   }
 
-  .hero-collection__card > button {
+  .hero-collection__card > a {
     padding: 6px;
     border-radius: 17px;
   }

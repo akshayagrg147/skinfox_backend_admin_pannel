@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
 import { getProductById } from '../data/products'
 import { HydrelleRoutineComparison } from './HydrelleRoutineComparison'
 
@@ -7,7 +7,7 @@ const hydrelle = getProductById('hydrelle-dry-skin-specialist')
 
 describe('HydrelleRoutineComparison', () => {
   it('presents the illustrative comparison and the exact Hydrelle pack with an honest disclaimer', () => {
-    render(<HydrelleRoutineComparison product={hydrelle} onView={vi.fn()} />)
+    render(<HydrelleRoutineComparison product={hydrelle} />)
 
     expect(screen.getByRole('region', { name: /before the ritual/i })).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /side-by-side moisture ritual visual/i })).toHaveAttribute(
@@ -32,11 +32,10 @@ describe('HydrelleRoutineComparison', () => {
     expect(screen.getByText(/not actual customer results/i)).toBeInTheDocument()
   })
 
-  it('opens the Hydrelle product details from the comparison', () => {
-    const onView = vi.fn()
-    render(<HydrelleRoutineComparison product={hydrelle} onView={onView} />)
+  it('links the Hydrelle comparison to its complete product page', () => {
+    render(<HydrelleRoutineComparison product={hydrelle} />)
 
-    fireEvent.click(screen.getByRole('button', { name: /explore hydrelle/i }))
-    expect(onView).toHaveBeenCalledWith(hydrelle)
+    expect(screen.getByRole('link', { name: /explore hydrelle/i }))
+      .toHaveAttribute('href', `/products/${hydrelle.id}`)
   })
 })

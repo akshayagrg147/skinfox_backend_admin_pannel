@@ -628,6 +628,8 @@ model Customer {
   emailVerifiedAt   DateTime?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
+  founderNumber     Int?              @unique
+  founderJoinedAt   DateTime?
   addresses Address[]
   consents  CustomerConsent[]
   orders    Order[]
@@ -1223,6 +1225,7 @@ model LaunchInterest {
 model WaitlistReservation {
   id                     String         @id @default(cuid())
   publicToken            String         @unique
+  waitlistId             String         @unique
   customerId             String
   status                 WaitlistStatus @default(payment_pending)
   currency               String         @default("INR")

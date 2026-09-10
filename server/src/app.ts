@@ -24,7 +24,7 @@ import { analysePhoto, photoAnalysisConfigured, photoNote } from './lib/photoAna
 import { PHOTO_DAILY_LIMIT, PHOTO_DEVICE_COOKIE, checkPhotoQuota, newDeviceId, recordPhotoUse } from './lib/photoQuota.js'
 import { LocalEmailAdapter, LocalStorageAdapter, ManualShippingAdapter, RazorpayAdapter } from './lib/providers.js'
 import { productImageAssetSchema, productMediaInputSchema } from './lib/productAssets.js'
-import { parseStoredWaitlistSettings, waitlistDefaultsFromEnv, waitlistSettingsSchema, type WaitlistSettings } from './lib/waitlistConfig.js'
+import { calculateWaitlistDepositPaise, createWaitlistId, parseStoredWaitlistSettings, waitlistDefaultsFromEnv, waitlistSettingsSchema, type WaitlistSettings } from './lib/waitlistConfig.js'
 
 const secureCookies = () => process.env.COOKIE_SECURE === undefined ? process.env.NODE_ENV === 'production' : process.env.COOKIE_SECURE === 'true'
 const defaultWaitlistSettings = waitlistDefaultsFromEnv()
@@ -55,17 +55,18 @@ const canonicalJson = (value: unknown): string => {
 }
 const sha256Json = (value: unknown) => createHash('sha256').update(canonicalJson(value)).digest('hex')
 const hidePriceReferences = (value: string) => value.replace(/MRP\s*₹\s*[\d,.]+/gi, 'MRP detail')
+const waitlistPricesHidden = () => activeWaitlistSettings.enabled && ['waitlist', 'founder_reveal'].includes(activeWaitlistSettings.stage)
 const publicProduct = (product: any, revealCommercials = false) => ({
   ...product,
-  pricePaise: revealCommercials || !activeWaitlistSettings.enabled ? product.pricePaise ?? null : null,
-  mrpPaise: revealCommercials || !activeWaitlistSettings.enabled ? product.mrpPaise ?? null : null,
-  purchaseState: revealCommercials || !activeWaitlistSettings.enabled ? product.purchaseState : PurchaseState.coming_soon,
-  highlights: revealCommercials || !activeWaitlistSettings.enabled ? product.highlights : product.highlights?.map((item: string) => hidePriceReferences(item)),
+  pricePaise: revealCommercials || !waitlistPricesHidden() ? product.pricePaise ?? null : null,
+  mrpPaise: revealCommercials || !waitlistPricesHidden() ? product.mrpPaise ?? null : product.mrpPaise ?? activeWaitlistSettings.regularPricePaise,
+  purchaseState: revealCommercials || !waitlistPricesHidden() ? product.purchaseState : PurchaseState.coming_soon,
+  highlights: revealCommercials || !waitlistPricesHidden() ? product.highlights : product.highlights?.map((item: string) => hidePriceReferences(item)),
   variants: product.variants?.map((variant: any) => {
     const { inventory: _inventory, ...safeVariant } = variant
-    return revealCommercials || !activeWaitlistSettings.enabled ? safeVariant : { ...safeVariant, pricePaise: null, mrpPaise: null, purchaseState: PurchaseState.coming_soon }
+    return revealCommercials || !waitlistPricesHidden() ? safeVariant : { ...safeVariant, pricePaise: null, mrpPaise: safeVariant.mrpPaise ?? activeWaitlistSettings.regularPricePaise, purchaseState: PurchaseState.coming_soon }
   }),
-  media: [...(product.media ?? [])].sort((a: any, b: any) => a.sortOrder - b.sortOrder).map((media: any) => ({ ...media, alt: revealCommercials || !activeWaitlistSettings.enabled ? media.alt : hidePriceReferences(media.alt), src: media.src, mobileSrc: media.mobileSrc ?? undefined })),
+  media: [...(product.media ?? [])].sort((a: any, b: any) => a.sortOrder - b.sortOrder).map((media: any) => ({ ...media, alt: revealCommercials || !waitlistPricesHidden() ? media.alt : hidePriceReferences(media.alt), src: media.src, mobileSrc: media.mobileSrc ?? undefined })),
 })
 const publicCollection = (collection: any) => ({
   ...collection,
@@ -113,7 +114,7 @@ const documentPath = (path: string, methods: string[], summary: string) => {
   ['/affiliate/applications', ['post'], 'Submit affiliate application'], ['/affiliate/auth/request-otp', ['post'], 'Request affiliate OTP'], ['/affiliate/auth/verify-otp', ['post'], 'Verify affiliate OTP'], ['/affiliate/auth/me', ['get'], 'Get current affiliate'], ['/affiliate/auth/logout', ['post'], 'Log out affiliate'], ['/affiliate/referrals/track', ['post'], 'Track affiliate referral'], ['/affiliate/dashboard', ['get'], 'Get affiliate dashboard'], ['/affiliate/wallet/redemptions', ['post'], 'Request affiliate wallet redemption'],
   ['/shipping/serviceability', ['get'], 'Check shipping serviceability'], ['/checkout/quote', ['post'], 'Calculate checkout quote'], ['/checkout/sessions', ['post'], 'Create checkout session'], ['/checkout/sessions/{id}', ['get'], 'Get checkout session'], ['/checkout/sessions/{id}/payment-order', ['post'], 'Create payment order'], ['/checkout/sessions/{id}/confirm-cod', ['post'], 'Confirm cash on delivery'],
   ['/payments/razorpay/verify', ['post'], 'Verify Razorpay payment'], ['/webhooks/payments/razorpay', ['post'], 'Receive Razorpay webhook'], ['/payments/{publicToken}/status', ['get'], 'Get payment status'], ['/orders/{publicToken}', ['get'], 'Get public order'], ['/orders/{publicToken}/tracking', ['get'], 'Get order tracking'], ['/orders/{publicToken}/cancel-request', ['post'], 'Request order cancellation'], ['/orders/{publicToken}/return-request', ['post'], 'Request return'],
-  ['/launch-interest', ['post'], 'Capture launch interest'], ['/waitlist/config', ['get'], 'Get priority waitlist configuration'], ['/waitlist/reservations', ['post'], 'Create priority waitlist reservation'], ['/waitlist/reservations/{publicToken}/verify', ['post'], 'Verify waitlist payment'], ['/waitlist/reservations/{publicToken}/cancel', ['post'], 'Cancel and refund waitlist reservation'], ['/customer/waitlist', ['get'], 'List customer waitlist reservations'], ['/newsletter/subscriptions', ['post'], 'Subscribe to newsletter'], ['/newsletter/confirm', ['post'], 'Confirm newsletter subscription'], ['/newsletter/subscriptions/{token}', ['delete'], 'Unsubscribe from newsletter'], ['/contact', ['post'], 'Submit contact form'], ['/events', ['post'], 'Record analytics event'], ['/events/batch', ['post'], 'Record analytics events'],
+  ['/launch-interest', ['post'], 'Capture launch interest'], ['/waitlist/config', ['get'], 'Get priority waitlist configuration'], ['/waitlist/reservations', ['post'], 'Create waitlist reservation'], ['/waitlist/reservations/{publicToken}/verify', ['post'], 'Verify waitlist payment'], ['/waitlist/reservations/{publicToken}/cancel', ['post'], 'Explain non-refundable waitlist policy'], ['/customer/waitlist', ['get'], 'List customer waitlist reservations'], ['/newsletter/subscriptions', ['post'], 'Subscribe to newsletter'], ['/newsletter/confirm', ['post'], 'Confirm newsletter subscription'], ['/newsletter/subscriptions/{token}', ['delete'], 'Unsubscribe from newsletter'], ['/contact', ['post'], 'Submit contact form'], ['/events', ['post'], 'Record analytics event'], ['/events/batch', ['post'], 'Record analytics events'],
   ['/admin/auth/login', ['post'], 'Admin login'], ['/admin/auth/logout', ['post'], 'Admin logout'], ['/admin/auth/refresh', ['post'], 'Refresh admin session'], ['/admin/auth/me', ['get'], 'Get current admin'], ['/admin/auth/forgot-password', ['post'], 'Start password reset'], ['/admin/auth/reset-password', ['post'], 'Reset password'], ['/admin/auth/accept-invitation', ['post'], 'Accept admin invitation'], ['/admin/auth/mfa/setup', ['post'], 'Set up MFA'], ['/admin/auth/mfa/verify', ['post'], 'Verify MFA'], ['/admin/auth/logout-all-sessions', ['post'], 'Revoke all admin sessions'], ['/admin/auth/sessions', ['get'], 'List admin sessions'], ['/admin/auth/sessions/{sessionId}', ['delete'], 'Revoke admin session'],
   ['/admin/dashboard/{metric}', ['get'], 'Admin dashboard metric'], ['/admin/waitlist-settings', ['get', 'patch'], 'Admin priority waitlist settings'], ['/admin/waitlist-reservations', ['get'], 'Admin priority waitlist'], ['/admin/products', ['get', 'post'], 'Admin product list or create'], ['/admin/products/{id}', ['get', 'patch', 'delete'], 'Admin product detail'], ['/admin/products/{id}/publish', ['post'], 'Publish product'], ['/admin/products/{id}/unpublish', ['post'], 'Unpublish product'], ['/admin/products/{id}/revisions', ['get'], 'List product revisions'], ['/admin/products/{id}/restore', ['post'], 'Restore product revision'], ['/admin/products/bulk', ['post'], 'Bulk update products'], ['/admin/products/import', ['post'], 'Import products'], ['/admin/products/export', ['get'], 'Export products'],
   ...['submit-review', 'approve', 'schedule', 'archive'].map((action) => [`/admin/products/{id}/${action}`, ['post'], `Product ${action}`]), ['/admin/products/{id}/revisions/{revisionId}/restore', ['post'], 'Restore product revision snapshot'],
@@ -150,7 +151,7 @@ export function buildApp(): FastifyInstance {
   const shipping = new ManualShippingAdapter(async (pincode) => Boolean(await prisma.serviceablePincode.findUnique({ where: { pincode, active: true } })))
 
   app.register(cookie, { secret: process.env.COOKIE_SECRET ?? 'local-only-change-this-cookie-secret-please' })
-  app.register(cors, { credentials: true, origin: (origin, cb) => { const allowed = [process.env.STOREFRONT_ORIGIN ?? 'http://localhost:4173', process.env.ADMIN_ORIGIN ?? 'http://localhost:4174', process.env.AFFILIATE_ORIGIN ?? 'http://localhost:4175']; cb(null, !origin || allowed.includes(origin)) } })
+  app.register(cors, { credentials: true, origin: (origin, cb) => { const allowed = [process.env.STOREFRONT_ORIGIN ?? 'http://localhost:4173', process.env.ADMIN_ORIGIN ?? 'http://localhost:4174', process.env.AFFILIATE_ORIGIN ?? 'http://localhost:4175']; const localPreview = /^http:\/\/(?:localhost|127\.0\.0\.1):417[345]$/.test(origin ?? ''); cb(null, !origin || allowed.includes(origin) || (process.env.NODE_ENV !== 'production' && localPreview)) } })
   app.register(helmet, { contentSecurityPolicy: false })
   app.register(rateLimit, { max: 120, timeWindow: '1 minute' })
   app.register(swagger, { openapi: { info: { title: 'SkinFox API', version: '1.0.0', description: 'API-backed SkinFox commerce and operations API' }, servers: [{ url: '/api/v1' }], paths: openApiPaths } })
@@ -199,7 +200,7 @@ export function buildApp(): FastifyInstance {
     }
     return user
   }
-  const publicCustomer = (customer: any) => ({ id: customer.id, fullName: customer.fullName, email: customer.email, phone: customer.phone, phoneVerified: Boolean(customer.phoneVerifiedAt), emailVerified: Boolean(customer.emailVerifiedAt), createdAt: customer.createdAt })
+  const publicCustomer = (customer: any) => ({ id: customer.id, fullName: customer.fullName, email: customer.email, phone: customer.phone, phoneVerified: Boolean(customer.phoneVerifiedAt), emailVerified: Boolean(customer.emailVerifiedAt), founderNumber: customer.founderNumber ?? null, founderJoinedAt: customer.founderJoinedAt ?? null, createdAt: customer.createdAt })
   const currentCustomer = async (request: any, required = true) => {
     const token = request.cookies.sf_customer_session
     if (!token) {
@@ -285,17 +286,19 @@ export function buildApp(): FastifyInstance {
     ;(cart as any).publicToken = String(token)
     return cart
   }
-  const cartResponse = async (cart: any, cod = false, serviceable = true) => {
+  const cartResponse = async (cart: any, cod = false, serviceable = true, customer?: any) => {
+    const founderEligible = ['founder_reveal', 'launch'].includes(activeWaitlistSettings.stage) && customer?.founderNumber && customer.founderNumber <= activeWaitlistSettings.founderCapacity && Boolean(await prisma.waitlistReservation.findFirst({ where: { customerId: customer.id, status: { in: [WaitlistStatus.joined, WaitlistStatus.converted] } }, select: { id: true } }))
     const lines = cart.items.map((item: any) => {
       // Prefer the fully hydrated product variant (with inventory) over the
       // lightweight CartItem relation so availability is never reported as zero
       // merely because the cart item relation omitted inventory rows.
       const variant = item.product.variants.find((candidate: any) => candidate.id === item.variantId) ?? item.product.variants[0] ?? item.variant
       const inv = variant?.inventory?.reduce((sum: number, row: any) => sum + row.availableQty - row.reservedQty, 0) ?? 0
-      return { id: item.id, productId: item.product.id, variantId: variant?.id, quantity: item.quantity, product: publicProduct(item.product), unitPricePaise: variant?.pricePaise ?? item.product.pricePaise, availableQuantity: inv, purchaseState: variant?.purchaseState ?? item.product.purchaseState }
+      const publicItem = publicProduct(item.product)
+      return { id: item.id, productId: item.product.id, variantId: variant?.id, quantity: item.quantity, product: founderEligible ? { ...publicItem, pricePaise: activeWaitlistSettings.founderPricePaise, mrpPaise: item.product.mrpPaise ?? activeWaitlistSettings.regularPricePaise, purchaseState: PurchaseState.available } : publicItem, unitPricePaise: founderEligible ? activeWaitlistSettings.founderPricePaise : variant?.pricePaise ?? item.product.pricePaise, availableQuantity: inv, purchaseState: founderEligible ? PurchaseState.available : variant?.purchaseState ?? item.product.purchaseState }
     })
     const quote = calculateCart(lines, cart.coupon?.promotion as any, serviceable, cod)
-    if (activeWaitlistSettings.enabled) return { cartId: cart.publicToken ?? cart.id, lines: lines.map((line: any) => ({ ...line, product: publicProduct(line.product), unitPricePaise: null, purchaseState: PurchaseState.coming_soon })), ...quote, subtotalPaise: 0, discountPaise: 0, taxPaise: 0, shippingPaise: 0, codPaise: 0, totalPaise: 0, purchaseEligible: false, priceHidden: true, validationMessages: [], appliedCoupon: null, currency: cart.currency, expiresAt: cart.expiresAt }
+    if (waitlistPricesHidden() && !founderEligible) return { cartId: cart.publicToken ?? cart.id, lines: lines.map((line: any) => ({ ...line, product: publicProduct(line.product), unitPricePaise: null, purchaseState: PurchaseState.coming_soon })), ...quote, subtotalPaise: 0, discountPaise: 0, taxPaise: 0, shippingPaise: 0, codPaise: 0, totalPaise: 0, purchaseEligible: false, priceHidden: true, validationMessages: [], appliedCoupon: null, currency: cart.currency, expiresAt: cart.expiresAt }
     return { cartId: cart.publicToken ?? cart.id, lines, ...quote, appliedCoupon: cart.coupon ? { code: cart.coupon.code, promotion: cart.coupon.promotion } : null, currency: cart.currency, expiresAt: cart.expiresAt }
   }
   const idemReplay = async (request: any, scope: string) => { const key = request.headers['idempotency-key']; if (!key) return null; const record = await prisma.idempotencyRecord.findUnique({ where: { key_scope: { key: String(key), scope } } }); if (!record?.responseBody) return null; if (record.requestHash !== sha256Json(request.body ?? {})) throw new ApiError(409, 'IDEMPOTENCY_KEY_REUSED', 'This idempotency key was already used with a different request.'); return { status: record.responseStatus ?? 200, body: record.responseBody } }
@@ -306,7 +309,7 @@ export function buildApp(): FastifyInstance {
   routes.get('/api/v1/storefront/bootstrap', async (_, reply) => {
     const settings = await prisma.storeSetting.findMany({ where: { key: { in: ['storefront', 'seo'] } } })
     const values = Object.fromEntries(settings.map((setting) => [setting.key, setting.value])) as any
-    const waitlist = waitlistConfig()
+    const waitlist = waitlistConfig(await founderClaimedCount())
     return data(reply, { storeName: 'SkinFox', logo: '/brand/skinfox-logo.png', currency: 'INR', announcement: values.storefront?.announcement ?? (waitlist.enabled ? 'Priority launch waitlist is open' : 'The SkinFox collection is now available'), navigation: [{ label: 'Shop', href: '#shop' }, { label: 'Care finder', href: '#care-finder' }], footerLinks: [{ label: 'FAQ', href: '#faq' }], socialLinks: [{ label: 'Instagram', href: '#story' }], freeShippingThresholdPaise: values.storefront?.freeShippingThresholdPaise ?? 99900, featureFlags: { customerOtp: false, firebaseAuth: firebaseAdminIsConfigured(), customerEmailAuth: firebaseAdminIsConfigured(), paymentMode: waitlist.enabled ? 'waitlist' : 'cod' }, supportContact: { email: values.storefront?.supportEmail ?? 'contact@skinfox.in' }, enabledPaymentMethods: waitlist.enabled ? ['razorpay_waitlist'] : ['cod'], waitlist, seo: values.seo ?? {} })
   })
   routes.get('/api/v1/products', async (request, reply) => {
@@ -400,8 +403,9 @@ export function buildApp(): FastifyInstance {
     if (!finder) throw notFound('Care finder is not configured.')
     const questions = finder.questions.map((question) => ({ key: question.key, prompt: question.prompt, multi: question.selectionMode === 'multi', values: question.options.map((option) => option.value) })).filter((question) => question.values.length)
     try {
-      const result = await analysePhoto(base64.replace(/\s/g, ''), input.mediaType, questions)
+      const { usage, ...result } = await analysePhoto(base64.replace(/\s/g, ''), input.mediaType, questions)
       const remaining = await recordPhotoUse(deviceId, request.ip)
+      if (usage) request.log.info({ photoAnalysisUsage: usage }, 'care finder photo analysis usage')
       return data(reply, { configured: true, ...result, remaining, limit: PHOTO_DAILY_LIMIT })
     } catch (cause) {
       request.log.error({ err: cause }, 'care finder photo analysis failed')
@@ -623,15 +627,21 @@ export function buildApp(): FastifyInstance {
   routes.get('/api/v1/customer/orders', async (request, reply) => { const customer = await requireCustomer(request); return data(reply, await prisma.order.findMany({ where: { customerId: customer.id }, orderBy: { createdAt: 'desc' }, include: { items: true, payments: true } })) })
   routes.get('/api/v1/customer/orders/:publicToken', async (request, reply) => { const customer = await requireCustomer(request); const order = await prisma.order.findFirst({ where: { publicToken: request.params.publicToken, customerId: customer.id }, include: { items: true, payments: true, shipments: { include: { events: { orderBy: { createdAt: 'asc' } } } }, statusEvents: { orderBy: { createdAt: 'asc' } } } }); if (!order) throw notFound('Order not found.'); return data(reply, order) })
 
-  const waitlistConfig = () => ({
+  const founderClaimedCount = () => prisma.customer.count({ where: { founderNumber: { not: null } } })
+  const waitlistConfig = (founderClaimed = 0, revealFounderPrice = false) => ({
     ...activeWaitlistSettings,
+    founderPricePaise: revealFounderPrice || activeWaitlistSettings.stage !== 'waitlist' ? activeWaitlistSettings.founderPricePaise : null,
     currency: 'INR',
-    refundable: true,
+    refundable: activeWaitlistSettings.refundable,
     paymentConfigured: payment.configured(),
     razorpayKeyId: payment.configured() ? process.env.RAZORPAY_KEY_ID : undefined,
+    founderClaimed,
+    founderRemaining: Math.max(0, activeWaitlistSettings.founderCapacity - founderClaimed),
+    foundingClosed: founderClaimed >= activeWaitlistSettings.founderCapacity,
   })
   const waitlistResponse = (reservation: any) => ({
     publicToken: reservation.publicToken,
+    waitlistId: reservation.waitlistId,
     status: reservation.status,
     currency: reservation.currency,
     depositPaise: reservation.depositPaise,
@@ -644,18 +654,44 @@ export function buildApp(): FastifyInstance {
     refundedAt: reservation.refundedAt,
     createdAt: reservation.createdAt,
     providerOrderId: reservation.providerOrderId,
+    founderNumber: reservation.customer?.founderNumber ?? null,
+    founderCapacity: activeWaitlistSettings.founderCapacity,
     items: reservation.items?.map((item: any) => ({ productId: item.productId, productName: item.productName, productSlug: item.productSlug, size: item.size, quantity: item.quantity })) ?? [],
   })
 
-  routes.get('/api/v1/waitlist/config', async (_, reply) => data(reply, waitlistConfig()))
+  const claimFounderPlace = async (customerId: string) => {
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(736546683200::bigint)`
+      const customer = await tx.customer.findUniqueOrThrow({ where: { id: customerId }, select: { founderNumber: true } })
+      if (customer.founderNumber) return { founderNumber: customer.founderNumber, autoLaunched: false }
+      const latest = await tx.customer.aggregate({ _max: { founderNumber: true } })
+      const next = (latest._max.founderNumber ?? 0) + 1
+      if (next > activeWaitlistSettings.founderCapacity) return { founderNumber: null, autoLaunched: false }
+      await tx.customer.update({ where: { id: customerId }, data: { founderNumber: next, founderJoinedAt: new Date() } })
+      const autoLaunched = next === activeWaitlistSettings.founderCapacity && activeWaitlistSettings.stage === 'waitlist'
+      if (autoLaunched) {
+        const launchSettings = { ...activeWaitlistSettings, enabled: false, stage: 'launch' as const }
+        await tx.storeSetting.upsert({ where: { key: 'waitlist-config' }, update: { value: launchSettings }, create: { key: 'waitlist-config', value: launchSettings } })
+        await tx.product.updateMany({ where: { status: PublicationStatus.published }, data: { pricePaise: launchSettings.launchPricePaise, mrpPaise: launchSettings.regularPricePaise, purchaseState: PurchaseState.available } })
+        await tx.productVariant.updateMany({ where: { product: { status: PublicationStatus.published } }, data: { pricePaise: launchSettings.launchPricePaise, mrpPaise: launchSettings.regularPricePaise, purchaseState: PurchaseState.available } })
+      }
+      return { founderNumber: next, autoLaunched }
+    })
+    if (result.autoLaunched) activeWaitlistSettings = { ...activeWaitlistSettings, enabled: false, stage: 'launch' }
+    return result.founderNumber
+  }
+
+  routes.get('/api/v1/waitlist/config', async (_, reply) => data(reply, waitlistConfig(await founderClaimedCount())))
   routes.get('/api/v1/customer/waitlist', async (request, reply) => {
     const customer = await requireCustomer(request)
-    const reservations = await prisma.waitlistReservation.findMany({ where: { customerId: customer.id }, include: { items: true }, orderBy: { createdAt: 'desc' } })
+    const reservations = await prisma.waitlistReservation.findMany({ where: { customerId: customer.id }, include: { items: true, customer: { select: { founderNumber: true } } }, orderBy: { createdAt: 'desc' } })
     return data(reply, reservations.map(waitlistResponse))
   })
   routes.post('/api/v1/waitlist/reservations', { config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } }, async (request, reply) => {
     const currentWaitlist = { ...activeWaitlistSettings }
     if (!currentWaitlist.enabled) throw new ApiError(409, 'WAITLIST_CLOSED', 'The priority waitlist is not open right now.')
+    if (currentWaitlist.stage !== 'waitlist') throw new ApiError(409, 'WAITLIST_STAGE_CLOSED', 'New Founding 200 reservations are not available in the current launch stage.')
+    if (await founderClaimedCount() >= currentWaitlist.founderCapacity) throw new ApiError(409, 'FOUNDING_200_CLOSED', 'Founding 200 is now closed. The launch price will be available next.')
     if (!payment.configured()) throw new ApiError(503, 'RAZORPAY_NOT_CONFIGURED', 'Online waitlist payment is being configured. Please try again shortly.')
     const customer = await requireCustomer(request, true)
     if (!customer.emailVerifiedAt) throw new ApiError(400, 'CUSTOMER_EMAIL_UNVERIFIED', 'Verify your email address before joining the priority waitlist.')
@@ -677,26 +713,30 @@ export function buildApp(): FastifyInstance {
     const identifiers = [...quantities.keys()]
     const products = await prisma.product.findMany({ where: { status: PublicationStatus.published, OR: [{ id: { in: identifiers } }, { slug: { in: identifiers } }] } })
     if (products.length !== identifiers.length) throw validationError('One or more selected products are no longer available for the waitlist.')
+    const reservationItems = products.map((product) => ({ productId: product.id, productName: product.name, productSlug: product.slug, size: product.size, quantity: quantities.get(product.id) ?? quantities.get(product.slug) ?? 1 }))
+    const totalDepositPaise = calculateWaitlistDepositPaise(currentWaitlist.depositPaise, reservationItems.map((item) => item.quantity))
     const publicToken = randomToken(24)
+    const waitlistId = createWaitlistId()
     const reservation = await prisma.waitlistReservation.create({
       data: {
         publicToken,
+        waitlistId,
         customerId: customer.id,
-        depositPaise: currentWaitlist.depositPaise,
+        depositPaise: totalDepositPaise,
         discountPercent: currentWaitlist.discountPercent,
         phone: input.phone,
         consent: input.consent,
         consentAt: new Date(),
         termsVersion: input.termsVersion,
         idempotencyKey,
-        items: { create: products.map((product) => ({ productId: product.id, productName: product.name, productSlug: product.slug, size: product.size, quantity: quantities.get(product.id) ?? quantities.get(product.slug) ?? 1 })) },
+        items: { create: reservationItems },
       },
       include: { items: true },
     })
     try {
-      const providerOrder = await payment.createOrder({ amountPaise: currentWaitlist.depositPaise, receipt: `sfwl_${reservation.id}`, notes: { reservation: reservation.publicToken, purpose: 'priority_waitlist' } })
+      const providerOrder = await payment.createOrder({ amountPaise: totalDepositPaise, receipt: `sfwl_${reservation.id}`, notes: { reservation: reservation.publicToken, waitlist_id: reservation.waitlistId, purpose: 'priority_waitlist' } })
       const updated = await prisma.waitlistReservation.update({ where: { id: reservation.id }, data: { providerOrderId: providerOrder.providerOrderId }, include: { items: true } })
-      return reply.status(201).send({ data: { reservation: waitlistResponse(updated), checkout: { keyId: process.env.RAZORPAY_KEY_ID, orderId: providerOrder.providerOrderId, amountPaise: updated.depositPaise, currency: updated.currency, name: 'SkinFox', description: 'Fully refundable priority waitlist deposit', prefill: { name: customer.fullName, email: customer.email, contact: `+91${input.phone}` } } }, meta: { requestId: request.id } })
+      return reply.status(201).send({ data: { reservation: waitlistResponse(updated), checkout: { keyId: process.env.RAZORPAY_KEY_ID, orderId: providerOrder.providerOrderId, amountPaise: updated.depositPaise, currency: updated.currency, name: 'SkinFox', description: 'Non-refundable priority waitlist reservation fee', prefill: { name: customer.fullName, email: customer.email, contact: `+91${input.phone}` } } }, meta: { requestId: request.id } })
     } catch (cause) {
       request.log.error({ err: cause, reservationId: reservation.id }, 'razorpay waitlist order creation failed')
       await prisma.waitlistReservation.update({ where: { id: reservation.id }, data: { status: WaitlistStatus.payment_failed } })
@@ -706,7 +746,7 @@ export function buildApp(): FastifyInstance {
   routes.post('/api/v1/waitlist/reservations/:publicToken/verify', async (request, reply) => {
     const customer = await requireCustomer(request, true)
     const input = z.object({ razorpayOrderId: z.string().min(6), razorpayPaymentId: z.string().min(6), razorpaySignature: z.string().min(16) }).parse(request.body)
-    const reservation = await prisma.waitlistReservation.findFirst({ where: { publicToken: request.params.publicToken, customerId: customer.id }, include: { items: true } })
+    const reservation = await prisma.waitlistReservation.findFirst({ where: { publicToken: request.params.publicToken, customerId: customer.id }, include: { items: true, customer: { select: { founderNumber: true } } } })
     if (!reservation) throw notFound('Waitlist reservation not found.')
     if (reservation.status === WaitlistStatus.joined && reservation.providerPaymentId === input.razorpayPaymentId) return data(reply, { reservation: waitlistResponse(reservation), confirmed: true })
     if (reservation.providerOrderId !== input.razorpayOrderId || !payment.verifyPayment({ orderId: reservation.providerOrderId, paymentId: input.razorpayPaymentId, signature: input.razorpaySignature })) throw new ApiError(400, 'PAYMENT_SIGNATURE_INVALID', 'Payment verification failed. Your waitlist place has not been activated.')
@@ -715,39 +755,28 @@ export function buildApp(): FastifyInstance {
     if (providerPayment.providerOrderId !== reservation.providerOrderId || providerPayment.amountPaise !== reservation.depositPaise) throw new ApiError(400, 'PAYMENT_DETAILS_MISMATCH', 'The payment does not match this waitlist reservation.')
     const captured = providerPayment.status === 'captured'
     const failed = providerPayment.status === 'failed'
-    const updated = await prisma.waitlistReservation.update({ where: { id: reservation.id }, data: { providerPaymentId: providerPayment.providerPaymentId, paymentCapturedPaise: captured ? providerPayment.amountPaise : 0, status: captured ? WaitlistStatus.joined : failed ? WaitlistStatus.payment_failed : WaitlistStatus.payment_pending, joinedAt: captured ? new Date() : null }, include: { items: true } })
+    if (captured) await claimFounderPlace(customer.id)
+    const updated = await prisma.waitlistReservation.update({ where: { id: reservation.id }, data: { providerPaymentId: providerPayment.providerPaymentId, paymentCapturedPaise: captured ? providerPayment.amountPaise : 0, status: captured ? WaitlistStatus.joined : failed ? WaitlistStatus.payment_failed : WaitlistStatus.payment_pending, joinedAt: captured ? new Date() : null }, include: { items: true, customer: { select: { founderNumber: true } } } })
     return data(reply, { reservation: waitlistResponse(updated), confirmed: captured })
   })
   routes.post('/api/v1/waitlist/reservations/:publicToken/cancel', { config: { rateLimit: { max: 6, timeWindow: '15 minutes' } } }, async (request, reply) => {
     const customer = await requireCustomer(request, true)
-    const reason = z.string().trim().min(3).max(240).parse(request.body?.reason ?? 'Customer changed their mind')
     const reservation = await prisma.waitlistReservation.findFirst({ where: { publicToken: request.params.publicToken, customerId: customer.id }, include: { items: true } })
     if (!reservation) throw notFound('Waitlist reservation not found.')
-    if ([WaitlistStatus.cancelled, WaitlistStatus.refund_pending, WaitlistStatus.refunded].includes(reservation.status)) return data(reply, { reservation: waitlistResponse(reservation) })
-    if (reservation.status === WaitlistStatus.converted) throw validationError('This reservation has already been converted. Please contact support for help.')
-    if (!reservation.providerPaymentId || reservation.paymentCapturedPaise <= 0) {
-      const cancelled = await prisma.waitlistReservation.update({ where: { id: reservation.id }, data: { status: WaitlistStatus.cancelled, cancelledAt: new Date(), refundStatus: 'not_required' }, include: { items: true } })
-      return data(reply, { reservation: waitlistResponse(cancelled) })
-    }
-    const refundKey = String(request.headers['idempotency-key'] ?? `waitlist-refund-${reservation.id}`).slice(0, 160)
-    let providerRefund
-    try { providerRefund = await payment.refund({ paymentId: reservation.providerPaymentId, amountPaise: reservation.paymentCapturedPaise, idempotencyKey: refundKey }) } catch (cause) { request.log.error({ err: cause, reservationId: reservation.id, reason }, 'razorpay waitlist refund failed'); throw new ApiError(502, 'REFUND_FAILED', 'The refund could not be started. Your waitlist place is unchanged; please try again or contact support.') }
-    const processed = providerRefund.status === 'processed'
-    const updated = await prisma.waitlistReservation.update({ where: { id: reservation.id }, data: { status: processed ? WaitlistStatus.refunded : WaitlistStatus.refund_pending, providerRefundId: providerRefund.providerRefundId, refundPaise: reservation.paymentCapturedPaise, refundStatus: providerRefund.status, cancelledAt: new Date(), refundedAt: processed ? new Date() : null }, include: { items: true } })
-    return data(reply, { reservation: waitlistResponse(updated) })
+    throw new ApiError(409, 'WAITLIST_FEE_NON_REFUNDABLE', 'The waitlist reservation fee is non-refundable and this reservation cannot be cancelled for a refund. Contact support if you believe a payment was duplicated or processed incorrectly.')
   })
 
   routes.post('/api/v1/carts', async (request, reply) => { const token = randomToken(32); const cart = await prisma.cart.create({ data: { tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) } }); reply.header('x-cart-token', token).setCookie('sf_cart_token', token, { httpOnly: true, sameSite: 'lax', secure: secureCookies(), maxAge: 30 * 24 * 60 * 60, path: '/' }); const empty = await cartResponse({ ...cart, items: [], coupon: null }); return data(reply, { ...empty, cartId: token, token }) })
-  routes.get('/api/v1/carts/:cartId', async (request, reply) => data(reply, await cartResponse(await getCart(request))))
-  routes.post('/api/v1/carts/:cartId/items', async (request, reply) => { const input = cartItemSchema.parse(request.body); const cart = await getCart(request); const product = await prisma.product.findFirst({ where: { OR: [{ id: input.productId }, { slug: input.productId }], status: { in: [PublicationStatus.published, PublicationStatus.approved] } }, include: { variants: true } }); if (!product) throw notFound('Product is not available.'); const variantId = input.variantId ?? product.variants[0]?.id; const existing = await prisma.cartItem.findFirst({ where: { cartId: cart.id, productId: product.id, ...(variantId ? { variantId } : { variantId: null }) } }); if (existing) await prisma.cartItem.update({ where: { id: existing.id }, data: { quantity: Math.min(50, existing.quantity + input.quantity) } }); else await prisma.cartItem.create({ data: { cartId: cart.id, productId: product.id, variantId, quantity: input.quantity } }); return data(reply, await cartResponse(await getCart(request))) })
-  routes.patch('/api/v1/carts/:cartId/items/:itemId', async (request, reply) => { const quantity = z.number().int().min(0).max(50).parse(request.body?.quantity); const cart = await getCart(request); const item = cart.items.find((line: any) => line.id === request.params.itemId || line.product.id === request.params.itemId || line.product.slug === request.params.itemId); if (!item) throw notFound('Cart item not found.'); if (!quantity) await prisma.cartItem.delete({ where: { id: item.id } }); else await prisma.cartItem.update({ where: { id: item.id }, data: { quantity } }); return data(reply, await cartResponse(await getCart(request))) })
-  routes.delete('/api/v1/carts/:cartId/items/:itemId', async (request, reply) => { const cart = await getCart(request); const item = cart.items.find((line: any) => line.id === request.params.itemId || line.product.id === request.params.itemId || line.product.slug === request.params.itemId); if (!item) throw notFound('Cart item not found.'); await prisma.cartItem.delete({ where: { id: item.id } }); return data(reply, await cartResponse(await getCart(request))) })
+  routes.get('/api/v1/carts/:cartId', async (request, reply) => data(reply, await cartResponse(await getCart(request), false, true, await currentCustomer(request, false))))
+  routes.post('/api/v1/carts/:cartId/items', async (request, reply) => { const input = cartItemSchema.parse(request.body); const cart = await getCart(request); const product = await prisma.product.findFirst({ where: { OR: [{ id: input.productId }, { slug: input.productId }], status: { in: [PublicationStatus.published, PublicationStatus.approved] } }, include: { variants: true } }); if (!product) throw notFound('Product is not available.'); const variantId = input.variantId ?? product.variants[0]?.id; const existing = await prisma.cartItem.findFirst({ where: { cartId: cart.id, productId: product.id, ...(variantId ? { variantId } : { variantId: null }) } }); if (existing) await prisma.cartItem.update({ where: { id: existing.id }, data: { quantity: Math.min(50, existing.quantity + input.quantity) } }); else await prisma.cartItem.create({ data: { cartId: cart.id, productId: product.id, variantId, quantity: input.quantity } }); return data(reply, await cartResponse(await getCart(request), false, true, await currentCustomer(request, false))) })
+  routes.patch('/api/v1/carts/:cartId/items/:itemId', async (request, reply) => { const quantity = z.number().int().min(0).max(50).parse(request.body?.quantity); const cart = await getCart(request); const item = cart.items.find((line: any) => line.id === request.params.itemId || line.product.id === request.params.itemId || line.product.slug === request.params.itemId); if (!item) throw notFound('Cart item not found.'); if (!quantity) await prisma.cartItem.delete({ where: { id: item.id } }); else await prisma.cartItem.update({ where: { id: item.id }, data: { quantity } }); return data(reply, await cartResponse(await getCart(request), false, true, await currentCustomer(request, false))) })
+  routes.delete('/api/v1/carts/:cartId/items/:itemId', async (request, reply) => { const cart = await getCart(request); const item = cart.items.find((line: any) => line.id === request.params.itemId || line.product.id === request.params.itemId || line.product.slug === request.params.itemId); if (!item) throw notFound('Cart item not found.'); await prisma.cartItem.delete({ where: { id: item.id } }); return data(reply, await cartResponse(await getCart(request), false, true, await currentCustomer(request, false))) })
   routes.delete('/api/v1/carts/:cartId', async (request, reply) => { const cart = await getCart(request); await prisma.cart.delete({ where: { id: cart.id } }); return data(reply, { deleted: true }) })
   routes.post('/api/v1/carts/:cartId/apply-coupon', async (request, reply) => { const code = z.string().min(2).parse(request.body?.code); const cart = await getCart(request); const coupon = await prisma.coupon.findUnique({ where: { code: code.toUpperCase() }, include: { promotion: true } }); if (!coupon || !coupon.promotion.active || coupon.promotion.startsAt > new Date() || coupon.promotion.endsAt < new Date()) throw validationError('This coupon is not active or has expired.'); await prisma.cart.update({ where: { id: cart.id }, data: { couponId: coupon.id } }); return data(reply, await cartResponse(await getCart(request))) })
   routes.delete('/api/v1/carts/:cartId/coupon', async (request, reply) => { const cart = await getCart(request); await prisma.cart.update({ where: { id: cart.id }, data: { couponId: null } }); return data(reply, await cartResponse(await getCart(request))) })
 
   routes.get('/api/v1/shipping/serviceability', async (request, reply) => { const pincode = String(request.query?.pincode ?? ''); if (!isValidPincode(pincode)) throw validationError('Enter a valid six-digit pincode.'); return data(reply, { pincode, serviceable: await shipping.serviceable(pincode), codAvailable: Boolean(await prisma.serviceablePincode.findUnique({ where: { pincode, active: true } })) }) })
-  const makeQuote = async (request: any, sessionInput?: any, customer?: any) => { if (activeWaitlistSettings.enabled) throw new ApiError(409, 'WAITLIST_ONLY', 'Product prices are not revealed yet. Join the refundable priority waitlist instead.'); const cart = await getCart(request); const bodyValue = sessionInput ?? request.body; const parsed = checkoutSchema.parse(bodyValue); if (!customer?.emailVerifiedAt) throw new ApiError(400, 'CUSTOMER_EMAIL_UNVERIFIED', 'Verify your email address before placing an order.'); const serviceable = await shipping.serviceable(parsed.pincode); const response = await cartResponse(cart, true, serviceable); return { ...response, serviceability: serviceable, estimatedDeliveryFrom: serviceable ? new Date(Date.now() + 3 * 86400000).toISOString() : null, estimatedDeliveryTo: serviceable ? new Date(Date.now() + 7 * 86400000).toISOString() : null, quoteExpiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(), checkout: { ...parsed, email: parsed.email ?? customer.email ?? undefined } } }
+  const makeQuote = async (request: any, sessionInput?: any, customer?: any) => { if (activeWaitlistSettings.enabled && activeWaitlistSettings.stage === 'waitlist') throw new ApiError(409, 'WAITLIST_ONLY', 'Product prices are not revealed yet. Join the Founding 200 priority waitlist instead.'); const cart = await getCart(request); const bodyValue = sessionInput ?? request.body; const parsed = checkoutSchema.parse(bodyValue); if (!customer?.emailVerifiedAt) throw new ApiError(400, 'CUSTOMER_EMAIL_UNVERIFIED', 'Verify your email address before placing an order.'); const serviceable = await shipping.serviceable(parsed.pincode); const response = await cartResponse(cart, true, serviceable, customer); if (activeWaitlistSettings.stage === 'founder_reveal' && response.priceHidden) throw new ApiError(403, 'FOUNDER_ACCESS_REQUIRED', 'The Founder’s Price is reserved for confirmed Founding 200 members.'); return { ...response, serviceability: serviceable, estimatedDeliveryFrom: serviceable ? new Date(Date.now() + 3 * 86400000).toISOString() : null, estimatedDeliveryTo: serviceable ? new Date(Date.now() + 7 * 86400000).toISOString() : null, quoteExpiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(), checkout: { ...parsed, email: parsed.email ?? customer.email ?? undefined } } }
   routes.post('/api/v1/checkout/quote', async (request, reply) => { const customer = await requireCustomer(request); return data(reply, await makeQuote(request, undefined, customer)) })
   routes.post('/api/v1/checkout/sessions', async (request, reply) => {
     const customer = await requireCustomer(request, true)
@@ -850,6 +879,7 @@ export function buildApp(): FastifyInstance {
             const processed = refund.status === 'processed'
             await prisma.waitlistReservation.update({ where: { id: waitlist.id }, data: { providerRefundId: refund.providerRefundId, refundPaise: Number(paymentEntity.amount), refundStatus: refund.status, status: processed ? WaitlistStatus.refunded : WaitlistStatus.refund_pending, refundedAt: processed ? new Date() : null } })
           } else {
+            await claimFounderPlace(waitlist.customerId)
             await prisma.waitlistReservation.update({ where: { id: waitlist.id }, data: { providerPaymentId: String(paymentEntity.id), paymentCapturedPaise: Number(paymentEntity.amount), status: WaitlistStatus.joined, joinedAt: waitlist.joinedAt ?? new Date() } })
           }
         }
@@ -998,24 +1028,34 @@ export function buildApp(): FastifyInstance {
 
   const transition: Record<string, OrderStatus> = { confirm: OrderStatus.confirmed, process: OrderStatus.processing, pack: OrderStatus.packed, fulfill: OrderStatus.processing, ship: OrderStatus.shipped, deliver: OrderStatus.delivered, cancel: OrderStatus.cancelled }
   routes.get('/api/v1/admin/orders', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT])(request); const params = pageParams(request); const where: any = request.query?.status ? { status: request.query.status } : {}; const [items, total] = await Promise.all([prisma.order.findMany({ where, include: { customer: true, items: true, payments: true }, orderBy: { createdAt: 'desc' }, skip: (params.page - 1) * params.limit, take: params.limit }), prisma.order.count({ where })]); return data(reply, items.map((order) => ({ ...order, customer: maskCustomer(order.customer) })), { page: params.page, limit: params.limit, total }) })
-  const adminWaitlistSettings = () => ({ ...activeWaitlistSettings, currency: 'INR', refundable: true, paymentConfigured: payment.configured() })
+  const adminWaitlistSettings = async () => waitlistConfig(await founderClaimedCount(), true)
   routes.get('/api/v1/admin/waitlist-settings', async (request, reply) => {
     await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT, AdminRole.ANALYST])(request)
-    return data(reply, adminWaitlistSettings())
+    return data(reply, await adminWaitlistSettings())
   })
   routes.patch('/api/v1/admin/waitlist-settings', async (request, reply) => {
     const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER])(request)
     const before = { ...activeWaitlistSettings }
-    const next = waitlistSettingsSchema.parse(request.body)
+    const requested = waitlistSettingsSchema.parse(request.body)
+    const founderClaimed = await founderClaimedCount()
+    const next: WaitlistSettings = requested.stage === 'waitlist' && founderClaimed >= requested.founderCapacity ? { ...requested, enabled: false, stage: 'launch' } : requested
     await prisma.storeSetting.upsert({ where: { key: 'waitlist-config' }, update: { value: next }, create: { key: 'waitlist-config', value: next } })
     activeWaitlistSettings = next
+    if (next.stage === 'launch' || next.stage === 'regular') {
+      const sellingPricePaise = next.stage === 'launch' ? next.launchPricePaise : next.regularPricePaise
+      await prisma.$transaction([
+        prisma.product.updateMany({ where: { status: PublicationStatus.published }, data: { pricePaise: sellingPricePaise, mrpPaise: next.regularPricePaise, purchaseState: PurchaseState.available } }),
+        prisma.productVariant.updateMany({ where: { product: { status: PublicationStatus.published } }, data: { pricePaise: sellingPricePaise, mrpPaise: next.regularPricePaise, purchaseState: PurchaseState.available } }),
+      ])
+    }
     await audit(user, request, 'update', 'WaitlistSettings', 'waitlist-config', before, next, next.enabled === before.enabled ? 'Waitlist commercial settings updated' : `Priority waitlist ${next.enabled ? 'opened' : 'closed'}`)
-    return data(reply, adminWaitlistSettings())
+    return data(reply, await adminWaitlistSettings())
   })
   routes.get('/api/v1/admin/waitlist-reservations', async (request, reply) => {
     await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT, AdminRole.ANALYST])(request)
     const params = pageParams(request)
-    const where: any = { ...(request.query?.status ? { status: request.query.status } : {}), ...(params.q ? { OR: [{ publicToken: { contains: params.q } }, { phone: { contains: params.q } }, { customer: { is: { OR: [{ fullName: { contains: params.q, mode: 'insensitive' } }, { email: { contains: params.q, mode: 'insensitive' } }] } } }] } : {}) }
+    const founderSearch = /^#?\d+$/.test(params.q) ? Number(params.q.replace('#', '')) : null
+    const where: any = { ...(request.query?.status ? { status: request.query.status } : {}), ...(params.q ? { OR: [{ waitlistId: { contains: params.q, mode: 'insensitive' } }, { publicToken: { contains: params.q, mode: 'insensitive' } }, { phone: { contains: params.q } }, { customer: { is: { OR: [{ fullName: { contains: params.q, mode: 'insensitive' } }, { email: { contains: params.q, mode: 'insensitive' } }, ...(founderSearch ? [{ founderNumber: founderSearch }] : [])] } } }] } : {}) }
     const [items, total] = await Promise.all([
       prisma.waitlistReservation.findMany({ where, include: { customer: true, items: true }, orderBy: { createdAt: 'desc' }, skip: (params.page - 1) * params.limit, take: params.limit }),
       prisma.waitlistReservation.count({ where }),

@@ -18,6 +18,8 @@ type CartDrawerProps = {
 
 export function CartDrawer({ open, lines, onClose, onQuantity, onRemove, onCheckout, waitlistDepositPaise = 9900, waitlistDiscountPercent = 25 }: CartDrawerProps) {
   const hasPendingPrice = lines.some((line) => line.product.price === null)
+  const totalQuantity = lines.reduce((sum, line) => sum + line.quantity, 0)
+  const waitlistTotalPaise = waitlistDepositPaise * totalQuantity
   const subtotal = lines.reduce((sum, line) => sum + (line.product.price ?? 0) * line.quantity, 0)
   const threshold = 999
   const progress = Math.min((subtotal / threshold) * 100, 100)
@@ -26,7 +28,7 @@ export function CartDrawer({ open, lines, onClose, onQuantity, onRemove, onCheck
     <ModalShell open={open} onClose={onClose} title="Shopping bag" drawer className="cart-drawer">
       <div className="drawer-heading">
         <span className="eyebrow">Your everyday essentials</span>
-        <h2>Shopping bag <i>({lines.reduce((sum, line) => sum + line.quantity, 0)})</i></h2>
+        <h2>Shopping bag <i>({totalQuantity})</i></h2>
       </div>
       {lines.length === 0 ? (
         <div className="cart-empty">
@@ -67,10 +69,10 @@ export function CartDrawer({ open, lines, onClose, onQuantity, onRemove, onCheck
             ))}
           </div>
           <div className="cart-summary">
-            <div><span>{hasPendingPrice ? 'Refundable deposit' : 'Subtotal'}</span><strong>{hasPendingPrice ? formatPrice(waitlistDepositPaise / 100) : formatPrice(subtotal)}</strong></div>
-            <p>{hasPendingPrice ? 'Review the final prices later. Cancel before conversion for a full refund to your original payment method.' : 'Taxes included. Shipping calculated at checkout.'}</p>
+            <div><span>{hasPendingPrice ? `Reservation fee · ${formatPrice(waitlistDepositPaise / 100)} × ${totalQuantity}` : 'Subtotal'}</span><strong>{hasPendingPrice ? formatPrice(waitlistTotalPaise / 100) : formatPrice(subtotal)}</strong></div>
+            <p>{hasPendingPrice ? `The non-refundable waitlist reservation fee is charged per product unit. Final product prices will be revealed later.` : 'Taxes included. Shipping calculated at checkout.'}</p>
             <button className="button button--copper" onClick={() => { onClose(); onCheckout() }}>
-              {hasPendingPrice ? `Join priority waitlist · ${formatPrice(waitlistDepositPaise / 100)}` : 'Secure checkout'} <ArrowRight size={17} />
+              {hasPendingPrice ? `Continue to waitlist · ${formatPrice(waitlistTotalPaise / 100)}` : 'Secure checkout'} <ArrowRight size={17} />
             </button>
           </div>
         </>

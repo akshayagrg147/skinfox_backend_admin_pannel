@@ -1,12 +1,13 @@
 import { ArrowRight, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { products } from '../data/products'
+import { productPath } from '../seo/metadata'
 import type { Product } from '../types'
 import { ModalShell } from './ModalShell'
 import { ProductVisual } from './ProductVisual'
 import { getStorefront } from '../lib/storefrontApi'
 
-export function SearchOverlay({ open, onClose, onView, catalogue = products, apiMode = false }: { open: boolean; onClose: () => void; onView: (product: Product) => void; catalogue?: Product[]; apiMode?: boolean }) {
+export function SearchOverlay({ open, onClose, catalogue = products, apiMode = false }: { open: boolean; onClose: () => void; catalogue?: Product[]; apiMode?: boolean }) {
   const [query, setQuery] = useState('')
   const [remoteSlugs, setRemoteSlugs] = useState<string[] | null>(null)
   useEffect(() => {
@@ -38,11 +39,11 @@ export function SearchOverlay({ open, onClose, onView, catalogue = products, api
       <p className="search-count" role="status" aria-live="polite">{query ? `${results.length} result${results.length === 1 ? '' : 's'}` : 'A few thoughtful places to begin'}</p>
       <div className="search-results">
         {results.map((product) => (
-          <button type="button" key={product.id} aria-label={`View ${product.name} — ${product.subtitle}`} onClick={() => { onClose(); onView(product) }}>
+          <a key={product.id} href={productPath(product)} aria-label={`View full details for ${product.name} — ${product.subtitle}`} onClick={onClose}>
             <span className="search-result__visual" style={{ background: product.tint }}><ProductVisual product={product} compact /></span>
             <span><small>{product.concern}</small><strong>{product.name}</strong><i>{product.subtitle}</i></span>
             <ArrowRight size={18} />
-          </button>
+          </a>
         ))}
         {results.length === 0 && <div className="search-empty"><Search size={24} aria-hidden="true" /><h3>No matches just yet.</h3><p>Try a product name such as “Sun Protect”, or a simpler phrase like “face wash”.</p><button type="button" className="account-text-button" onClick={() => setQuery('')}>Browse suggestions</button></div>}
       </div>

@@ -13,10 +13,11 @@ type PhotoCaptureProps = {
 const CAPTURE_SIZE = 720
 
 /**
- * Captures a reference photo entirely on the device. The image is handed back as
- * a data URL held in React state only — it is never uploaded, persisted, or sent
- * with the care-finder request. This is a visual aid for the questions that
- * follow, not an analysis of the person's skin.
+ * Captures a photo for the care finder's cosmetic analysis. The image is sent to
+ * the API for a single analysis call and is not stored there; in the browser it
+ * lives in React state only and is never written to session storage or sent
+ * with the recommendation request. Copy shown to customers must stay accurate
+ * to this — the photo does leave the device.
  */
 export function PhotoCapture({ onCapture, onSkip, remaining, limit, limitMessage }: PhotoCaptureProps) {
   const [mode, setMode] = useState<'intro' | 'live'>('intro')
@@ -160,11 +161,11 @@ export function PhotoCapture({ onCapture, onSkip, remaining, limit, limitMessage
         <>
           <h2 className="care-photo__title">Start with a photo?</h2>
           <p className="care-photo__hint">
-            Take a quick photo to keep beside you while you answer. It stays on your device — we never upload or store it,
-            and it isn’t analysed or used to diagnose anything.
+            Take a quick photo and we’ll read what’s visible — like dryness or shine — to answer some questions for you.
+            It’s sent securely for this one check, and SkinFox doesn’t keep it. Cosmetic guidance only, not a diagnosis.
           </p>
           <ul className="care-photo__assurances">
-            <li><ShieldCheck size={15} aria-hidden="true" /> Stays on your device</li>
+            <li><ShieldCheck size={15} aria-hidden="true" /> We don’t keep your photo</li>
             {typeof remaining === 'number' && <li><Camera size={15} aria-hidden="true" /> {remaining} of {limit ?? 2} photo checks left today</li>}
           </ul>
           {error && (

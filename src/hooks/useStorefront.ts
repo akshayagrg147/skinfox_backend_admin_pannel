@@ -23,7 +23,24 @@ export type CareFinderApi = {
   }>
 }
 export type HomeApi = { sections?: Array<Record<string, unknown>>; campaignSlides?: CampaignApiSlide[]; faqs?: Array<{ question: string; answer: string }>; careMoments?: Array<Record<string, unknown>>; announcement?: string | null }
-export type WaitlistConfig = { enabled: boolean; depositPaise: number; discountPercent: number; currency: 'INR'; refundable: boolean; termsVersion: string; paymentConfigured: boolean; razorpayKeyId?: string }
+export type WaitlistConfig = {
+  enabled: boolean
+  depositPaise: number
+  discountPercent: number
+  currency: 'INR'
+  refundable: boolean
+  termsVersion: string
+  paymentConfigured: boolean
+  razorpayKeyId?: string
+  stage: 'waitlist' | 'founder_reveal' | 'launch' | 'regular'
+  founderCapacity: number
+  founderClaimed: number
+  founderRemaining: number
+  foundingClosed: boolean
+  founderPricePaise: number | null
+  launchPricePaise: number
+  regularPricePaise: number
+}
 
 const fixedProductBySlug = new Map(seedProducts.map((product) => [product.id, product]))
 
@@ -63,7 +80,7 @@ export function useStorefront() {
   const [faqs, setFaqs] = useState<Array<{ question: string; answer: string }>>([])
   const [home, setHome] = useState<HomeApi | null>(null)
   const [careFinder, setCareFinder] = useState<CareFinderApi | null>(null)
-  const [waitlist, setWaitlist] = useState<WaitlistConfig>({ enabled: true, depositPaise: 9900, discountPercent: 25, currency: 'INR', refundable: true, termsVersion: '2026-09-10', paymentConfigured: false })
+  const [waitlist, setWaitlist] = useState<WaitlistConfig>({ enabled: true, depositPaise: 9900, discountPercent: 25, currency: 'INR', refundable: false, termsVersion: '2026-09-10-nonrefundable', paymentConfigured: false, stage: 'waitlist', founderCapacity: 200, founderClaimed: 0, founderRemaining: 200, foundingClosed: false, founderPricePaise: 59900, launchPricePaise: 64900, regularPricePaise: 70000 })
   const [loading, setLoading] = useState(!isTest && !isServer)
   const [error, setError] = useState('')
   useEffect(() => {

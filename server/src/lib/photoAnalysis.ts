@@ -14,7 +14,12 @@ import * as z from 'zod/v4'
  * unexpected reply can never reach the recommendation engine.
  */
 
-export const PHOTO_ANALYSIS_MODEL = 'claude-opus-5'
+// Haiku 4.5 is the cheapest current model ($1 / $5 per million tokens) and
+// supports both vision and structured outputs. It runs without thinking unless
+// asked, and rejects the effort parameter — so neither is sent below. Override
+// with PHOTO_ANALYSIS_MODEL; on models that accept effort it simply runs at the
+// default level.
+export const PHOTO_ANALYSIS_MODEL = process.env.PHOTO_ANALYSIS_MODEL || 'claude-haiku-4-5'
 
 const analysisSchema = z.object({
   usable: z.boolean(),
@@ -30,6 +35,7 @@ Hard rules, no exceptions:
 - Never name or imply a medical or dermatological condition. Do not use words like acne, eczema, rosacea, psoriasis, dermatitis, infection, allergy, disease, or any diagnosis.
 - Never diagnose, and never suggest anything is wrong with the person.
 - Never estimate age, gender, ethnicity, weight, health, mood, or identity, and never attempt to identify who the person is.
+- Never comment on skin colour, depth, or undertone (fair, dark, wheatish, warm, cool, and so on). Evenness of tone is fine; colour is not.
 - Always hedge: say "appears" or "looks", never state a certainty.
 - Keep each observation under 12 words, and return at most 4.
 - If the image is unclear, is not a person, or you cannot tell, set usable to false and return empty observations and answers.
@@ -37,11 +43,23 @@ Hard rules, no exceptions:
 Then map what you observed onto the care-finder questions supplied by the user message. Choose ONLY from the allowed values listed for each question. Omit any question the photo cannot reasonably inform — a partial answer set is expected and correct.`
 
 export type AllowedQuestion = { key: string; prompt: string; values: string[]; multi: boolean }
+
+/**
+ * The only care-finder questions a photo may answer. Everything else is about the
+ * person rather than what is visible, so it is never shown to the model and always
+ * asked directly — above all `sensitivity`, whose options include known allergies
+ * and the "concerning symptoms" branch that pauses suggestions and points to
+ * medical advice. An allowlist (not a denylist) means questions added later in
+ * the admin are asked by a human until someone deliberately adds them here.
+ */
+export const PHOTO_ANSWERABLE_QUESTIONS = new Set(['careArea', 'mainConcern', 'secondaryConcern', 'skinType', 'scalpType'])
 export type PhotoAnalysisResult = {
   usable: boolean
   observations: string[]
   answers: Record<string, string | string[]>
   note: string
+  /** Server-side only — stripped before the response reaches the browser. */
+  usage?: { model: string; inputTokens: number; outputTokens: number }
 }
 
 export const photoAnalysisConfigured = () => Boolean(process.env.ANTHROPIC_API_KEY)
@@ -52,6 +70,7 @@ export async function analysePhoto(
   questions: AllowedQuestion[],
 ): Promise<PhotoAnalysisResult> {
   const client = new Anthropic()
+  questions = questions.filter((question) => PHOTO_ANSWERABLE_QUESTIONS.has(question.key))
   const questionBrief = questions
     .map((question) => `- ${question.key} (${question.prompt}) — pick ${question.multi ? 'one or more' : 'exactly one'} of: ${question.values.join(', ')}`)
     .join('\n')
@@ -60,7 +79,7 @@ export async function analysePhoto(
     model: PHOTO_ANALYSIS_MODEL,
     max_tokens: 2000,
     system: systemPrompt,
-    output_config: { format: zodOutputFormat(analysisSchema), effort: 'low' },
+    output_config: { format: zodOutputFormat(analysisSchema) },
     messages: [
       {
         role: 'user',
@@ -72,9 +91,10 @@ export async function analysePhoto(
     ],
   })
 
+  const usage = { model: response.model, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens }
   const parsed = response.parsed_output
   if (!parsed || !parsed.usable) {
-    return { usable: false, observations: [], answers: {}, note: photoNote }
+    return { usable: false, observations: [], answers: {}, note: photoNote, usage }
   }
 
   // Only values the care finder actually defines survive, so the recommendation
@@ -92,7 +112,7 @@ export async function analysePhoto(
     answers[entry.questionKey] = question.multi && values.length > 1 ? values : values[0]
   }
 
-  return { usable: true, observations: parsed.observations.slice(0, 4), answers, note: photoNote }
+  return { usable: true, observations: parsed.observations.slice(0, 4), answers, note: photoNote, usage }
 }
 
 export const photoNote =

@@ -17,6 +17,9 @@
 .waitlist-pay { width: 100%; min-height: 54px; justify-content: center; }
 .waitlist-secure { display: flex; justify-content: center; gap: 7px; margin: 13px 0 0; color: var(--muted); font-size: 12px; text-align: center; }
 .waitlist-config-note { padding: 12px 14px; border-radius: 12px; background: #fff2df; color: #73420c; font-size: 13px; line-height: 1.5; }
+.waitlist-reference-note { display: grid; gap: 4px; margin: 12px 0; padding: 13px 15px; border: 1px solid rgba(125,63,140,.18); border-radius: 12px; background: #f7f0f7; }
+.waitlist-reference-note span, .waitlist-reference-note small { color: var(--muted); font-size: 11px; }
+.waitlist-reference-note strong { color: var(--purple); font: 700 14px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
 .waitlist-summary { padding: clamp(30px, 4vw, 54px); background: linear-gradient(155deg, #f5edf5, #eee4eb); border-left: 1px solid rgba(47,25,48,.09); }
 .waitlist-summary h3 { margin: 9px 0 26px; font: 400 30px/1.1 var(--font-display); color: var(--ink); }
 .waitlist-summary > div { display: grid; grid-template-columns: 58px 1fr; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid rgba(47,25,48,.09); }
@@ -34,6 +37,9 @@
 .waitlist-success > div { display: grid; gap: 5px; margin: 22px 0 10px; padding: 18px 30px; border-radius: 16px; background: #f5edf5; }
 .waitlist-success > div strong { color: var(--purple); font-size: 18px; }
 .waitlist-success > div small { color: var(--muted); }
+.waitlist-success .waitlist-success__reference { gap: 7px; }
+.waitlist-success__reference code { color: var(--ink); font: 750 clamp(16px, 3vw, 21px)/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .055em; user-select: all; }
+.waitlist-success__reference span { color: var(--muted); font-size: 12px; }
 .waitlist-success .waitlist-success__refund { display: flex; align-items: center; gap: 7px; padding: 12px 15px; font-size: 13px; border: 1px solid rgba(47,25,48,.1); border-radius: 12px; }
 .account-waitlist__list { display: grid; gap: 14px; }
 .account-waitlist__card { padding: 20px; border: 1px solid rgba(47,25,48,.1); border-radius: 18px; background: #fff; box-shadow: 0 10px 30px rgba(47,25,48,.045); }
@@ -46,6 +52,9 @@
 .account-waitlist__card li span { color: var(--muted); }
 .account-waitlist__bottom > span > strong { color: var(--purple); font-size: 17px; }
 .account-waitlist__bottom .button { min-height: 40px; padding: 0 16px; font-size: 12px; }
+.account-waitlist__help { max-width: 520px; margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.account-waitlist__reference { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.account-waitlist__reference code { color: var(--purple); font: 750 12px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .035em; text-transform: none; user-select: all; }
 
 @media (max-width: 760px) {
   .waitlist-layout { grid-template-columns: 1fr; }

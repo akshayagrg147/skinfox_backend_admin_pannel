@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Activity, ArrowLeft, BarChart3, Boxes, Check, ChevronRight, CircleAlert, ClipboardList, FileImage, FileText, Gauge, HandCoins, ImageIcon, LayoutDashboard, LockKeyhole, LogOut, Menu, Package, Pencil, Plus, Search, Settings, Shield, ShoppingBag, Sparkles, Tags, Truck, Users, X } from 'lucide-react'
-import { FormEvent, KeyboardEvent, ReactNode, useEffect, useState } from 'react'
+import { FormEvent, KeyboardEvent, ReactNode, useDeferredValue, useEffect, useState } from 'react'
 import { api, get, patch, post, remove } from './api'
 import { availableScreens, canAccessScreen, defaultScreen, filterRows, formatAdminCell, type AdminRole, withSearch } from './admin-utils'
 import { isProductImageAssetPath, makeProductSlug, splitAssetPaths } from './productAssets'
@@ -9,7 +9,7 @@ type AdminUser = { id: string; email: string; name: string; role: AdminRole; isA
 type Resource = { id: string; name?: string; title?: string; email?: string; status?: string; createdAt?: string; [key: string]: unknown }
 type NavItem = { key: string; label: string; icon: typeof Gauge; permission?: string }
 type ResourceConfig = { endpoint: string; title: string; fields: string[]; createTemplate?: Record<string, unknown> }
-type WaitlistSettings = { enabled: boolean; depositPaise: number; discountPercent: number; termsVersion: string; currency: 'INR'; refundable: true; paymentConfigured: boolean }
+type WaitlistSettings = { enabled: boolean; depositPaise: number; discountPercent: number; termsVersion: string; currency: 'INR'; refundable: boolean; paymentConfigured: boolean; stage: 'waitlist' | 'founder_reveal' | 'launch' | 'regular'; founderCapacity: number; founderClaimed: number; founderRemaining: number; foundingClosed: boolean; founderPricePaise: number; launchPricePaise: number; regularPricePaise: number }
 
 const fixedCatalog = [
   { slug: 'rayyvia-sun-protect', image: '/products/rayyvia-sun-protect-primary.webp', alt: 'SkinFox Rayyvia Sun Protect facial suncream 60 g tube in yellow and pink campaign artwork' },
@@ -34,7 +34,7 @@ const resourceConfig: Record<string, ResourceConfig> = {
   promotions: { endpoint: '/admin/promotions', title: 'Promotions & coupons', fields: ['name', 'type', 'value', 'active'], createTemplate: { name: '', type: 'percentage', value: 0, minSpendPaise: 0, startsAt: new Date().toISOString(), endsAt: new Date(Date.now() + 30 * 86400000).toISOString(), active: false } },
   shipping: { endpoint: '/admin/shipping-zones', title: 'Shipping & tax', fields: ['name', 'active'], createTemplate: { name: '', pincodes: [], active: true } },
   leads: { endpoint: '/admin/launch-interests', title: 'Launch-interest leads', fields: ['email', 'name', 'pincode', 'status'] },
-  waitlist: { endpoint: '/admin/waitlist-reservations', title: 'Priority waitlist', fields: ['publicToken', 'customer', 'products', 'status', 'depositPaise', 'discountPercent', 'refundStatus', 'createdAt'] },
+  waitlist: { endpoint: '/admin/waitlist-reservations', title: 'Priority waitlist', fields: ['waitlistId', 'founderNumber', 'customer', 'products', 'status', 'depositPaise', 'refundStatus', 'createdAt'] },
   analytics: { endpoint: '/admin/dashboard/sales', title: 'Analytics', fields: ['status', '_count', '_sum'] },
   audit: { endpoint: '/admin/audit-logs', title: 'Audit logs', fields: ['action', 'entityType', 'result', 'createdAt'] },
 }
@@ -87,7 +87,7 @@ const storefrontUrl = () => {
   return window.location.port === '8080' ? `${window.location.protocol}//${window.location.hostname}/` : 'http://localhost:4173'
 }
 
-function Dashboard() { const query = useQuery({ queryKey: ['dashboard'], queryFn: () => get<Record<string, number>>('/admin/dashboard/summary') }); const system = useQuery({ queryKey: ['health'], queryFn: () => get<Record<string, string>>('/admin/dashboard/system-health') }); const dateLabel = new Intl.DateTimeFormat('en-IN', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }).format(new Date()).toUpperCase(); return <><div className="page-intro"><div><span className="kicker">{dateLabel}</span><h2>Good morning, SkinFox.</h2><p className="muted">A calm view of the storefront, orders and launch readiness.</p></div><button className="secondary-button" onClick={() => window.open(storefrontUrl(), '_blank')}>View storefront <ChevronRight size={16} /></button></div>{query.isLoading ? <SkeletonCards /> : query.isError ? <ErrorPanel onRetry={() => query.refetch()} /> : <div className="metric-grid">{[['Gross sales', `₹${((query.data?.revenuePaise ?? 0) / 100).toLocaleString('en-IN')}`, 'Confirmed and fulfilled'], ['Orders', query.data?.orders ?? 0, 'All statuses'], ['Published products', query.data?.products ?? 0, 'Ready for storefront'], ['Launch interest', query.data?.launchInterests ?? 0, 'Leads to review']].map(([label, value, note]) => <article className="metric-card" key={String(label)}><span>{label}</span><strong>{value}</strong><small>{note}</small></article>)}</div>}<div className="dashboard-grid"><section className="panel"><div className="panel-heading"><div><span className="kicker">Readiness</span><h3>What needs attention</h3></div><Gauge size={19} /></div>{[['Product publication', 'Seven seeded products are available to edit; public selling prices remain hidden while the waitlist is active.'], ['Inventory', 'Reservations and immutable movements are enabled for sellable variants.'], ['Payments', 'Priority deposits use Razorpay with server-side signature checks, webhooks and full cancellation refunds.'], ['Content', 'Campaign slides and FAQs are database-backed and publishable.']].map(([title, copy]) => <div className="attention-row" key={title}><span className="status-dot status-dot--good"><Check size={11} /></span><span><strong>{title}</strong><small>{copy}</small></span><ChevronRight size={16} /></div>)}</section><section className="panel panel--navy"><div className="panel-heading"><div><span className="kicker kicker--light">System health</span><h3>Configured services</h3></div><Activity size={19} /></div><div className="health-list">{Object.entries(system.data ?? { database: 'loading', queue: 'loading', storage: 'loading' }).map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div><p className="panel-note">Payment credentials remain server-side and the storefront cannot collect a deposit until Razorpay is configured.</p></section></div></> }
+function Dashboard() { const query = useQuery({ queryKey: ['dashboard'], queryFn: () => get<Record<string, number>>('/admin/dashboard/summary') }); const system = useQuery({ queryKey: ['health'], queryFn: () => get<Record<string, string>>('/admin/dashboard/system-health') }); const dateLabel = new Intl.DateTimeFormat('en-IN', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }).format(new Date()).toUpperCase(); return <><div className="page-intro"><div><span className="kicker">{dateLabel}</span><h2>Good morning, SkinFox.</h2><p className="muted">A calm view of the storefront, orders and launch readiness.</p></div><button className="secondary-button" onClick={() => window.open(storefrontUrl(), '_blank')}>View storefront <ChevronRight size={16} /></button></div>{query.isLoading ? <SkeletonCards /> : query.isError ? <ErrorPanel onRetry={() => query.refetch()} /> : <div className="metric-grid">{[['Gross sales', `₹${((query.data?.revenuePaise ?? 0) / 100).toLocaleString('en-IN')}`, 'Confirmed and fulfilled'], ['Orders', query.data?.orders ?? 0, 'All statuses'], ['Published products', query.data?.products ?? 0, 'Ready for storefront'], ['Launch interest', query.data?.launchInterests ?? 0, 'Leads to review']].map(([label, value, note]) => <article className="metric-card" key={String(label)}><span>{label}</span><strong>{value}</strong><small>{note}</small></article>)}</div>}<div className="dashboard-grid"><section className="panel"><div className="panel-heading"><div><span className="kicker">Readiness</span><h3>What needs attention</h3></div><Gauge size={19} /></div>{[['Product publication', 'Seven seeded products are available to edit; public selling prices remain hidden while the waitlist is active.'], ['Inventory', 'Reservations and immutable movements are enabled for sellable variants.'], ['Payments', 'Priority reservation fees use Razorpay with server-side signature checks and webhooks.'], ['Content', 'Campaign slides and FAQs are database-backed and publishable.']].map(([title, copy]) => <div className="attention-row" key={title}><span className="status-dot status-dot--good"><Check size={11} /></span><span><strong>{title}</strong><small>{copy}</small></span><ChevronRight size={16} /></div>)}</section><section className="panel panel--navy"><div className="panel-heading"><div><span className="kicker kicker--light">System health</span><h3>Configured services</h3></div><Activity size={19} /></div><div className="health-list">{Object.entries(system.data ?? { database: 'loading', queue: 'loading', storage: 'loading' }).map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div><p className="panel-note">Payment credentials remain server-side and the storefront cannot collect a reservation fee until Razorpay is configured.</p></section></div></> }
 
 function formatPaise(value: unknown) {
   const amount = Number(value)
@@ -106,8 +106,16 @@ function WaitlistManagement({ canManage }: { canManage: boolean }) {
   const [depositRupees, setDepositRupees] = useState('99')
   const [discountPercent, setDiscountPercent] = useState('25')
   const [termsVersion, setTermsVersion] = useState('2026-09-10')
+  const [stage, setStage] = useState<WaitlistSettings['stage']>('waitlist')
+  const [founderCapacity, setFounderCapacity] = useState('200')
+  const [founderPrice, setFounderPrice] = useState('599')
+  const [launchPrice, setLaunchPrice] = useState('649')
+  const [regularPrice, setRegularPrice] = useState('700')
+  const deferredSearch = useDeferredValue(search)
   const settings = useQuery({ queryKey: ['waitlist-settings'], queryFn: () => get<WaitlistSettings>('/admin/waitlist-settings') })
-  const reservations = useQuery({ queryKey: ['waitlist-reservations'], queryFn: () => get<Resource[]>('/admin/waitlist-reservations?limit=100') })
+  const summaryReservations = useQuery({ queryKey: ['waitlist-reservations-summary'], queryFn: () => get<Resource[]>('/admin/waitlist-reservations?limit=100') })
+  const reservationPath = withSearch(`/admin/waitlist-reservations?limit=100${status === 'all' ? '' : `&status=${encodeURIComponent(status)}`}`, deferredSearch)
+  const reservations = useQuery({ queryKey: ['waitlist-reservations', status, deferredSearch], queryFn: () => get<Resource[]>(reservationPath) })
 
   useEffect(() => {
     if (!settings.data) return
@@ -115,6 +123,11 @@ function WaitlistManagement({ canManage }: { canManage: boolean }) {
     setDepositRupees(String(settings.data.depositPaise / 100))
     setDiscountPercent(String(settings.data.discountPercent))
     setTermsVersion(settings.data.termsVersion)
+    setStage(settings.data.stage)
+    setFounderCapacity(String(settings.data.founderCapacity))
+    setFounderPrice(String(settings.data.founderPricePaise / 100))
+    setLaunchPrice(String(settings.data.launchPricePaise / 100))
+    setRegularPrice(String(settings.data.regularPricePaise / 100))
   }, [settings.data])
 
   const save = useMutation({
@@ -123,6 +136,11 @@ function WaitlistManagement({ canManage }: { canManage: boolean }) {
       depositPaise: Math.round(Number(depositRupees) * 100),
       discountPercent: Number(discountPercent),
       termsVersion: termsVersion.trim(),
+      stage,
+      founderCapacity: Number(founderCapacity),
+      founderPricePaise: Math.round(Number(founderPrice) * 100),
+      launchPricePaise: Math.round(Number(launchPrice) * 100),
+      regularPricePaise: Math.round(Number(regularPrice) * 100),
     }),
     onSuccess: async (next) => {
       queryClient.setQueryData(['waitlist-settings'], next)
@@ -133,24 +151,25 @@ function WaitlistManagement({ canManage }: { canManage: boolean }) {
   const rows = (reservations.data ?? []).map((row) => {
     const customer = row.customer as Record<string, unknown> | undefined
     return { ...row, id: String(row.publicToken), customer: customer ? `${String(customer.fullName ?? 'Customer')} · ${String(customer.email ?? '')}` : 'Customer' }
-  }).filter((row) => status === 'all' || row.status === status)
-  const joined = (reservations.data ?? []).filter((row) => row.status === 'joined').length
-  const captured = (reservations.data ?? []).reduce((sum, row) => sum + Number(row.paymentCapturedPaise ?? 0), 0)
-  const refundPending = (reservations.data ?? []).filter((row) => row.status === 'refund_pending').length
-  const invalid = !Number.isFinite(Number(depositRupees)) || Number(depositRupees) < 1 || Number(depositRupees) > 100000 || !Number.isInteger(Number(discountPercent)) || Number(discountPercent) < 1 || Number(discountPercent) > 90 || !termsVersion.trim()
+  })
+  const joined = (summaryReservations.data ?? []).filter((row) => row.status === 'joined').length
+  const captured = (summaryReservations.data ?? []).reduce((sum, row) => sum + Number(row.paymentCapturedPaise ?? 0), 0)
+  const refundPending = (summaryReservations.data ?? []).filter((row) => row.status === 'refund_pending').length
+  const priceLadderValid = Number(founderPrice) > 0 && Number(founderPrice) <= Number(launchPrice) && Number(launchPrice) <= Number(regularPrice)
+  const invalid = !Number.isFinite(Number(depositRupees)) || Number(depositRupees) < 1 || Number(depositRupees) > 100000 || !Number.isInteger(Number(discountPercent)) || Number(discountPercent) < 1 || Number(discountPercent) > 90 || !Number.isInteger(Number(founderCapacity)) || Number(founderCapacity) < 1 || !priceLadderValid || !termsVersion.trim()
   const submit = (event: FormEvent) => {
     event.preventDefault()
     if (invalid || save.isPending) return
-    if (settings.data?.enabled && !enabled && !window.confirm('Close the priority waitlist and reveal product prices? Existing reservations and refunds will remain available.')) return
+    if (settings.data?.enabled && !enabled && !window.confirm('Close the priority waitlist and reveal product prices? Existing reservation records will remain available.')) return
     save.mutate()
   }
 
-  if (settings.isError || reservations.isError) return <ErrorPanel onRetry={() => { void settings.refetch(); void reservations.refetch() }} />
+  if (settings.isError || reservations.isError || summaryReservations.isError) return <ErrorPanel onRetry={() => { void settings.refetch(); void reservations.refetch(); void summaryReservations.refetch() }} />
   return <>
-    <div className="page-intro"><div><span className="kicker">Launch access / Razorpay</span><h2>Priority waitlist</h2><p className="muted">Control the live customer experience and monitor every paid reservation from one place.</p></div><button className="secondary-button" onClick={() => { void settings.refetch(); void reservations.refetch() }}>Refresh <Activity size={16} /></button></div>
+    <div className="page-intro"><div><span className="kicker">Launch access / Razorpay</span><h2>Priority waitlist</h2><p className="muted">Control the live customer experience and find support cases by waitlist ID, customer, phone or email.</p></div><button className="secondary-button" onClick={() => { void settings.refetch(); void reservations.refetch(); void summaryReservations.refetch() }}>Refresh <Activity size={16} /></button></div>
     <div className="metric-grid waitlist-metrics">
       <article className="metric-card"><span>Waitlist status</span><strong className={settings.data?.enabled ? 'metric-status--live' : 'metric-status--closed'}>{settings.data?.enabled ? 'Open' : 'Closed'}</strong><small>{settings.data?.enabled ? 'Prices hidden · deposits enabled' : 'Prices visible · checkout enabled'}</small></article>
-      <article className="metric-card"><span>Confirmed places</span><strong>{joined}</strong><small>Razorpay payment captured</small></article>
+      <article className="metric-card"><span>Founder places</span><strong>{settings.data?.founderClaimed ?? joined} / {settings.data?.founderCapacity ?? 200}</strong><small>{settings.data?.founderRemaining ?? 0} places remaining</small></article>
       <article className="metric-card"><span>Deposits captured</span><strong>₹{(captured / 100).toLocaleString('en-IN')}</strong><small>Before completed refunds</small></article>
       <article className="metric-card"><span>Refunds pending</span><strong>{refundPending}</strong><small>Awaiting provider confirmation</small></article>
     </div>
@@ -158,12 +177,18 @@ function WaitlistManagement({ canManage }: { canManage: boolean }) {
       <form className="panel waitlist-control-panel" onSubmit={submit}>
         <div className="panel-heading"><div><span className="kicker">Live storefront controls</span><h3>Launch configuration</h3></div><span className={`configuration-state ${enabled ? 'is-live' : ''}`}>{enabled ? 'Open' : 'Closed'}</span></div>
         {settings.isLoading ? <TableSkeleton /> : <>
-          <label className="waitlist-toggle"><span><strong>Accept new waitlist reservations</strong><small>Turning this off reveals configured product prices and returns the storefront to normal checkout.</small></span><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} disabled={!canManage} /><i aria-hidden="true" /></label>
+          <label className="waitlist-toggle"><span><strong>Accept new waitlist reservations</strong><small>Turning this off advances the storefront to the public Launch Price.</small></span><input type="checkbox" checked={enabled} onChange={(event) => { const next = event.target.checked; setEnabled(next); setStage(next ? 'waitlist' : 'launch') }} disabled={!canManage} /><i aria-hidden="true" /></label>
           <div className="form-grid waitlist-fields">
-            <label>Refundable deposit (₹)<input type="number" min="1" max="100000" step="1" value={depositRupees} onChange={(event) => setDepositRupees(event.target.value)} disabled={!canManage} required /><small>Applied only to new reservations.</small></label>
+            <label className="form-field--wide">Storefront launch stage<select value={stage} onChange={(event) => { const next = event.target.value as WaitlistSettings['stage']; setStage(next); setEnabled(next === 'waitlist' || next === 'founder_reveal') }} disabled={!canManage}><option value="waitlist">Waitlist · founder price hidden</option><option value="founder_reveal">Founder reveal · ₹599 members</option><option value="launch">Public launch · ₹649</option><option value="regular">Regular sale · ₹700</option></select><small>This controls the customer wording and active price tier.</small></label>
+            <label>Founder capacity<input type="number" min="1" max="10000" step="1" value={founderCapacity} onChange={(event) => setFounderCapacity(event.target.value)} disabled={!canManage} required /><small>Founding membership closes automatically at this number.</small></label>
+            <label>Reservation fee per product (₹)<input type="number" min="1" max="100000" step="1" value={depositRupees} onChange={(event) => setDepositRupees(event.target.value)} disabled={!canManage} required /><small>Non-refundable fee multiplied by the total product quantity in each new reservation.</small></label>
             <label>Launch discount (%)<input type="number" min="1" max="90" step="1" value={discountPercent} onChange={(event) => setDiscountPercent(event.target.value)} disabled={!canManage} required /><small>Saved with each new reservation.</small></label>
+            <label>Founder price (₹)<input type="number" min="1" step="1" value={founderPrice} onChange={(event) => setFounderPrice(event.target.value)} disabled={!canManage} required /></label>
+            <label>Launch price (₹)<input type="number" min="1" step="1" value={launchPrice} onChange={(event) => setLaunchPrice(event.target.value)} disabled={!canManage} required /></label>
+            <label>Regular price / MRP (₹)<input type="number" min="1" step="1" value={regularPrice} onChange={(event) => setRegularPrice(event.target.value)} disabled={!canManage} required /></label>
             <label className="form-field--wide">Terms version<input maxLength={40} value={termsVersion} onChange={(event) => setTermsVersion(event.target.value)} disabled={!canManage} required /><small>Change this whenever customer-facing waitlist terms change.</small></label>
           </div>
+          {!priceLadderValid && <div className="alert alert--error"><CircleAlert size={16} />Prices must follow Founder ≤ Launch ≤ Regular.</div>}
           <div className={`payment-readiness ${settings.data?.paymentConfigured ? 'is-ready' : 'is-blocked'}`}><LockKeyhole size={17} /><span><strong>{settings.data?.paymentConfigured ? 'Razorpay is ready' : 'Razorpay is not configured'}</strong><small>{settings.data?.paymentConfigured ? 'Payment credentials remain encrypted on the server.' : 'Keep the waitlist closed until server credentials are configured.'}</small></span></div>
           {!canManage && <div className="alert"><LockKeyhole size={16} />Your role has read-only waitlist access.</div>}
           {save.isError && <div className="alert alert--error" role="alert"><CircleAlert size={16} />{save.error instanceof Error ? save.error.message : 'Unable to save waitlist settings.'}</div>}
@@ -171,10 +196,10 @@ function WaitlistManagement({ canManage }: { canManage: boolean }) {
           {canManage && <button className="primary-button waitlist-save" type="submit" disabled={invalid || save.isPending}>{save.isPending ? 'Publishing…' : 'Publish waitlist settings'} <Check size={16} /></button>}
         </>}
       </form>
-      <section className="panel waitlist-policy"><span className="kicker">Customer protection</span><h3>How updates behave</h3><div className="attention-row"><span className="status-dot status-dot--good"><Check size={11} /></span><span><strong>Existing reservations never change</strong><small>The recorded deposit, discount and accepted terms remain attached to that customer.</small></span></div><div className="attention-row"><span className="status-dot status-dot--good"><Check size={11} /></span><span><strong>Refunds stay fully enabled</strong><small>Customers can cancel eligible reservations and receive the captured deposit through Razorpay.</small></span></div><div className="attention-row"><span className="status-dot status-dot--good"><Check size={11} /></span><span><strong>Every settings change is audited</strong><small>The acting administrator, previous values and new values are recorded server-side.</small></span></div></section>
+      <section className="panel waitlist-policy"><span className="kicker">Reservation policy</span><h3>How updates behave</h3><div className="attention-row"><span className="status-dot status-dot--good"><Check size={11} /></span><span><strong>Existing reservations never change</strong><small>The recorded fee, discount and accepted terms remain attached to that customer.</small></span></div><div className="attention-row"><span className="status-dot status-dot--good"><Check size={11} /></span><span><strong>Reservation fees are final</strong><small>New waitlist payments are non-refundable except where a remedy is required by applicable law.</small></span></div><div className="attention-row"><span className="status-dot status-dot--good"><Check size={11} /></span><span><strong>Every settings change is audited</strong><small>The acting administrator, previous values and new values are recorded server-side.</small></span></div></section>
     </div>
     <div className="waitlist-table-heading"><div><span className="kicker">Customer reservations</span><h3>Waitlist activity</h3></div><label>Status<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">All statuses</option>{['payment_pending', 'joined', 'payment_failed', 'cancelled', 'refund_pending', 'refunded', 'converted'].map((item) => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}</select></label></div>
-    {reservations.isLoading ? <TableSkeleton /> : <DataTable rows={rows} fields={['publicToken', 'customer', 'products', 'status', 'depositPaise', 'discountPercent', 'refundStatus', 'createdAt']} searchValue={search} onSearch={setSearch} />}
+    {reservations.isLoading ? <TableSkeleton /> : <DataTable rows={rows} fields={['waitlistId', 'founderNumber', 'customer', 'products', 'status', 'depositPaise', 'refundStatus', 'createdAt']} searchValue={search} onSearch={setSearch} />}
   </>
 }
 
@@ -390,7 +415,7 @@ function editableSnapshot(record: Resource) {
     return true
   }))
 }
-function DataTable({ rows, fields, onRow, searchValue = '', onSearch }: { rows: Resource[]; fields: string[]; onRow?: (row: Resource) => void; searchValue?: string; onSearch?: (value: string) => void }) { const visibleRows = filterRows(rows, fields, searchValue); const openRow = (event: KeyboardEvent<HTMLTableRowElement>, row: Resource) => { if (!onRow || !['Enter', ' '].includes(event.key)) return; event.preventDefault(); onRow(row) }; return <div className="panel table-panel"><div className="table-toolbar"><label className="search-box"><Search size={16} aria-hidden="true" /><span className="sr-only">Search this view</span><input aria-label="Search this view" placeholder="Search this view" value={searchValue} onChange={(event) => onSearch?.(event.target.value)} /></label><span className="table-count" aria-live="polite">{visibleRows.length} {visibleRows.length === 1 ? 'record' : 'records'}</span></div><div className="table-wrap"><table><thead><tr>{fields.map((field) => <th key={field}>{field.replace(/([A-Z])/g, ' $1')}</th>)}{onRow && <th aria-label="Actions" />}</tr></thead><tbody>{visibleRows.map((row) => <tr key={row.id} onClick={() => onRow?.(row)} onKeyDown={(event) => openRow(event, row)} tabIndex={onRow ? 0 : undefined} aria-label={onRow ? `Open ${String(row.name ?? row.orderNumber ?? row.title ?? 'record')}` : undefined} className={onRow ? 'is-clickable' : ''}>{fields.map((field) => <td key={field}>{formatAdminCell(row[field], field)}</td>)}{onRow && <td><ChevronRight size={16} aria-hidden="true" /></td>}</tr>)}{!visibleRows.length && <tr><td className="table-empty" colSpan={fields.length + (onRow ? 1 : 0)}>No records match “{searchValue}”.</td></tr>}</tbody></table></div></div> }
+function DataTable({ rows, fields, onRow, searchValue = '', onSearch }: { rows: Resource[]; fields: string[]; onRow?: (row: Resource) => void; searchValue?: string; onSearch?: (value: string) => void }) { const visibleRows = filterRows(rows, fields, searchValue); const openRow = (event: KeyboardEvent<HTMLTableRowElement>, row: Resource) => { if (!onRow || !['Enter', ' '].includes(event.key)) return; event.preventDefault(); onRow(row) }; return <div className="panel table-panel"><div className="table-toolbar"><label className="search-box"><Search size={16} aria-hidden="true" /><span className="sr-only">Search this view</span><input aria-label="Search this view" placeholder="Search this view" value={searchValue} onChange={(event) => onSearch?.(event.target.value)} /></label><span className="table-count" aria-live="polite">{visibleRows.length} {visibleRows.length === 1 ? 'record' : 'records'}</span></div><div className="table-wrap"><table><thead><tr>{fields.map((field) => <th key={field}>{field === 'waitlistId' ? 'Waitlist ID' : field.replace(/([A-Z])/g, ' $1')}</th>)}{onRow && <th aria-label="Actions" />}</tr></thead><tbody>{visibleRows.map((row) => <tr key={row.id} onClick={() => onRow?.(row)} onKeyDown={(event) => openRow(event, row)} tabIndex={onRow ? 0 : undefined} aria-label={onRow ? `Open ${String(row.name ?? row.orderNumber ?? row.title ?? 'record')}` : undefined} className={onRow ? 'is-clickable' : ''}>{fields.map((field) => <td key={field}>{formatAdminCell(row[field], field)}</td>)}{onRow && <td><ChevronRight size={16} aria-hidden="true" /></td>}</tr>)}{!visibleRows.length && <tr><td className="table-empty" colSpan={fields.length + (onRow ? 1 : 0)}>No records match “{searchValue}”.</td></tr>}</tbody></table></div></div> }
 function SkeletonCards() { return <div className="metric-grid">{[1, 2, 3, 4].map((item) => <div className="metric-card skeleton" key={item} />)}</div> }
 function TableSkeleton() { return <div className="panel skeleton-table">{[1, 2, 3, 4, 5].map((item) => <div key={item} />)}</div> }
 function ErrorPanel({ onRetry }: { onRetry: () => void }) { return <div className="panel empty-panel"><CircleAlert size={26} /><h3>We couldn’t load this view.</h3><p className="muted">The API may be starting or unavailable. Your data is safe.</p><button className="secondary-button" onClick={onRetry}>Try again</button></div> }

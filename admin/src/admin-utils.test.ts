@@ -15,13 +15,14 @@ describe('admin role navigation', () => {
 
 describe('admin tables', () => {
   const rows = [
-    { id: '1', name: 'Rayyvia Sun Protect', status: 'coming_soon', metadata: { family: 'Skin' } },
-    { id: '2', name: 'Onion Shampoo', status: 'published', metadata: { family: 'Hair' } },
+    { id: '1', name: 'Rayyvia Sun Protect', status: 'coming_soon', waitlistId: 'SFWL-2026-12AB34CD56', metadata: { family: 'Skin' } },
+    { id: '2', name: 'Onion Shampoo', status: 'published', waitlistId: 'SFWL-2026-98FE76DC54', metadata: { family: 'Hair' } },
   ]
 
   it('filters visible fields case-insensitively', () => {
     expect(filterRows(rows, ['name', 'status'], 'rayyvia')).toEqual([rows[0]])
     expect(filterRows(rows, ['metadata'], 'hair')).toEqual([rows[1]])
+    expect(filterRows(rows, ['waitlistId'], '12ab34cd56')).toEqual([rows[0]])
     expect(filterRows(rows, ['name'], 'missing')).toEqual([])
   })
 

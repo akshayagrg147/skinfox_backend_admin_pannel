@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getProductById } from '../data/products'
 import { ScrollProductStory } from './ScrollProductStory'
@@ -87,11 +87,10 @@ afterEach(() => {
 })
 
 describe('ScrollProductStory', () => {
-  it('renders one enhanced product image and opens that product', () => {
+  it('renders one enhanced product image linked to the complete product page', () => {
     createMatchMediaController(false)
-    const onView = vi.fn()
 
-    const { container } = render(<ScrollProductStory product={hydrelle} onView={onView} />)
+    const { container } = render(<ScrollProductStory product={hydrelle} />)
 
     expect(container.querySelector('.scroll-story--enhanced')).toBeInTheDocument()
     expect(container.querySelector('.scroll-story--static')).not.toBeInTheDocument()
@@ -108,16 +107,14 @@ describe('ScrollProductStory', () => {
     expect(container.querySelector('.scroll-story__bottle-window.is-hydrelle')).toBeInTheDocument()
     expect(within(screen.getByRole('list', { name: 'SkinFox Hydrelle story' })).getAllByRole('listitem')).toHaveLength(4)
 
-    fireEvent.click(within(story).getByRole('button', { name: `View ${hydrelle.name} product details` }))
-    expect(onView).toHaveBeenCalledOnce()
-    expect(onView).toHaveBeenCalledWith(hydrelle)
+    expect(within(story).getByRole('link', { name: `View full details for ${hydrelle.name}` }))
+      .toHaveAttribute('href', `/products/${hydrelle.id}`)
   })
 
   it('renders the normal-flow static story when reduced motion is requested', () => {
     createMatchMediaController(true)
-    const onView = vi.fn()
 
-    const { container } = render(<ScrollProductStory product={hydrelle} onView={onView} />)
+    const { container } = render(<ScrollProductStory product={hydrelle} />)
 
     expect(container.querySelector('.scroll-story--static')).toBeInTheDocument()
     expect(container.querySelector('.scroll-story--enhanced')).not.toBeInTheDocument()
@@ -126,13 +123,13 @@ describe('ScrollProductStory', () => {
     expect(within(story).getAllByRole('listitem')).toHaveLength(1)
     expect(within(story).getAllByRole('img')).toHaveLength(1)
 
-    fireEvent.click(within(story).getByRole('button', { name: `View ${hydrelle.name} product details` }))
-    expect(onView).toHaveBeenCalledWith(hydrelle)
+    expect(within(story).getByRole('link', { name: `View full details for ${hydrelle.name}` }))
+      .toHaveAttribute('href', `/products/${hydrelle.id}`)
   })
 
   it('switches modes on reduced-motion changes and removes its listener on unmount', () => {
     const media = createMatchMediaController(false)
-    const { container, unmount } = render(<ScrollProductStory product={hydrelle} onView={vi.fn()} />)
+    const { container, unmount } = render(<ScrollProductStory product={hydrelle} />)
     const reducedState = media.getQueryState(reducedMotionQuery)
     const changeRegistration = reducedState.addEventListener.mock.calls.find(([type]) => type === 'change')
 

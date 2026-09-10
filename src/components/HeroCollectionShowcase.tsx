@@ -1,15 +1,15 @@
 import { motion } from 'framer-motion'
 import { ArrowUpRight } from 'lucide-react'
+import { productPath } from '../seo/metadata'
 import type { Product } from '../types'
 import { productImageSrcSet } from '../utils/productImages'
 
 type HeroCollectionShowcaseProps = {
   products: Product[]
-  onView: (product: Product) => void
   loading?: boolean
 }
 
-export function HeroCollectionShowcase({ products, onView, loading = false }: HeroCollectionShowcaseProps) {
+export function HeroCollectionShowcase({ products, loading = false }: HeroCollectionShowcaseProps) {
   const visibleProducts = products.slice(0, 6)
 
   return (
@@ -33,7 +33,7 @@ export function HeroCollectionShowcase({ products, onView, loading = false }: He
             animate={{ opacity: 1, y: 0, rotate: 0 }}
             transition={{ duration: 0.78, delay: 0.12 + index * 0.09, ease: [0.22, 1, 0.36, 1] }}
           >
-            <button type="button" onClick={() => onView(product)} aria-label={`View ${product.name} ${product.subtitle}`}>
+            <a href={productPath(product)} aria-label={`View full details for ${product.name} ${product.subtitle}`}>
               <span className="hero-collection__image">
                 <img src={product.image} srcSet={productImageSrcSet(product.image)} sizes="(max-width: 680px) 44vw, (max-width: 960px) 28vw, 210px" alt={product.imageAlt} width={320} height={320} decoding="async" loading={index < 3 ? 'eager' : 'lazy'} {...{ fetchpriority: index === 0 ? 'high' : 'auto' }} />
               </span>
@@ -43,7 +43,7 @@ export function HeroCollectionShowcase({ products, onView, loading = false }: He
                 <small>{product.size}</small>
                 <ArrowUpRight size={14} aria-hidden="true" />
               </figcaption>
-            </button>
+            </a>
           </motion.figure>
         ))}
       </div>

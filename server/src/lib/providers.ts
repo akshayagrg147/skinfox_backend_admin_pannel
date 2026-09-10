@@ -49,7 +49,7 @@ export class RazorpayAdapter implements PaymentProvider {
     const refund = await this.request<{ id: string; status: string }>(`/payments/${encodeURIComponent(input.paymentId)}/refund`, {
       method: 'POST',
       headers: input.idempotencyKey ? { 'X-Razorpay-Idempotency-Key': input.idempotencyKey } : undefined,
-      body: JSON.stringify({ amount: input.amountPaise, speed: 'optimum', notes: { reason: 'SkinFox refundable priority waitlist deposit' } }),
+      body: JSON.stringify({ amount: input.amountPaise, speed: 'optimum', notes: { reason: 'SkinFox approved payment refund' } }),
     })
     return { providerRefundId: refund.id, status: refund.status }
   }
