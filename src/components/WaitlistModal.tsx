@@ -171,6 +171,28 @@ export function WaitlistModal({ open, lines, config, apiAvailable, onClose, onCo
       </form>
       <aside className="waitlist-summary"><span className="eyebrow">Your priority list</span><h3>{totalQuantity} selected {totalQuantity === 1 ? 'item' : 'items'}</h3>{lines.map((line) => <div key={line.product.id}><img src={line.product.image} alt="" /><span><strong>{line.product.name}</strong><small>{line.product.size} · Quantity {line.quantity}</small></span></div>)}<hr /><p><span>Product prices</span><strong>Revealed later</strong></p><p><span>Reservation fee</span><strong>{money(config.depositPaise)} × {totalQuantity} product {totalQuantity === 1 ? 'unit' : 'units'}</strong></p><p><span>Total due now</span><strong>{money(totalDepositPaise)}</strong></p></aside>
     </div>}
-    {stage === 'success' && reservation && <div className="waitlist-success" role="status"><span className="waitlist-success__icon">{reservation.status === 'joined' ? <Check size={28} /> : <Clock3 size={28} />}</span><span className="eyebrow">{reservation.status === 'joined' ? 'Founding access reserved' : 'Payment confirmation pending'}</span><h2>{reservation.status === 'joined' ? 'You’re officially part of the Founding 200.' : 'We’re confirming your payment.'}</h2><p>{reservation.status === 'joined' ? 'Your exclusive SkinFox launch price will be revealed soon.' : 'Please do not pay again. Razorpay will notify us automatically, and your account will show the updated status.'}</p>{reservation.status === 'joined' && reservation.founderNumber && <div className="waitlist-founder-position"><small>Your founder status</small><strong>You’re #{reservation.founderNumber} of {reservation.founderCapacity ?? config.founderCapacity}</strong><span>Your place is linked securely to your SkinFox account.</span></div>}<div className="waitlist-success__reference"><small>Your waitlist ID</small><code>{reservation.waitlistId}</code><strong>{money(reservation.depositPaise)} reservation fee paid</strong><span>Keep this ID for reservation and support questions.</span></div><button className="button button--dark" onClick={close}>Continue browsing</button></div>}
+    {stage === 'success' && reservation && <div className={`waitlist-success ${reservation.status === 'joined' ? 'is-confirmed' : 'is-pending'}`} role="status">
+      <div className="waitlist-success__topline">
+        <span className="waitlist-success__icon" aria-hidden="true">{reservation.status === 'joined' ? <Check size={26} strokeWidth={2.5} /> : <Clock3 size={25} />}</span>
+        <span className="waitlist-success__eyebrow">{reservation.status === 'joined' ? 'Founding access reserved' : 'Payment confirmation pending'}</span>
+      </div>
+      <h2>{reservation.status === 'joined' ? 'You’re officially part of the Founding 200.' : 'We’re confirming your payment.'}</h2>
+      <p className="waitlist-success__lead">{reservation.status === 'joined' ? 'Your exclusive SkinFox launch price will be revealed soon.' : 'Please do not pay again. Razorpay will notify us automatically, and your account will show the updated status.'}</p>
+      <div className="waitlist-success__details">
+        {reservation.status === 'joined' && reservation.founderNumber && <div className="waitlist-success__spot">
+          <span className="waitlist-success__card-label"><Sparkles size={14} /> Founder member</span>
+          <strong>You’re #{reservation.founderNumber} of {reservation.founderCapacity ?? config.founderCapacity}</strong>
+          <span>Your place is linked securely to your SkinFox account.</span>
+        </div>}
+        <div className="waitlist-success__reference">
+          <span className="waitlist-success__card-label">Your waitlist ID</span>
+          <code>{reservation.waitlistId}</code>
+          <strong>{money(reservation.depositPaise)} reservation fee paid</strong>
+          <span>Keep this ID for reservation and support questions.</span>
+        </div>
+      </div>
+      <p className="waitlist-success__reassurance"><LockKeyhole size={14} /><span>Saved to your SkinFox account. We’ll keep you updated when launch pricing is revealed.</span></p>
+      <button className="button button--dark waitlist-success__action" onClick={close}>Continue browsing</button>
+    </div>}
   </ModalShell>
 }
