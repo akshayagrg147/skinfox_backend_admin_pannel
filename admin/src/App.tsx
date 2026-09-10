@@ -415,7 +415,35 @@ function editableSnapshot(record: Resource) {
     return true
   }))
 }
-function DataTable({ rows, fields, onRow, searchValue = '', onSearch }: { rows: Resource[]; fields: string[]; onRow?: (row: Resource) => void; searchValue?: string; onSearch?: (value: string) => void }) { const visibleRows = filterRows(rows, fields, searchValue); const openRow = (event: KeyboardEvent<HTMLTableRowElement>, row: Resource) => { if (!onRow || !['Enter', ' '].includes(event.key)) return; event.preventDefault(); onRow(row) }; return <div className="panel table-panel"><div className="table-toolbar"><label className="search-box"><Search size={16} aria-hidden="true" /><span className="sr-only">Search this view</span><input aria-label="Search this view" placeholder="Search this view" value={searchValue} onChange={(event) => onSearch?.(event.target.value)} /></label><span className="table-count" aria-live="polite">{visibleRows.length} {visibleRows.length === 1 ? 'record' : 'records'}</span></div><div className="table-wrap"><table><thead><tr>{fields.map((field) => <th key={field}>{field === 'waitlistId' ? 'Waitlist ID' : field.replace(/([A-Z])/g, ' $1')}</th>)}{onRow && <th aria-label="Actions" />}</tr></thead><tbody>{visibleRows.map((row) => <tr key={row.id} onClick={() => onRow?.(row)} onKeyDown={(event) => openRow(event, row)} tabIndex={onRow ? 0 : undefined} aria-label={onRow ? `Open ${String(row.name ?? row.orderNumber ?? row.title ?? 'record')}` : undefined} className={onRow ? 'is-clickable' : ''}>{fields.map((field) => <td key={field}>{formatAdminCell(row[field], field)}</td>)}{onRow && <td><ChevronRight size={16} aria-hidden="true" /></td>}</tr>)}{!visibleRows.length && <tr><td className="table-empty" colSpan={fields.length + (onRow ? 1 : 0)}>No records match “{searchValue}”.</td></tr>}</tbody></table></div></div> }
+function tableFieldLabel(field: string) {
+  return field === 'waitlistId' ? 'Waitlist ID' : field.replace(/([A-Z])/g, ' $1')
+}
+
+function renderTableCell(value: unknown, field: string) {
+  const formatted = formatAdminCell(value, field)
+  if (field === 'waitlistId' && formatted !== '—') return <code className="table-id">{formatted}</code>
+  if (field === 'founderNumber' && formatted !== '—') return <span className="founder-badge">#{formatted}</span>
+  if (field === 'status' || field === 'refundStatus') {
+    if (formatted === '—') return <span className="table-muted">—</span>
+    const state = formatted.toLowerCase().replaceAll(' ', '-')
+    return <span className={`status-chip status-chip--${state}`}>{formatted}</span>
+  }
+  if (field === 'createdAt' && typeof value === 'string') {
+    const date = new Date(value)
+    if (!Number.isNaN(date.valueOf())) return <time dateTime={value}>{new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date)}</time>
+  }
+  return formatted
+}
+
+function DataTable({ rows, fields, onRow, searchValue = '', onSearch }: { rows: Resource[]; fields: string[]; onRow?: (row: Resource) => void; searchValue?: string; onSearch?: (value: string) => void }) {
+  const visibleRows = filterRows(rows, fields, searchValue)
+  const isWaitlistTable = fields.includes('waitlistId')
+  const openRow = (event: KeyboardEvent<HTMLTableRowElement>, row: Resource) => { if (!onRow || !['Enter', ' '].includes(event.key)) return; event.preventDefault(); onRow(row) }
+  return <div className={`panel table-panel ${isWaitlistTable ? 'table-panel--waitlist' : ''}`}>
+    <div className="table-toolbar"><label className="search-box"><Search size={16} aria-hidden="true" /><span className="sr-only">Search this view</span><input aria-label="Search this view" placeholder="Search this view" value={searchValue} onChange={(event) => onSearch?.(event.target.value)} /></label><span className="table-count" aria-live="polite">{visibleRows.length} {visibleRows.length === 1 ? 'record' : 'records'}</span></div>
+    <div className="table-wrap"><table className={isWaitlistTable ? 'admin-data-table--waitlist' : 'admin-data-table'}><thead><tr>{fields.map((field) => <th key={field} scope="col" className={`table-cell--${field}`}>{tableFieldLabel(field)}</th>)}{onRow && <th aria-label="Actions" />}</tr></thead><tbody>{visibleRows.map((row) => <tr key={row.id} onClick={() => onRow?.(row)} onKeyDown={(event) => openRow(event, row)} tabIndex={onRow ? 0 : undefined} aria-label={onRow ? `Open ${String(row.name ?? row.orderNumber ?? row.title ?? 'record')}` : undefined} className={onRow ? 'is-clickable' : ''}>{fields.map((field) => <td key={field} data-label={tableFieldLabel(field)} className={`table-cell--${field}`}>{renderTableCell(row[field], field)}</td>)}{onRow && <td><ChevronRight size={16} aria-hidden="true" /></td>}</tr>)}{!visibleRows.length && <tr><td className="table-empty" colSpan={fields.length + (onRow ? 1 : 0)}>No records match “{searchValue}”.</td></tr>}</tbody></table></div>
+  </div>
+}
 function SkeletonCards() { return <div className="metric-grid">{[1, 2, 3, 4].map((item) => <div className="metric-card skeleton" key={item} />)}</div> }
 function TableSkeleton() { return <div className="panel skeleton-table">{[1, 2, 3, 4, 5].map((item) => <div key={item} />)}</div> }
 function ErrorPanel({ onRetry }: { onRetry: () => void }) { return <div className="panel empty-panel"><CircleAlert size={26} /><h3>We couldn’t load this view.</h3><p className="muted">The API may be starting or unavailable. Your data is safe.</p><button className="secondary-button" onClick={onRetry}>Try again</button></div> }
