@@ -62,6 +62,7 @@ const suppliedProducts: Product[] = [
     media: [
       { type: 'image', src: '/products/coco-kiss-lotion-primary.webp', alt: 'Coco Kiss 100 ml moisturizing lotion front pack' },
       { type: 'image', src: '/products/coco-kiss-lotion-baby-care.webp', alt: 'Coco Kiss moisturizing lotion lifestyle campaign artwork' },
+      { type: 'image', src: '/products/coco-kiss-lotion-detail.webp', alt: 'Coco Kiss moisturizing lotion product detail artwork' },
     ],
     badge: 'Gentle moisture',
   },
@@ -126,6 +127,8 @@ const suppliedProducts: Product[] = [
     media: [
       { type: 'image', src: '/products/hydrelle-campaign-new.webp', alt: 'Hydrelle Dry Skin Specialist 200 g moisturising lotion campaign artwork' },
       { type: 'image', src: '/products/hydrelle-dry-skin-card.webp', alt: 'Hydrelle Dry Skin Specialist tube and carton photographed product artwork' },
+      { type: 'image', src: '/products/hydrelle-routine-lifestyle.webp', alt: 'Hydrelle Dry Skin Specialist moisturising lotion lifestyle photograph' },
+      { type: 'image', src: '/products/hydrelle-campaign-feature.webp', alt: 'Hydrelle Dry Skin Specialist moisturising lotion feature artwork' },
     ],
     badge: 'Dry-skin care',
   },
@@ -191,6 +194,9 @@ const suppliedProducts: Product[] = [
     media: [
       { type: 'image', src: '/products/scalp-hair-treatment-primary.webp', alt: 'Intensive Scalp and Hair Treatment 250 ml bottle and carton' },
       { type: 'image', src: '/products/scalp-hair-treatment-benefits.webp', alt: 'Intensive Scalp and Hair Treatment photographed pack-note artwork' },
+      { type: 'image', src: '/products/scalp-hair-treatment-card.webp', alt: 'Intensive Scalp and Hair Treatment product card artwork' },
+      { type: 'image', src: '/products/scalp-hair-treatment-lifestyle.webp', alt: 'Intensive Scalp and Hair Treatment lifestyle photograph' },
+      { type: 'image', src: '/products/scalp-hair-treatment-campaign.webp', alt: 'Intensive Scalp and Hair Treatment campaign artwork' },
     ],
     badge: 'Scalp ritual',
   },

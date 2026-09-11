@@ -27,9 +27,11 @@ describe('ProductPage', () => {
 
     const photographs = screen.getByRole('group', { name: 'Coco Kiss photographs' })
     const photoButtons = Array.from(photographs.querySelectorAll('button'))
-    expect(photoButtons).toHaveLength(2)
+    expect(photoButtons).toHaveLength(3)
     fireEvent.click(photoButtons[1])
     expect(screen.getByRole('img', { name: 'Coco Kiss moisturizing lotion lifestyle campaign artwork' })).toBeInTheDocument()
+    fireEvent.click(photoButtons[2])
+    expect(screen.getByRole('img', { name: 'Coco Kiss moisturizing lotion product detail artwork' })).toBeInTheDocument()
   })
 
   it('does not allow purchasing stale seed data while current details are loading', () => {
