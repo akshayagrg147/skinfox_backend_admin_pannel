@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { calculateWaitlistDepositPaise, createWaitlistId, parseStoredWaitlistSettings, waitlistDefaultsFromEnv, waitlistSettingsSchema } from './waitlistConfig.js'
 
 describe('waitlist configuration', () => {
-  const launchDefaults = { refundable: false, stage: 'waitlist', founderCapacity: 200, founderPricePaise: 59900, launchPricePaise: 64900, regularPricePaise: 70000 }
+  const launchDefaults = { refundable: false, stage: 'waitlist', founderCapacity: 200, founderPricePaise: 59900, launchPricePaise: 64900, regularPricePaise: 70000, pricingMode: 'exact_revealed_price' }
 
   it('uses safe environment defaults', () => {
     expect(waitlistDefaultsFromEnv({})).toEqual({ enabled: true, depositPaise: 9900, discountPercent: 25, termsVersion: '2026-09-10-nonrefundable', ...launchDefaults })

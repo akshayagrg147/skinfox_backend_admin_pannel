@@ -453,7 +453,7 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
             <a href="https://affiliate.skinfox.in/" aria-label="Join the SkinFox affiliate programme">Join now <ArrowRight size={16} /></a>
           </div>
         </div>
-        <div className="shell site-footer__bottom"><p>© 2026 SkinFox. All rights reserved. <span aria-hidden="true">|</span> Designed By Suprix Solution LLP</p></div>
+        <div className="shell site-footer__bottom"><p>© {new Date().getFullYear()} SkinFox. All rights reserved. <span aria-hidden="true">|</span> Designed by Suprix Solution LLP</p></div>
         <img className="site-footer__wordmark" src="/brand/skinfox-logo.png" alt="" aria-hidden="true" />
       </footer>
 

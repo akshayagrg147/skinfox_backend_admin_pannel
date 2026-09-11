@@ -56,8 +56,8 @@ describe('SkinFox storefront', () => {
       'href',
       'https://affiliate.skinfox.in/',
     )
-    expect(footer.getByText(/Designed By Suprix Solution LLP/)).toHaveTextContent(
-      '© 2026 SkinFox. All rights reserved. | Designed By Suprix Solution LLP',
+    expect(footer.getByText(/Designed by Suprix Solution LLP/)).toHaveTextContent(
+      `© ${new Date().getFullYear()} SkinFox. All rights reserved. | Designed by Suprix Solution LLP`,
     )
   })
 

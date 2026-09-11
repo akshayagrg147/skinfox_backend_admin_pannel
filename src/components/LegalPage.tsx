@@ -168,6 +168,6 @@ export function LegalPage({ kind, onBack }: { kind: LegalPageKind; onBack: () =>
         </article>
       </div>
     </main>
-    <footer className="legal-page__footer"><span>© 2026 SkinFox</span><a href="mailto:contact@skinfox.in"><Mail size={14} /> contact@skinfox.in</a><a href="/">Back to SkinFox</a></footer>
+    <footer className="legal-page__footer"><span>© {new Date().getFullYear()} SkinFox</span><a href="mailto:contact@skinfox.in"><Mail size={14} /> contact@skinfox.in</a><a href="/">Back to SkinFox</a></footer>
   </div>
 }

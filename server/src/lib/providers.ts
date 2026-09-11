@@ -3,7 +3,7 @@ import { signHmac } from './crypto.js'
 export interface PaymentProvider {
   createOrder(input: { amountPaise: number; receipt: string; notes?: Record<string, string> }): Promise<{ providerOrderId: string; status: string }>
   verifyPayment(input: { orderId: string; paymentId: string; signature: string }): boolean
-  fetchPayment(paymentId: string): Promise<{ providerPaymentId: string; providerOrderId: string; amountPaise: number; status: string }>
+  fetchPayment(paymentId: string): Promise<{ providerPaymentId: string; providerOrderId: string; amountPaise: number; currency: string; status: string }>
   refund(input: { paymentId: string; amountPaise: number; idempotencyKey?: string }): Promise<{ providerRefundId: string; status: string }>
 }
 
@@ -42,8 +42,8 @@ export class RazorpayAdapter implements PaymentProvider {
     return signHmac(`${input.orderId}|${input.paymentId}`, this.secret) === input.signature
   }
   async fetchPayment(paymentId: string) {
-    const payment = await this.request<{ id: string; order_id: string; amount: number; status: string }>(`/payments/${encodeURIComponent(paymentId)}`, { method: 'GET' })
-    return { providerPaymentId: payment.id, providerOrderId: payment.order_id, amountPaise: payment.amount, status: payment.status }
+    const payment = await this.request<{ id: string; order_id: string; amount: number; currency: string; status: string }>(`/payments/${encodeURIComponent(paymentId)}`, { method: 'GET' })
+    return { providerPaymentId: payment.id, providerOrderId: payment.order_id, amountPaise: payment.amount, currency: payment.currency, status: payment.status }
   }
   async refund(input: { paymentId: string; amountPaise: number; idempotencyKey?: string }) {
     const refund = await this.request<{ id: string; status: string }>(`/payments/${encodeURIComponent(input.paymentId)}/refund`, {

@@ -25,6 +25,7 @@ import { PHOTO_DAILY_LIMIT, PHOTO_DEVICE_COOKIE, checkPhotoQuota, newDeviceId, r
 import { LocalEmailAdapter, LocalStorageAdapter, ManualShippingAdapter, RazorpayAdapter } from './lib/providers.js'
 import { productImageAssetSchema, productMediaInputSchema } from './lib/productAssets.js'
 import { calculateWaitlistDepositPaise, createWaitlistId, parseStoredWaitlistSettings, waitlistDefaultsFromEnv, waitlistSettingsSchema, type WaitlistSettings } from './lib/waitlistConfig.js'
+import { calculateWaitlistOrderPricing, type WaitlistPricingMode } from './lib/waitlistOrders.js'
 
 const secureCookies = () => process.env.COOKIE_SECURE === undefined ? process.env.NODE_ENV === 'production' : process.env.COOKIE_SECURE === 'true'
 const defaultWaitlistSettings = waitlistDefaultsFromEnv()
@@ -55,6 +56,7 @@ const canonicalJson = (value: unknown): string => {
 }
 const sha256Json = (value: unknown) => createHash('sha256').update(canonicalJson(value)).digest('hex')
 const hidePriceReferences = (value: string) => value.replace(/MRP\s*₹\s*[\d,.]+/gi, 'MRP detail')
+const humaniseOrderStatus = (value: string) => value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 const waitlistPricesHidden = () => activeWaitlistSettings.enabled && ['waitlist', 'founder_reveal'].includes(activeWaitlistSettings.stage)
 const publicProduct = (product: any, revealCommercials = false) => ({
   ...product,
@@ -114,9 +116,9 @@ const documentPath = (path: string, methods: string[], summary: string) => {
   ['/affiliate/applications', ['post'], 'Submit affiliate application'], ['/affiliate/auth/request-otp', ['post'], 'Request affiliate OTP'], ['/affiliate/auth/verify-otp', ['post'], 'Verify affiliate OTP'], ['/affiliate/auth/me', ['get'], 'Get current affiliate'], ['/affiliate/auth/logout', ['post'], 'Log out affiliate'], ['/affiliate/referrals/track', ['post'], 'Track affiliate referral'], ['/affiliate/dashboard', ['get'], 'Get affiliate dashboard'], ['/affiliate/wallet/redemptions', ['post'], 'Request affiliate wallet redemption'],
   ['/shipping/serviceability', ['get'], 'Check shipping serviceability'], ['/checkout/quote', ['post'], 'Calculate checkout quote'], ['/checkout/sessions', ['post'], 'Create checkout session'], ['/checkout/sessions/{id}', ['get'], 'Get checkout session'], ['/checkout/sessions/{id}/payment-order', ['post'], 'Create payment order'], ['/checkout/sessions/{id}/confirm-cod', ['post'], 'Confirm cash on delivery'],
   ['/payments/razorpay/verify', ['post'], 'Verify Razorpay payment'], ['/webhooks/payments/razorpay', ['post'], 'Receive Razorpay webhook'], ['/payments/{publicToken}/status', ['get'], 'Get payment status'], ['/orders/{publicToken}', ['get'], 'Get public order'], ['/orders/{publicToken}/tracking', ['get'], 'Get order tracking'], ['/orders/{publicToken}/cancel-request', ['post'], 'Request order cancellation'], ['/orders/{publicToken}/return-request', ['post'], 'Request return'],
-  ['/launch-interest', ['post'], 'Capture launch interest'], ['/waitlist/config', ['get'], 'Get priority waitlist configuration'], ['/waitlist/reservations', ['post'], 'Create waitlist reservation'], ['/waitlist/reservations/{publicToken}/verify', ['post'], 'Verify waitlist payment'], ['/waitlist/reservations/{publicToken}/cancel', ['post'], 'Explain non-refundable waitlist policy'], ['/customer/waitlist', ['get'], 'List customer waitlist reservations'], ['/newsletter/subscriptions', ['post'], 'Subscribe to newsletter'], ['/newsletter/confirm', ['post'], 'Confirm newsletter subscription'], ['/newsletter/subscriptions/{token}', ['delete'], 'Unsubscribe from newsletter'], ['/contact', ['post'], 'Submit contact form'], ['/events', ['post'], 'Record analytics event'], ['/events/batch', ['post'], 'Record analytics events'],
+  ['/launch-interest', ['post'], 'Capture launch interest'], ['/waitlist/config', ['get'], 'Get priority waitlist configuration'], ['/waitlist/reservations', ['post'], 'Create waitlist reservation'], ['/waitlist/reservations/{publicToken}/verify', ['post'], 'Verify waitlist payment'], ['/waitlist/reservations/{publicToken}/cancel', ['post'], 'Explain non-refundable waitlist policy'], ['/customer/waitlist', ['get'], 'List customer waitlist reservations'], ['/customer/orders/{publicToken}/address', ['post'], 'Assign address to converted waitlist order'], ['/customer/orders/{publicToken}/balance-quote', ['get'], 'Quote converted waitlist balance'], ['/customer/orders/{publicToken}/payment-status', ['get'], 'Poll converted waitlist payment status'], ['/customer/orders/{publicToken}/balance-order', ['post'], 'Create converted waitlist balance payment'], ['/customer/orders/{publicToken}/balance-verify', ['post'], 'Verify converted waitlist balance payment'], ['/newsletter/subscriptions', ['post'], 'Subscribe to newsletter'], ['/newsletter/confirm', ['post'], 'Confirm newsletter subscription'], ['/newsletter/subscriptions/{token}', ['delete'], 'Unsubscribe from newsletter'], ['/contact', ['post'], 'Submit contact form'], ['/events', ['post'], 'Record analytics event'], ['/events/batch', ['post'], 'Record analytics events'],
   ['/admin/auth/login', ['post'], 'Admin login'], ['/admin/auth/logout', ['post'], 'Admin logout'], ['/admin/auth/refresh', ['post'], 'Refresh admin session'], ['/admin/auth/me', ['get'], 'Get current admin'], ['/admin/auth/forgot-password', ['post'], 'Start password reset'], ['/admin/auth/reset-password', ['post'], 'Reset password'], ['/admin/auth/accept-invitation', ['post'], 'Accept admin invitation'], ['/admin/auth/mfa/setup', ['post'], 'Set up MFA'], ['/admin/auth/mfa/verify', ['post'], 'Verify MFA'], ['/admin/auth/logout-all-sessions', ['post'], 'Revoke all admin sessions'], ['/admin/auth/sessions', ['get'], 'List admin sessions'], ['/admin/auth/sessions/{sessionId}', ['delete'], 'Revoke admin session'],
-  ['/admin/dashboard/{metric}', ['get'], 'Admin dashboard metric'], ['/admin/waitlist-settings', ['get', 'patch'], 'Admin priority waitlist settings'], ['/admin/waitlist-reservations', ['get'], 'Admin priority waitlist'], ['/admin/products', ['get', 'post'], 'Admin product list or create'], ['/admin/products/{id}', ['get', 'patch', 'delete'], 'Admin product detail'], ['/admin/products/{id}/publish', ['post'], 'Publish product'], ['/admin/products/{id}/unpublish', ['post'], 'Unpublish product'], ['/admin/products/{id}/revisions', ['get'], 'List product revisions'], ['/admin/products/{id}/restore', ['post'], 'Restore product revision'], ['/admin/products/bulk', ['post'], 'Bulk update products'], ['/admin/products/import', ['post'], 'Import products'], ['/admin/products/export', ['get'], 'Export products'],
+  ['/admin/dashboard/{metric}', ['get'], 'Admin dashboard metric'], ['/admin/waitlist-settings', ['get', 'patch'], 'Admin priority waitlist settings'], ['/admin/waitlist-reservations', ['get'], 'Admin priority waitlist'], ['/admin/waitlist/conversion-preview', ['get'], 'Preview waitlist order conversion'], ['/admin/waitlist/reveal', ['post'], 'Reveal waitlist pricing and prepare orders'], ['/admin/waitlist/conversion-progress', ['get'], 'Get waitlist conversion progress'], ['/admin/products', ['get', 'post'], 'Admin product list or create'], ['/admin/products/{id}', ['get', 'patch', 'delete'], 'Admin product detail'], ['/admin/products/{id}/publish', ['post'], 'Publish product'], ['/admin/products/{id}/unpublish', ['post'], 'Unpublish product'], ['/admin/products/{id}/revisions', ['get'], 'List product revisions'], ['/admin/products/{id}/restore', ['post'], 'Restore product revision'], ['/admin/products/bulk', ['post'], 'Bulk update products'], ['/admin/products/import', ['post'], 'Import products'], ['/admin/products/export', ['get'], 'Export products'],
   ...['submit-review', 'approve', 'schedule', 'archive'].map((action) => [`/admin/products/{id}/${action}`, ['post'], `Product ${action}`]), ['/admin/products/{id}/revisions/{revisionId}/restore', ['post'], 'Restore product revision snapshot'],
   ['/admin/products/{productId}/variants', ['get', 'post'], 'Manage product variants'], ['/admin/products/{productId}/variants/{variantId}', ['patch', 'delete'], 'Update or delete variant'], ['/admin/products/{productId}/media', ['get', 'post'], 'Manage product media'], ['/admin/products/{productId}/media/{mediaId}', ['patch', 'delete'], 'Update or delete product media'], ['/admin/products/{productId}/media/reorder', ['post'], 'Reorder product media'],
   ['/admin/inventory', ['get'], 'List inventory'], ['/admin/inventory/low-stock', ['get'], 'List low stock inventory'], ['/admin/inventory/{variantId}', ['get'], 'Get variant inventory'], ['/admin/inventory/adjustments', ['post'], 'Adjust inventory'], ['/admin/inventory/bulk-adjustments', ['post'], 'Bulk adjust inventory'], ['/admin/inventory/history', ['get'], 'Inventory movement history'], ['/admin/inventory/import', ['post'], 'Import inventory'], ['/admin/inventory/export', ['get'], 'Export inventory'],
@@ -626,6 +628,107 @@ export function buildApp(): FastifyInstance {
   })
   routes.get('/api/v1/customer/orders', async (request, reply) => { const customer = await requireCustomer(request); return data(reply, await prisma.order.findMany({ where: { customerId: customer.id }, orderBy: { createdAt: 'desc' }, include: { items: true, payments: true } })) })
   routes.get('/api/v1/customer/orders/:publicToken', async (request, reply) => { const customer = await requireCustomer(request); const order = await prisma.order.findFirst({ where: { publicToken: request.params.publicToken, customerId: customer.id }, include: { items: true, payments: true, shipments: { include: { events: { orderBy: { createdAt: 'asc' } } } }, statusEvents: { orderBy: { createdAt: 'asc' } } } }); if (!order) throw notFound('Order not found.'); return data(reply, order) })
+  const convertedOrderForCustomer = async (request: any, mutate = false) => {
+    const customer = await requireCustomer(request, mutate)
+    const order = await prisma.order.findFirst({ where: { publicToken: request.params.publicToken, customerId: customer.id, source: 'waitlist' }, include: { items: true, payments: true } })
+    if (!order) throw notFound('Waitlist order not found.')
+    return { customer, order }
+  }
+  const convertedOrderState = (order: any) => {
+    const addressRequired = !order.shippingAddress || !Object.keys(order.shippingAddress).length
+    const balanceDue = Math.max(0, Number(addressRequired ? (order.remainingBalancePaise ?? order.totalPaise ?? 0) : (order.totalPaise ?? order.remainingBalancePaise ?? 0)))
+    const paymentConfirmationPending = Boolean(!order.balancePaidAt && order.payments?.some((payment: any) => payment.provider === 'razorpay_waitlist_balance' && [PaymentStatus.pending, PaymentStatus.authorised].includes(payment.status)))
+    const deadlineExpired = Boolean(order.completionDeadlineAt && new Date(order.completionDeadlineAt).getTime() < Date.now() && !order.balancePaidAt && balanceDue > 0)
+    return { addressRequired, balanceDuePaise: balanceDue, paymentConfirmationPending, deadlineExpired, requiredAction: deadlineExpired ? 'expired' : addressRequired ? 'address_required' : paymentConfirmationPending ? 'payment_confirmation_pending' : balanceDue > 0 && !order.balancePaidAt ? 'payment_due' : humaniseOrderStatus(order.status) }
+  }
+  routes.post('/api/v1/customer/orders/:publicToken/address', async (request, reply) => {
+    const { customer, order } = await convertedOrderForCustomer(request, true)
+    if (convertedOrderState(order).deadlineExpired) throw new ApiError(410, 'ORDER_DEADLINE_EXPIRED', 'This waitlist order has passed its completion deadline. Please contact SkinFox support for help.')
+    const address = addressSchema.parse(request.body)
+    const serviceable = await shipping.serviceable(address.pincode)
+    if (!serviceable) throw new ApiError(422, 'DELIVERY_UNAVAILABLE', 'We do not deliver to this pincode yet. Try another saved address.')
+    const saveAddress = request.body?.saveAddress !== false
+    const updated = await prisma.$transaction(async (tx) => {
+      if (saveAddress) {
+        const existing = await tx.address.findFirst({ where: { customerId: customer.id, fullName: address.fullName, phone: address.phone, addressLine1: address.addressLine1, pincode: address.pincode } })
+        if (!existing) await tx.address.create({ data: { ...address, customerId: customer.id, isDefault: Boolean(request.body?.saveAsDefault) } })
+      }
+      const quote = calculateCart(order.items.map((item: any) => ({ quantity: item.quantity, unitPricePaise: item.unitSellingPricePaise, mrpPaise: item.mrpPaise })), null, true, false)
+      const shippingPaise = quote.shippingPaise
+      const nextTotal = Math.max(0, quote.totalPaise - Number(order.reservationCreditPaise ?? 0))
+      const nextStatus = nextTotal === 0 ? OrderStatus.confirmed : order.status
+      const next = await tx.order.update({ where: { id: order.id }, data: { shippingAddress: address as any, shippingPaise, taxPaise: quote.taxPaise, totalPaise: nextTotal, remainingBalancePaise: nextTotal, ...(nextStatus !== order.status ? { status: nextStatus, statusEvents: { create: { fromStatus: order.status, toStatus: nextStatus, reason: 'Delivery address confirmed' } } } : {}) }, include: { items: true, payments: true } })
+      return next
+    })
+    return data(reply, { order: updated, serviceable: true, ...convertedOrderState(updated) })
+  })
+  routes.get('/api/v1/customer/orders/:publicToken/balance-quote', async (request, reply) => {
+    const { order } = await convertedOrderForCustomer(request)
+    return data(reply, { orderNumber: order.orderNumber, waitlistId: order.waitlistReservationId, currency: order.currency, mrpSubtotalPaise: order.mrpSubtotalPaise ?? order.subtotalPaise, memberProductSubtotalPaise: Math.max(0, Number(order.subtotalPaise) - Number(order.discountPaise)), waitlistDiscountPaise: order.waitlistDiscountPaise ?? order.discountPaise, reservationCreditPaise: order.reservationCreditPaise, remainingBalancePaise: order.remainingBalancePaise ?? order.totalPaise, shippingPaise: order.shippingPaise, taxPaise: order.taxPaise, totalDuePaise: order.totalPaise, ...convertedOrderState(order) })
+  })
+  routes.get('/api/v1/customer/orders/:publicToken/payment-status', async (request, reply) => {
+    const { order } = await convertedOrderForCustomer(request)
+    const state = convertedOrderState(order)
+    const balancePayment = order.payments.find((payment: any) => payment.provider === 'razorpay_waitlist_balance')
+    return data(reply, { orderNumber: order.orderNumber, orderStatus: order.status, confirmed: Boolean(order.balancePaidAt || (state.balanceDuePaise === 0 && !state.addressRequired)), pending: state.paymentConfirmationPending, failed: balancePayment?.status === PaymentStatus.failed, amountPaise: balancePayment?.amountPaise ?? state.balanceDuePaise, paymentStatus: balancePayment?.status ?? null, ...state })
+  })
+  routes.post('/api/v1/customer/orders/:publicToken/balance-order', async (request, reply) => {
+    const { order } = await convertedOrderForCustomer(request, true)
+    const idempotencyScope = `waitlist-balance-order:${order.id}`
+    const replay = await idemReplay(request, idempotencyScope)
+    if (replay) return reply.status(replay.status).send(replay.body)
+    if (!payment.configured()) throw new ApiError(503, 'RAZORPAY_NOT_CONFIGURED', 'Online payment is not configured yet.')
+    const state = convertedOrderState(order)
+    if (state.addressRequired) throw new ApiError(400, 'ADDRESS_REQUIRED', 'Add a delivery address before paying the remaining balance.')
+    if (state.deadlineExpired) throw new ApiError(410, 'ORDER_DEADLINE_EXPIRED', 'This waitlist order has passed its completion deadline. Please contact SkinFox support for help.')
+    if (state.balanceDuePaise <= 0 || order.balancePaidAt || order.status === OrderStatus.confirmed) {
+      const response = { alreadyPaid: true, orderNumber: order.orderNumber, amountPaise: 0 }
+      await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
+      return data(reply, response)
+    }
+    const existing = order.payments.find((item: any) => item.provider === 'razorpay_waitlist_balance' && item.status === PaymentStatus.pending)
+    if (existing?.providerOrderId) {
+      const response = { orderNumber: order.orderNumber, amountPaise: existing.amountPaise, currency: order.currency, keyId: process.env.RAZORPAY_KEY_ID, orderId: existing.providerOrderId }
+      await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
+      return data(reply, response)
+    }
+    const providerOrder = await payment.createOrder({ amountPaise: state.balanceDuePaise, receipt: `sfwlbal_${order.id}`, notes: { order: order.publicToken, purpose: 'waitlist_balance' } })
+    const paymentRecord = await prisma.payment.create({ data: { orderId: order.id, provider: 'razorpay_waitlist_balance', providerOrderId: providerOrder.providerOrderId, amountPaise: state.balanceDuePaise, status: PaymentStatus.pending } })
+    const response = { orderNumber: order.orderNumber, amountPaise: paymentRecord.amountPaise, currency: order.currency, keyId: process.env.RAZORPAY_KEY_ID, orderId: paymentRecord.providerOrderId }
+    await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
+    return data(reply, response)
+  })
+  routes.post('/api/v1/customer/orders/:publicToken/balance-verify', async (request, reply) => {
+    const { order } = await convertedOrderForCustomer(request, true)
+    const idempotencyScope = `waitlist-balance-verify:${order.id}`
+    const replay = await idemReplay(request, idempotencyScope)
+    if (replay) return reply.status(replay.status).send(replay.body)
+    const input = z.object({ razorpayOrderId: z.string().min(6), razorpayPaymentId: z.string().min(6), razorpaySignature: z.string().min(16) }).parse(request.body)
+    const paymentRecord = await prisma.payment.findFirst({ where: { orderId: order.id, provider: 'razorpay_waitlist_balance', providerOrderId: input.razorpayOrderId } })
+    if (!paymentRecord || !payment.verifyPayment({ orderId: input.razorpayOrderId, paymentId: input.razorpayPaymentId, signature: input.razorpaySignature })) throw new ApiError(400, 'PAYMENT_SIGNATURE_INVALID', 'Payment verification failed. Your order balance is still due.')
+    let providerPayment
+    try {
+      providerPayment = await payment.fetchPayment(input.razorpayPaymentId)
+    } catch (cause) {
+      request.log.error({ err: cause, orderId: order.id, paymentId: input.razorpayPaymentId }, 'waitlist balance payment status fetch failed')
+      const response = { confirmed: false, pending: true, orderStatus: order.status, message: 'Payment received; confirmation is still pending. Please do not pay again.' }
+      await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
+      return data(reply, response)
+    }
+    if (providerPayment.providerOrderId !== paymentRecord.providerOrderId || providerPayment.amountPaise !== paymentRecord.amountPaise || providerPayment.currency !== order.currency) throw new ApiError(400, 'PAYMENT_DETAILS_MISMATCH', 'The payment does not match this order balance.')
+    if (providerPayment.status !== 'captured') {
+      const response = { confirmed: false, pending: providerPayment.status !== 'failed', orderStatus: order.status }
+      await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
+      return data(reply, response)
+    }
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.payment.update({ where: { id: paymentRecord.id }, data: { providerPaymentId: providerPayment.providerPaymentId, status: PaymentStatus.captured, capturedPaise: providerPayment.amountPaise } })
+      return tx.order.update({ where: { id: order.id }, data: { status: OrderStatus.confirmed, balancePaidAt: new Date(), remainingBalancePaise: 0, totalPaise: 0, statusEvents: { create: { fromStatus: order.status, toStatus: OrderStatus.confirmed, reason: 'Waitlist balance payment captured' } } } })
+    })
+    const response = { confirmed: true, orderNumber: updated.orderNumber, orderStatus: updated.status, remainingBalancePaise: 0 }
+    await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
+    return data(reply, response)
+  })
 
   const founderClaimedCount = () => prisma.customer.count({ where: { founderNumber: { not: null } } })
   const waitlistConfig = (founderClaimed = 0, revealFounderPrice = false) => ({
@@ -646,6 +749,8 @@ export function buildApp(): FastifyInstance {
     currency: reservation.currency,
     depositPaise: reservation.depositPaise,
     discountPercent: reservation.discountPercent,
+    pricingMode: reservation.pricingMode ?? 'exact_revealed_price',
+    pricingValuePaise: reservation.pricingValuePaise ?? null,
     paymentCapturedPaise: reservation.paymentCapturedPaise,
     refundPaise: reservation.refundPaise,
     refundStatus: reservation.refundStatus,
@@ -656,6 +761,7 @@ export function buildApp(): FastifyInstance {
     providerOrderId: reservation.providerOrderId,
     founderNumber: reservation.customer?.founderNumber ?? null,
     founderCapacity: activeWaitlistSettings.founderCapacity,
+    convertedOrder: reservation.convertedOrder ? { publicToken: reservation.convertedOrder.publicToken, orderNumber: reservation.convertedOrder.orderNumber, status: reservation.convertedOrder.status, totalPaise: reservation.convertedOrder.totalPaise, remainingBalancePaise: reservation.convertedOrder.remainingBalancePaise, shippingAddress: reservation.convertedOrder.shippingAddress } : null,
     items: reservation.items?.map((item: any) => ({ productId: item.productId, productName: item.productName, productSlug: item.productSlug, size: item.size, quantity: item.quantity })) ?? [],
   })
 
@@ -685,10 +791,127 @@ export function buildApp(): FastifyInstance {
     return result.founderNumber
   }
 
+  const waitlistPricingMode = (value: unknown): WaitlistPricingMode => ['exact_revealed_price', 'discount_off_mrp', 'percentage_of_mrp'].includes(String(value)) ? String(value) as WaitlistPricingMode : 'exact_revealed_price'
+  const waitlistDeadline = (days: number) => new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+  const loadWaitlistConversionPreview = async () => {
+    const reservations = await prisma.waitlistReservation.findMany({ where: { status: WaitlistStatus.joined, paymentCapturedPaise: { gt: 0 } }, include: { items: true, customer: { select: { id: true, fullName: true, email: true } } }, orderBy: { createdAt: 'asc' } })
+    const productIds = [...new Set(reservations.flatMap((reservation) => reservation.items.map((item) => item.productId)))]
+    const products = await prisma.product.findMany({ where: { id: { in: productIds } }, include: { variants: { include: { inventory: true } } } })
+    const productById = new Map(products.map((product) => [product.id, product]))
+    const demand = new Map<string, number>()
+    const previews: any[] = []
+    let deposits = 0
+    let mrp = 0
+    let member = 0
+    let overCredit = 0
+    for (const reservation of reservations) {
+      const missing = reservation.items.filter((item) => !productById.has(item.productId))
+      if (missing.length) { previews.push({ waitlistId: reservation.waitlistId, reservationId: reservation.id, customer: reservation.customer.fullName, status: 'blocked', reason: 'One or more products no longer exist.' }); continue }
+      let pricing
+      try {
+        pricing = calculateWaitlistOrderPricing(reservation.items.map((item) => {
+          const product: any = productById.get(item.productId)
+          return { productId: item.productId, productName: item.productName, productSlug: item.productSlug, size: item.size, quantity: item.quantity, mrpPaise: product.mrpPaise ?? activeWaitlistSettings.regularPricePaise, exactPricePaise: reservation.pricingValuePaise ?? activeWaitlistSettings.founderPricePaise }
+        }), { mode: waitlistPricingMode(reservation.pricingMode), percent: reservation.discountPercent, reservationCreditPaise: reservation.paymentCapturedPaise })
+      } catch (cause: any) {
+        previews.push({ waitlistId: reservation.waitlistId, reservationId: reservation.id, customer: reservation.customer.fullName, status: 'blocked', reason: cause?.message ?? 'Pricing snapshot is invalid.' })
+        overCredit += reservation.paymentCapturedPaise
+        continue
+      }
+      for (const item of reservation.items) demand.set(item.productId, (demand.get(item.productId) ?? 0) + item.quantity)
+      deposits += reservation.paymentCapturedPaise
+      mrp += pricing.mrpSubtotalPaise
+      member += pricing.memberProductSubtotalPaise
+      previews.push({ waitlistId: reservation.waitlistId, reservationId: reservation.id, customer: reservation.customer.fullName, status: 'ready', productCount: reservation.items.reduce((sum, item) => sum + item.quantity, 0), mrpSubtotalPaise: pricing.mrpSubtotalPaise, memberProductSubtotalPaise: pricing.memberProductSubtotalPaise, reservationCreditPaise: pricing.reservationCreditPaise, remainingBalancePaise: pricing.remainingProductBalancePaise, pricingMode: pricing.mode })
+    }
+    const inventoryShortages = [...demand.entries()].flatMap(([productId, quantity]) => {
+      const product: any = productById.get(productId)
+      const available = product?.variants?.reduce((sum: number, variant: any) => sum + variant.inventory.reduce((inner: number, row: any) => inner + row.availableQty - row.reservedQty, 0), 0) ?? 0
+      return available < quantity ? [{ productId, productName: product?.name ?? productId, demand: quantity, available }] : []
+    })
+    return { eligibleReservations: previews.filter((item) => item.status === 'ready').length, blockedReservations: previews.filter((item) => item.status !== 'ready').length, totalProductQty: [...demand.values()].reduce((sum, value) => sum + value, 0), mrpSubtotalPaise: mrp, memberProductSubtotalPaise: member, waitlistDiscountPaise: mrp - member, depositsCollectedPaise: deposits, estimatedRemainingPaise: Math.max(0, member - deposits), inventoryShortages, overCredit, reservations: previews }
+  }
+  const convertWaitlistReservation = async (reservationId: string, deadlineDays: number) => {
+    const existing = await prisma.order.findUnique({ where: { waitlistReservationId: reservationId }, include: { items: true } })
+    if (existing) return { order: existing, converted: false, reason: 'already_converted' }
+    const reservation: any = await prisma.waitlistReservation.findUnique({ where: { id: reservationId }, include: { items: true, customer: true } })
+    if (!reservation || reservation.status !== WaitlistStatus.joined || reservation.paymentCapturedPaise <= 0) return { order: null, converted: false, reason: 'not_eligible' }
+    const products: any[] = await prisma.product.findMany({ where: { id: { in: reservation.items.map((item: any) => item.productId) } }, include: { variants: true } })
+    const productById = new Map(products.map((product) => [product.id, product]))
+    const pricing = calculateWaitlistOrderPricing(reservation.items.map((item: any) => {
+      const product: any = productById.get(item.productId)
+      if (!product) throw new ApiError(409, 'WAITLIST_PRODUCT_MISSING', `Product ${item.productName} is no longer available.`)
+      return { productId: item.productId, productName: item.productName, productSlug: item.productSlug, size: item.size, quantity: item.quantity, mrpPaise: product.mrpPaise ?? activeWaitlistSettings.regularPricePaise, exactPricePaise: reservation.pricingValuePaise ?? activeWaitlistSettings.founderPricePaise }
+    }), { mode: waitlistPricingMode(reservation.pricingMode), percent: reservation.discountPercent, reservationCreditPaise: reservation.paymentCapturedPaise })
+    const completionDeadline = waitlistDeadline(deadlineDays)
+    const order = await prisma.$transaction(async (tx) => {
+      const race = await tx.order.findUnique({ where: { waitlistReservationId: reservation.id } })
+      if (race) return race
+      const systemCart = await tx.cart.create({ data: { tokenHash: hashToken(randomToken(32)), currency: reservation.currency, expiresAt: completionDeadline } })
+      const checkoutSession = await tx.checkoutSession.create({ data: { publicToken: randomToken(24), cartId: systemCart.id, customerId: reservation.customerId, status: 'converted', paymentMethod: 'razorpay', quote: pricing as any, expiresAt: completionDeadline } })
+      const created = await tx.order.create({
+        data: {
+          publicToken: randomToken(24),
+          orderNumber: `SF-WL-${new Date().getFullYear()}-${randomToken(4).toUpperCase()}`,
+          customerId: reservation.customerId,
+          checkoutSessionId: checkoutSession.id,
+          source: 'waitlist',
+          waitlistReservationId: reservation.id,
+          status: OrderStatus.pending_payment,
+          currency: reservation.currency,
+          subtotalPaise: pricing.mrpSubtotalPaise,
+          discountPaise: pricing.waitlistDiscountPaise,
+          taxPaise: pricing.taxPaise,
+          shippingPaise: pricing.shippingPaise,
+          codPaise: 0,
+          totalPaise: pricing.finalAmountDuePaise,
+          shippingAddress: null,
+          pricingMode: pricing.mode,
+          pricingPercent: pricing.percent,
+          mrpSubtotalPaise: pricing.mrpSubtotalPaise,
+          waitlistDiscountPaise: pricing.waitlistDiscountPaise,
+          reservationCreditPaise: pricing.reservationCreditPaise,
+          remainingBalancePaise: pricing.remainingProductBalancePaise,
+          conversionSnapshot: pricing as any,
+          completionDeadlineAt: completionDeadline,
+          convertedAt: new Date(),
+          items: {
+            create: pricing.lines.map((line) => {
+              const product: any = productById.get(line.productId)
+              const variant = product?.variants?.find((candidate: any) => candidate.size === line.size) ?? product?.variants?.[0]
+              return { productId: line.productId, variantId: variant?.id, productName: line.productName, variantName: line.size, sku: variant?.sku ?? line.productSlug, size: line.size, primaryImage: product?.image ?? '', unitSellingPricePaise: line.unitMemberPricePaise, mrpPaise: line.mrpPaise, discountPaise: line.lineDiscountPaise, taxRateBps: 0, taxPaise: 0, finalLineTotalPaise: line.lineTotalPaise, quantity: line.quantity }
+            }),
+          },
+          payments: { create: { provider: 'razorpay_waitlist_credit', providerOrderId: reservation.providerOrderId, providerPaymentId: reservation.providerPaymentId, amountPaise: reservation.paymentCapturedPaise, capturedPaise: reservation.paymentCapturedPaise, status: PaymentStatus.captured } },
+          statusEvents: { create: { toStatus: OrderStatus.pending_payment, reason: 'Created from captured waitlist reservation' } },
+        },
+      })
+      for (const line of pricing.lines) {
+        const product: any = productById.get(line.productId)
+        const variant = product?.variants?.find((candidate: any) => candidate.size === line.size) ?? product?.variants?.[0]
+        if (!variant) throw new ApiError(409, 'WAITLIST_VARIANT_MISSING', `Variant for ${line.productName} is no longer available.`)
+        const inventoryRows = await tx.inventoryItem.findMany({ where: { variantId: variant.id }, orderBy: { availableQty: 'desc' } })
+        let reserved = false
+        for (const inventory of inventoryRows) {
+          const claimed = await tx.$executeRaw`UPDATE "InventoryItem" SET "reservedQty" = "reservedQty" + ${line.quantity} WHERE "id" = ${inventory.id} AND "availableQty" - "reservedQty" >= ${line.quantity}`
+          if (!claimed) continue
+          await tx.inventoryReservation.create({ data: { variantId: variant.id, locationId: inventory.locationId, checkoutSessionId: checkoutSession.id, quantity: line.quantity, expiresAt: completionDeadline } })
+          await tx.inventoryMovement.create({ data: { variantId: variant.id, locationId: inventory.locationId, type: 'reservation_hold', quantity: line.quantity, orderId: created.id, reason: 'Waitlist order conversion hold' } })
+          reserved = true
+          break
+        }
+        if (!reserved) throw new ApiError(409, 'WAITLIST_INVENTORY_SHORTAGE', `Inventory changed while preparing ${line.productName}. Refresh the conversion preview and try again.`)
+      }
+      await tx.waitlistReservation.update({ where: { id: reservation.id }, data: { status: WaitlistStatus.converted } })
+      return created
+    })
+    return { order, converted: true, reason: 'converted' }
+  }
+
   routes.get('/api/v1/waitlist/config', async (_, reply) => data(reply, waitlistConfig(await founderClaimedCount())))
   routes.get('/api/v1/customer/waitlist', async (request, reply) => {
     const customer = await requireCustomer(request)
-    const reservations = await prisma.waitlistReservation.findMany({ where: { customerId: customer.id }, include: { items: true, customer: { select: { founderNumber: true } } }, orderBy: { createdAt: 'desc' } })
+    const reservations = await prisma.waitlistReservation.findMany({ where: { customerId: customer.id }, include: { items: true, customer: { select: { founderNumber: true } }, convertedOrder: { select: { publicToken: true, orderNumber: true, status: true, totalPaise: true, remainingBalancePaise: true, shippingAddress: true } } }, orderBy: { createdAt: 'desc' } })
     return data(reply, reservations.map(waitlistResponse))
   })
   routes.post('/api/v1/waitlist/reservations', { config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } }, async (request, reply) => {
@@ -728,6 +951,8 @@ export function buildApp(): FastifyInstance {
         customerId: customer.id,
         depositPaise: totalDepositPaise,
         discountPercent: currentWaitlist.discountPercent,
+        pricingMode: currentWaitlist.pricingMode,
+        pricingValuePaise: currentWaitlist.pricingMode === 'exact_revealed_price' ? currentWaitlist.founderPricePaise : null,
         phone: input.phone,
         consent: input.consent,
         consentAt: new Date(),
@@ -752,11 +977,11 @@ export function buildApp(): FastifyInstance {
     const input = z.object({ razorpayOrderId: z.string().min(6), razorpayPaymentId: z.string().min(6), razorpaySignature: z.string().min(16) }).parse(request.body)
     const reservation = await prisma.waitlistReservation.findFirst({ where: { publicToken: request.params.publicToken, customerId: customer.id }, include: { items: true, customer: { select: { founderNumber: true } } } })
     if (!reservation) throw notFound('Waitlist reservation not found.')
-    if (reservation.status === WaitlistStatus.joined && reservation.providerPaymentId === input.razorpayPaymentId) return data(reply, { reservation: waitlistResponse(reservation), confirmed: true })
+    if ([WaitlistStatus.joined, WaitlistStatus.converted].includes(reservation.status) && reservation.providerPaymentId === input.razorpayPaymentId) return data(reply, { reservation: waitlistResponse(reservation), confirmed: true })
     if (reservation.providerOrderId !== input.razorpayOrderId || !payment.verifyPayment({ orderId: reservation.providerOrderId, paymentId: input.razorpayPaymentId, signature: input.razorpaySignature })) throw new ApiError(400, 'PAYMENT_SIGNATURE_INVALID', 'Payment verification failed. Your waitlist place has not been activated.')
     let providerPayment
     try { providerPayment = await payment.fetchPayment(input.razorpayPaymentId) } catch (cause) { request.log.error({ err: cause, reservationId: reservation.id }, 'razorpay payment status fetch failed'); throw new ApiError(502, 'PAYMENT_STATUS_UNAVAILABLE', 'Payment was received but confirmation is still pending. We will update your waitlist place automatically.') }
-    if (providerPayment.providerOrderId !== reservation.providerOrderId || providerPayment.amountPaise !== reservation.depositPaise) throw new ApiError(400, 'PAYMENT_DETAILS_MISMATCH', 'The payment does not match this waitlist reservation.')
+    if (providerPayment.providerOrderId !== reservation.providerOrderId || providerPayment.amountPaise !== reservation.depositPaise || providerPayment.currency !== reservation.currency) throw new ApiError(400, 'PAYMENT_DETAILS_MISMATCH', 'The payment does not match this waitlist reservation.')
     const captured = providerPayment.status === 'captured'
     const failed = providerPayment.status === 'failed'
     if (captured) await claimFounderPlace(customer.id)
@@ -868,11 +1093,14 @@ export function buildApp(): FastifyInstance {
     if (paymentEntity?.order_id) {
       const providerOrderId = String(paymentEntity.order_id)
       const paymentRecord = await prisma.payment.findFirst({ where: { providerOrderId } })
-      if (paymentRecord) await prisma.$transaction([
-        prisma.payment.update({ where: { id: paymentRecord.id }, data: { providerPaymentId: paymentEntity.id, status: payload.event === 'payment.captured' ? PaymentStatus.captured : payload.event === 'payment.failed' ? PaymentStatus.failed : PaymentStatus.authorised, capturedPaise: payload.event === 'payment.captured' ? paymentEntity.amount ?? paymentRecord.capturedPaise : paymentRecord.capturedPaise } }),
-        prisma.paymentEvent.upsert({ where: { paymentId_externalId: { paymentId: paymentRecord.id, externalId: eventId } }, update: { type: String(payload.event ?? 'unknown'), payload }, create: { paymentId: paymentRecord.id, externalId: eventId, type: String(payload.event ?? 'unknown'), payload } }),
-        prisma.order.update({ where: { id: paymentRecord.orderId }, data: { status: payload.event === 'payment.captured' ? OrderStatus.confirmed : payload.event === 'payment.failed' ? OrderStatus.payment_failed : OrderStatus.pending_payment } }),
-      ])
+      if (paymentRecord) {
+        const captured = payload.event === 'payment.captured'
+        await prisma.$transaction([
+          prisma.payment.update({ where: { id: paymentRecord.id }, data: { providerPaymentId: paymentEntity.id, status: captured ? PaymentStatus.captured : payload.event === 'payment.failed' ? PaymentStatus.failed : PaymentStatus.authorised, capturedPaise: captured ? paymentEntity.amount ?? paymentRecord.capturedPaise : paymentRecord.capturedPaise } }),
+          prisma.paymentEvent.upsert({ where: { paymentId_externalId: { paymentId: paymentRecord.id, externalId: eventId } }, update: { type: String(payload.event ?? 'unknown'), payload }, create: { paymentId: paymentRecord.id, externalId: eventId, type: String(payload.event ?? 'unknown'), payload } }),
+          prisma.order.update({ where: { id: paymentRecord.orderId }, data: paymentRecord.provider === 'razorpay_waitlist_balance' && captured ? { status: OrderStatus.confirmed, balancePaidAt: new Date(), remainingBalancePaise: 0, totalPaise: 0 } : { status: captured ? OrderStatus.confirmed : payload.event === 'payment.failed' ? OrderStatus.payment_failed : OrderStatus.pending_payment } }),
+        ])
+      }
       const waitlist = await prisma.waitlistReservation.findUnique({ where: { providerOrderId } })
       if (waitlist && Number(paymentEntity.amount) === waitlist.depositPaise) {
         if (payload.event === 'payment.captured') {
@@ -1031,7 +1259,7 @@ export function buildApp(): FastifyInstance {
   routes.get('/api/v1/admin/inventory/export', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); return data(reply, await prisma.inventoryItem.findMany({ include: { variant: true, location: true } })) })
 
   const transition: Record<string, OrderStatus> = { confirm: OrderStatus.confirmed, process: OrderStatus.processing, pack: OrderStatus.packed, fulfill: OrderStatus.processing, ship: OrderStatus.shipped, deliver: OrderStatus.delivered, cancel: OrderStatus.cancelled }
-  routes.get('/api/v1/admin/orders', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT])(request); const params = pageParams(request); const where: any = request.query?.status ? { status: request.query.status } : {}; const [items, total] = await Promise.all([prisma.order.findMany({ where, include: { customer: true, items: true, payments: true }, orderBy: { createdAt: 'desc' }, skip: (params.page - 1) * params.limit, take: params.limit }), prisma.order.count({ where })]); return data(reply, items.map((order) => ({ ...order, customer: maskCustomer(order.customer) })), { page: params.page, limit: params.limit, total }) })
+  routes.get('/api/v1/admin/orders', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT])(request); const params = pageParams(request); const where: any = { ...(request.query?.status ? { status: request.query.status } : {}), ...(params.q ? { OR: [{ orderNumber: { contains: params.q, mode: 'insensitive' } }, { publicToken: { contains: params.q, mode: 'insensitive' } }, { waitlistReservationId: { contains: params.q, mode: 'insensitive' } }, { customer: { is: { OR: [{ fullName: { contains: params.q, mode: 'insensitive' } }, { email: { contains: params.q, mode: 'insensitive' } }, { phone: { contains: params.q } }] } } }] } : {}) }; const [items, total] = await Promise.all([prisma.order.findMany({ where, include: { customer: true, items: true, payments: true }, orderBy: { createdAt: 'desc' }, skip: (params.page - 1) * params.limit, take: params.limit }), prisma.order.count({ where })]); return data(reply, items.map((order) => ({ ...order, customer: maskCustomer(order.customer) })), { page: params.page, limit: params.limit, total }) })
   const adminWaitlistSettings = async () => waitlistConfig(await founderClaimedCount(), true)
   routes.get('/api/v1/admin/waitlist-settings', async (request, reply) => {
     await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT, AdminRole.ANALYST])(request)
@@ -1061,10 +1289,53 @@ export function buildApp(): FastifyInstance {
     const founderSearch = /^#?\d+$/.test(params.q) ? Number(params.q.replace('#', '')) : null
     const where: any = { ...(request.query?.status ? { status: request.query.status } : {}), ...(params.q ? { OR: [{ waitlistId: { contains: params.q, mode: 'insensitive' } }, { publicToken: { contains: params.q, mode: 'insensitive' } }, { phone: { contains: params.q } }, { customer: { is: { OR: [{ fullName: { contains: params.q, mode: 'insensitive' } }, { email: { contains: params.q, mode: 'insensitive' } }, ...(founderSearch ? [{ founderNumber: founderSearch }] : [])] } } }] } : {}) }
     const [items, total] = await Promise.all([
-      prisma.waitlistReservation.findMany({ where, include: { customer: true, items: true }, orderBy: { createdAt: 'desc' }, skip: (params.page - 1) * params.limit, take: params.limit }),
+      prisma.waitlistReservation.findMany({ where, include: { customer: true, items: true, convertedOrder: { select: { publicToken: true, orderNumber: true, status: true, totalPaise: true, remainingBalancePaise: true, shippingAddress: true } } }, orderBy: { createdAt: 'desc' }, skip: (params.page - 1) * params.limit, take: params.limit }),
       prisma.waitlistReservation.count({ where }),
     ])
     return data(reply, items.map((item) => ({ ...waitlistResponse(item), customer: maskCustomer(item.customer), products: item.items.map((entry) => `${entry.productName} × ${entry.quantity}`).join(', ') })), { page: params.page, limit: params.limit, total, hasNextPage: params.page * params.limit < total })
+  })
+  routes.get('/api/v1/admin/waitlist/conversion-preview', async (request, reply) => {
+    await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT, AdminRole.ANALYST])(request)
+    return data(reply, await loadWaitlistConversionPreview())
+  })
+  routes.get('/api/v1/admin/waitlist/conversion-progress', async (request, reply) => {
+    await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT, AdminRole.ANALYST])(request)
+    const [joined, converted, pendingOrders, due, waitlistOrders] = await Promise.all([
+      prisma.waitlistReservation.count({ where: { status: WaitlistStatus.joined, paymentCapturedPaise: { gt: 0 } } }),
+      prisma.waitlistReservation.count({ where: { status: WaitlistStatus.converted } }),
+      prisma.order.count({ where: { source: 'waitlist', status: OrderStatus.pending_payment } }),
+      prisma.order.aggregate({ where: { source: 'waitlist', status: { not: OrderStatus.cancelled } }, _sum: { remainingBalancePaise: true } }),
+      prisma.order.findMany({ where: { source: 'waitlist', status: { not: OrderStatus.cancelled } }, select: { shippingAddress: true, totalPaise: true, remainingBalancePaise: true, balancePaidAt: true, completionDeadlineAt: true, payments: { select: { provider: true, status: true } } } }),
+    ])
+    const now = Date.now()
+    const addressRequired = waitlistOrders.filter((order) => !order.shippingAddress || !Object.keys(order.shippingAddress as object).length).length
+    const paymentConfirmationPending = waitlistOrders.filter((order) => !order.balancePaidAt && order.payments.some((payment) => payment.provider === 'razorpay_waitlist_balance' && [PaymentStatus.pending, PaymentStatus.authorised].includes(payment.status))).length
+    const paymentDue = waitlistOrders.filter((order) => !order.balancePaidAt && Number(order.totalPaise) > 0 && !order.payments.some((payment) => payment.provider === 'razorpay_waitlist_balance' && [PaymentStatus.pending, PaymentStatus.authorised].includes(payment.status))).length
+    const fullyPaid = waitlistOrders.filter((order) => Boolean(order.shippingAddress && Object.keys(order.shippingAddress as object).length) && Number(order.remainingBalancePaise ?? order.totalPaise) === 0).length
+    const expired = waitlistOrders.filter((order) => order.completionDeadlineAt && order.completionDeadlineAt.getTime() < now && Number(order.remainingBalancePaise ?? order.totalPaise) > 0).length
+    return data(reply, { joined, converted, pendingOrders, addressRequired, paymentDue, paymentConfirmationPending, fullyPaid, expired, remainingBalancePaise: due._sum.remainingBalancePaise ?? 0 })
+  })
+  routes.post('/api/v1/admin/waitlist/reveal', async (request, reply) => {
+    const replay = await idemReplay(request, 'waitlist-reveal')
+    if (replay) return reply.status(replay.status).send(replay.body)
+    const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER])(request)
+    const input = z.object({ confirm: z.literal(true), deadlineDays: z.number().int().min(1).max(365).default(30) }).parse(request.body)
+    const preview = await loadWaitlistConversionPreview()
+    if (preview.inventoryShortages.length) throw new ApiError(409, 'WAITLIST_INVENTORY_SHORTAGE', 'Reveal is blocked until inventory can cover the paid waitlist demand.', { inventoryShortages: 'Review the conversion preview and receive enough stock before revealing.' })
+    if (preview.blockedReservations > 0) throw new ApiError(409, 'WAITLIST_CONVERSION_BLOCKED', 'Reveal is blocked because one or more paid reservations cannot be priced safely.')
+    const before = { ...activeWaitlistSettings }
+    const next = waitlistSettingsSchema.parse({ ...activeWaitlistSettings, enabled: true, stage: 'founder_reveal' })
+    await prisma.storeSetting.upsert({ where: { key: 'waitlist-config' }, update: { value: next }, create: { key: 'waitlist-config', value: next } })
+    activeWaitlistSettings = next
+    const results: any[] = []
+    for (const reservation of preview.reservations.filter((item) => item.status === 'ready')) {
+      try { results.push({ waitlistId: reservation.waitlistId, ...(await convertWaitlistReservation(reservation.reservationId, input.deadlineDays)) }) } catch (cause: any) { results.push({ waitlistId: reservation.waitlistId, converted: false, reason: cause?.message ?? 'Conversion failed' }) }
+    }
+    await audit(user, request, 'reveal_waitlist', 'WaitlistSettings', 'waitlist-config', before, { ...next, converted: results.filter((item) => item.converted).length }, 'Waitlist pricing revealed and paid reservations prepared as orders')
+    const response = { stage: activeWaitlistSettings.stage, converted: results.filter((item) => item.converted).length, alreadyConverted: results.filter((item) => item.reason === 'already_converted').length, failed: results.filter((item) => !item.converted && item.reason !== 'already_converted').length, results }
+    const envelope = { data: response, meta: { requestId: request.id } }
+    await idemStore(request, 'waitlist-reveal', 200, envelope)
+    return reply.send(envelope)
   })
   routes.get('/api/v1/admin/orders/:id', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT])(request); const order = await prisma.order.findUnique({ where: { id: request.params.id }, include: { customer: true, items: true, payments: true, refunds: true, shipments: { include: { events: true } }, statusEvents: true, notes: true } }); if (!order) throw notFound('Order not found.'); return data(reply, { ...order, customer: maskCustomer(order.customer) }) })
   for (const [action, target] of Object.entries(transition)) app.post(`/api/v1/admin/orders/:id/${action}`, async (request, reply) => { const scope = `order-transition:${request.params.id}:${action}`; const replay = await idemReplay(request, scope); if (replay) return reply.status(replay.status).send(replay.body); const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER])(request); const reason = z.string().min(3).parse(request.body?.reason); const order = await prisma.order.findUnique({ where: { id: request.params.id } }); if (!order) throw notFound('Order not found.'); const allowed: Record<OrderStatus, OrderStatus[]> = { pending_payment: [OrderStatus.confirmed, OrderStatus.cancelled], payment_failed: [OrderStatus.confirmed, OrderStatus.cancelled], confirmed: [OrderStatus.processing, OrderStatus.cancelled], processing: [OrderStatus.packed, OrderStatus.cancelled], packed: [OrderStatus.shipped], shipped: [OrderStatus.delivered], delivered: [], cancelled: [], partially_refunded: [], refunded: [], return_requested: [], returned: [] }; if (!allowed[order.status].includes(target)) throw validationError(`Cannot transition ${order.status} to ${target}.`); const updated = await prisma.$transaction(async (tx) => { const next = await tx.order.update({ where: { id: order.id }, data: { status: target } }); await tx.orderStatusEvent.create({ data: { orderId: order.id, fromStatus: order.status, toStatus: target, reason, actorId: user.id } }); if ((target === OrderStatus.cancelled || target === OrderStatus.shipped) && order.checkoutSessionId) { const holds = await tx.inventoryReservation.findMany({ where: { checkoutSessionId: order.checkoutSessionId, releasedAt: null } }); for (const hold of holds) { const claimed = await tx.inventoryReservation.updateMany({ where: { id: hold.id, releasedAt: null }, data: { releasedAt: new Date() } }); if (!claimed.count) continue; await tx.inventoryItem.update({ where: { variantId_locationId: { variantId: hold.variantId, locationId: hold.locationId } }, data: target === OrderStatus.shipped ? { availableQty: { decrement: hold.quantity }, reservedQty: { decrement: hold.quantity } } : { reservedQty: { decrement: hold.quantity } } }); await tx.inventoryMovement.create({ data: { variantId: hold.variantId, locationId: hold.locationId, type: target === OrderStatus.shipped ? 'sale' : 'reservation_release', quantity: hold.quantity, orderId: order.id, actorId: user.id, reason: target === OrderStatus.shipped ? 'Order shipped' : 'Order cancelled' } }) } } return next }); await audit(user, request, `order_${action}`, 'Order', order.id, order, updated, reason); const envelope = { data: updated, meta: { requestId: request.id } }; await idemStore(request, scope, 200, envelope); return reply.send(envelope) })

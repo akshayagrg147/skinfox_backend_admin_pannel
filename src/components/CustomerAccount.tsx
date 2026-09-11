@@ -1,4 +1,4 @@
-import { Bell, CheckCircle2, CircleDollarSign, ClipboardList, Home, LoaderCircle, LogOut, MapPin, MailCheck, PackageCheck, Pencil, Plus, ShieldCheck, Sparkles, Trash2, UserRound, WalletCards } from 'lucide-react'
+import { Bell, CheckCircle2, CircleDollarSign, ClipboardList, Home, LoaderCircle, LockKeyhole, LogOut, MapPin, MailCheck, PackageCheck, Pencil, Plus, ShieldCheck, Sparkles, Trash2, UserRound, WalletCards } from 'lucide-react'
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { formatPrice } from '../data/products'
 import { deleteStorefront, getStorefront, patchStorefront, postStorefront } from '../lib/storefrontApi'
@@ -6,14 +6,15 @@ import { exchangeFirebaseUser, firebaseAuthErrorMessage, linkEmailPassword, refr
 import { BrandMark } from './BrandMark'
 import { CustomerAuthForm, type CustomerAuthCustomer, type CustomerAuthResponse } from './CustomerAuthForm'
 import { ModalShell } from './ModalShell'
+import { openRazorpayCheckout } from '../lib/razorpay'
 
 export type StorefrontCustomer = CustomerAuthCustomer
 export type AccountSection = 'profile' | 'orders' | 'waitlist' | 'supercoin' | 'wallet' | 'addresses' | 'notifications'
 
 type SavedAddress = { id: string; label: string; fullName: string; phone: string; addressLine1: string; addressLine2?: string | null; landmark?: string | null; city: string; state: string; pincode: string; isDefault: boolean }
 type AddressDraft = Omit<SavedAddress, 'id'>
-type CustomerOrder = { publicToken: string; orderNumber: string; status: string; totalPaise: number; createdAt: string; items: Array<{ id: string; productName: string; size?: string | null; quantity: number; finalLineTotalPaise: number }>; shippingAddress?: { fullName?: string; addressLine1?: string; addressLine2?: string | null; city?: string; state?: string; pincode?: string } | null }
-type WaitlistReservation = { publicToken: string; waitlistId: string; status: string; depositPaise: number; discountPercent: number; founderNumber?: number | null; founderCapacity?: number; refundPaise: number; refundStatus?: string | null; createdAt: string; joinedAt?: string | null; items: Array<{ productId: string; productName: string; productSlug: string; size: string; quantity: number }> }
+type CustomerOrder = { publicToken: string; orderNumber: string; status: string; source?: string; waitlistReservationId?: string | null; subtotalPaise?: number; discountPaise?: number; taxPaise?: number; shippingPaise?: number; totalPaise: number; createdAt: string; mrpSubtotalPaise?: number | null; waitlistDiscountPaise?: number | null; reservationCreditPaise?: number; remainingBalancePaise?: number | null; pricingMode?: string | null; completionDeadlineAt?: string | null; balancePaidAt?: string | null; payments?: Array<{ provider: string; status: string }>; items: Array<{ id: string; productName: string; size?: string | null; quantity: number; finalLineTotalPaise: number }>; shippingAddress?: { fullName?: string; addressLine1?: string; addressLine2?: string | null; city?: string; state?: string; pincode?: string } | null }
+type WaitlistReservation = { publicToken: string; waitlistId: string; status: string; depositPaise: number; discountPercent: number; pricingMode?: string; pricingValuePaise?: number | null; founderNumber?: number | null; founderCapacity?: number; refundPaise: number; refundStatus?: string | null; createdAt: string; joinedAt?: string | null; convertedOrder?: { publicToken: string; orderNumber: string; status: string; totalPaise: number; remainingBalancePaise?: number | null; shippingAddress?: CustomerOrder['shippingAddress'] } | null; items: Array<{ productId: string; productName: string; productSlug: string; size: string; quantity: number }> }
 
 const customerCsrfHeaders = (): Record<string, string> => {
   const csrf = document.cookie.split('; ').find((entry) => entry.startsWith('sf_customer_csrf='))?.split('=').slice(1).join('=')
@@ -87,6 +88,7 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
   const [addressFormOpen, setAddressFormOpen] = useState(false)
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null)
   const [addressDraft, setAddressDraft] = useState<AddressDraft>(() => emptyAddressDraft())
+  const [addressSelections, setAddressSelections] = useState<Record<string, string>>({})
 
   const showVerificationPending = useCallback((nextCustomer: StorefrontCustomer) => {
     setCustomer(nextCustomer)
@@ -227,6 +229,44 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
     setAddresses(nextAddresses)
   }
 
+  const assignWaitlistAddress = async (order: CustomerOrder, addressId: string) => {
+    const address = addresses.find((item) => item.id === addressId)
+    if (!address) { setError('Choose a saved address first.'); return }
+    setBusy(true); setError(''); setNotice('')
+    try {
+      await postStorefront(`/customer/orders/${order.publicToken}/address`, { ...address, saveAddress: false }, customerCsrfHeaders())
+      if (customer) await loadAccount(customer)
+      setNotice(`Delivery address added to ${order.orderNumber}.`)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'We could not add this delivery address.') } finally { setBusy(false) }
+  }
+
+  const payWaitlistBalance = async (order: CustomerOrder) => {
+    setBusy(true); setError(''); setNotice('')
+    try {
+      const paymentOrderKey = crypto.randomUUID()
+      const checkout = await postStorefront<{ alreadyPaid?: boolean; amountPaise: number; currency?: string; keyId?: string; orderId?: string }>(`/customer/orders/${order.publicToken}/balance-order`, {}, { ...customerCsrfHeaders(), 'Idempotency-Key': paymentOrderKey })
+      if (checkout.alreadyPaid || !checkout.amountPaise) { if (customer) await loadAccount(customer); return }
+      if (!checkout.keyId || !checkout.orderId) throw new Error('Secure payment is not ready yet. Please try again shortly.')
+      const payment = await openRazorpayCheckout({ key: checkout.keyId, amount: checkout.amountPaise, currency: checkout.currency ?? 'INR', name: 'SkinFox', description: `Remaining balance for ${order.orderNumber}`, image: `${window.location.origin}/brand/skinfox-logo.png`, order_id: checkout.orderId, theme: { color: '#7d3f8c' } })
+      const verification = await postStorefront<{ confirmed?: boolean; pending?: boolean }>(`/customer/orders/${order.publicToken}/balance-verify`, { razorpayOrderId: payment.razorpay_order_id, razorpayPaymentId: payment.razorpay_payment_id, razorpaySignature: payment.razorpay_signature }, { ...customerCsrfHeaders(), 'Idempotency-Key': crypto.randomUUID() })
+      let confirmed = Boolean(verification.confirmed)
+      if (!confirmed && verification.pending) {
+        for (let attempt = 0; attempt < 5 && !confirmed; attempt += 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, 1000))
+          try {
+            const status = await getStorefront<{ confirmed?: boolean; pending?: boolean }>(`/customer/orders/${order.publicToken}/payment-status`)
+            confirmed = Boolean(status.confirmed)
+            if (!status.pending) break
+          } catch {
+            break
+          }
+        }
+      }
+      if (customer) await loadAccount(customer)
+      setNotice(confirmed ? `Payment received for ${order.orderNumber}.` : `Payment confirmation is pending for ${order.orderNumber}. You do not need to pay again.`)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'We could not complete the balance payment. Please try again.') } finally { setBusy(false) }
+  }
+
   const beginNewAddress = () => {
     if (!customer) return
     setEditingAddressId(null)
@@ -328,10 +368,25 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
           </div>}
           {activeSection === 'orders' ? <section id="account-section-panel" className="account-section" role="tabpanel" aria-labelledby="account-orders-tab">
             <div className="account-section__heading"><div><span className="eyebrow">Order history</span><h3>Your orders</h3></div><span>{orders.length ? `${orders.length} order${orders.length === 1 ? '' : 's'}` : 'No orders yet'}</span></div>
-            {orders.length ? <div className="order-list">{orders.map((order) => <article className="order-card" key={order.publicToken}><div className="order-card__top"><div><strong>{order.orderNumber}</strong><small>{new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(order.createdAt))}</small></div><span className={`order-status order-status--${order.status}`}>{humanise(order.status)}</span></div><ul>{order.items.map((item) => <li key={item.id}><span>{item.productName}{item.size ? <small>{item.size}</small> : null}</span><b>× {item.quantity}</b></li>)}</ul><div className="order-card__bottom"><span><MapPin size={14} /> {order.shippingAddress?.city ?? 'Delivery address saved'}{order.shippingAddress?.pincode ? ` · ${order.shippingAddress.pincode}` : ''}</span><strong>{formatPrice(order.totalPaise / 100)}</strong></div></article>)}</div> : <div className="account-empty"><PackageCheck size={24} /><h3>Your next routine starts here.</h3><p>Once you place an order, its items and latest status will appear in this space.</p><button className="button button--copper" type="button" onClick={onClose}>Explore the collection</button></div>}
+            {orders.length ? <div className="order-list">{orders.map((order) => {
+              const waitlistOrder = order.source === 'waitlist'
+              const addressReady = Boolean(order.shippingAddress && Object.keys(order.shippingAddress).length)
+              const balanceDue = Math.max(0, Number(order.remainingBalancePaise ?? (waitlistOrder ? order.totalPaise : 0)))
+              const paymentConfirmationPending = Boolean(waitlistOrder && !order.balancePaidAt && order.payments?.some((payment) => payment.provider === 'razorpay_waitlist_balance' && ['pending', 'authorised'].includes(payment.status)))
+              return <article className={`order-card ${waitlistOrder ? 'order-card--waitlist' : ''}`} key={order.publicToken}>
+                <div className="order-card__top"><div><strong>{order.orderNumber}</strong><small>{new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(order.createdAt))}</small></div><span className={`order-status order-status--${order.status}`}>{humanise(order.status)}</span></div>
+                {waitlistOrder && <div className="order-card__waitlist-badge"><Sparkles size={14} /> Waitlist order{order.waitlistReservationId ? ` · ${order.waitlistReservationId}` : ''}</div>}
+                <ul>{order.items.map((item) => <li key={item.id}><span>{item.productName}{item.size ? <small>{item.size}</small> : null}</span><b>× {item.quantity}</b></li>)}</ul>
+                {waitlistOrder && <div className="order-card__breakdown"><span>MRP value <b>{formatPrice(Number(order.mrpSubtotalPaise ?? order.subtotalPaise) / 100)}</b></span><span>Waitlist benefit <b>−{formatPrice(Number(order.waitlistDiscountPaise ?? order.discountPaise) / 100)}</b></span><span>Reservation credit <b>−{formatPrice(Number(order.reservationCreditPaise ?? 0) / 100)}</b></span>{Number(order.shippingPaise ?? 0) > 0 && <span>Shipping <b>{formatPrice(Number(order.shippingPaise) / 100)}</b></span>}{Number(order.taxPaise ?? 0) > 0 && <span>Tax <b>{formatPrice(Number(order.taxPaise) / 100)}</b></span>}<span className="order-card__balance">Remaining balance <b>{formatPrice(balanceDue / 100)}</b></span></div>}
+                <div className="order-card__bottom"><span><MapPin size={14} /> {order.shippingAddress?.city ?? (waitlistOrder ? 'Delivery address required' : 'Delivery address saved')}{order.shippingAddress?.pincode ? ` · ${order.shippingAddress.pincode}` : ''}</span><strong>{formatPrice(order.totalPaise / 100)}</strong></div>
+                {waitlistOrder && !addressReady && <div className="order-card__action"><span>Choose a saved address to continue.</span>{addresses.length ? <><select aria-label={`Address for ${order.orderNumber}`} value={addressSelections[order.publicToken] ?? ''} onChange={(event) => setAddressSelections((current) => ({ ...current, [order.publicToken]: event.target.value }))}><option value="">Select address</option>{addresses.map((address) => <option key={address.id} value={address.id}>{address.label} · {address.city}</option>)}</select><button type="button" className="button button--copper" onClick={() => void assignWaitlistAddress(order, addressSelections[order.publicToken] ?? '')} disabled={busy || !addressSelections[order.publicToken]}>Use address</button></> : <button type="button" className="button button--copper" onClick={() => setActiveSection('addresses')}>Add address</button>}</div>}
+                {waitlistOrder && addressReady && paymentConfirmationPending && <div className="order-card__pending" role="status"><LockKeyhole size={15} /><span><strong>Payment confirmation pending</strong><small>Please don’t pay again. We’ll update this order automatically.</small></span></div>}
+                {waitlistOrder && addressReady && balanceDue > 0 && !order.balancePaidAt && !paymentConfirmationPending && <button type="button" className="button button--copper order-card__pay" onClick={() => void payWaitlistBalance(order)} disabled={busy}><LockKeyhole size={15} /> Pay remaining {formatPrice(balanceDue / 100)}</button>}
+              </article>
+            })}</div> : <div className="account-empty"><PackageCheck size={24} /><h3>Your next routine starts here.</h3><p>Once you place an order, its items and latest status will appear in this space.</p><button className="button button--copper" type="button" onClick={onClose}>Explore the collection</button></div>}
           </section> : activeSection === 'waitlist' ? <section className="account-section account-waitlist" aria-labelledby="account-waitlist-title">
             <div className="account-section__heading"><div><span className="eyebrow">Founding launch access</span><h3 id="account-waitlist-title">Priority waitlist</h3><p className="account-waitlist__help">Use your waitlist ID whenever you contact SkinFox about a reservation.</p></div><span>{waitlist.length ? `${waitlist.length} reservation${waitlist.length === 1 ? '' : 's'}` : 'No reservations yet'}</span></div>
-            {waitlist.length ? <div className="account-waitlist__list">{waitlist.map((reservation) => <article className="account-waitlist__card" key={reservation.publicToken}><div className="account-waitlist__top"><div><span className="account-waitlist__reference">Waitlist ID <code>{reservation.waitlistId}</code></span><strong>{reservation.founderNumber ? `Founding member #${reservation.founderNumber} of ${reservation.founderCapacity ?? 200}` : 'Exclusive launch access reserved'}</strong><small>{new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(reservation.createdAt))}</small></div><span className={`order-status order-status--${reservation.status}`}>{humanise(reservation.status)}</span></div><ul>{reservation.items.map((item) => <li key={item.productId}><a href={`/products/${encodeURIComponent(item.productSlug)}`}>{item.productName}</a><span>{item.size} · × {item.quantity}</span></li>)}</ul><div className="account-waitlist__bottom"><span><strong>{formatPrice(reservation.depositPaise / 100)}</strong><small>{reservation.status === 'refunded' ? 'Refund completed (legacy)' : reservation.status === 'refund_pending' ? 'Refund processing (legacy)' : reservation.status === 'payment_failed' ? 'Payment not completed' : 'Non-refundable reservation fee'}</small></span></div></article>)}</div> : <div className="account-empty"><Sparkles size={24} /><h3>Your priority list is empty.</h3><p>Add the products you’re interested in and join the Founding 200 to reserve exclusive launch access.</p><button className="button button--copper" type="button" onClick={onClose}>Explore the collection</button></div>}
+            {waitlist.length ? <div className="account-waitlist__list">{waitlist.map((reservation) => <article className="account-waitlist__card" key={reservation.publicToken}><div className="account-waitlist__top"><div><span className="account-waitlist__reference">Waitlist ID <code>{reservation.waitlistId}</code></span><strong>{reservation.founderNumber ? `Founding member #${reservation.founderNumber} of ${reservation.founderCapacity ?? 200}` : 'Exclusive launch access reserved'}</strong><small>{new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(reservation.createdAt))}</small></div><span className={`order-status order-status--${reservation.status}`}>{humanise(reservation.status)}</span></div><ul>{reservation.items.map((item) => <li key={item.productId}><a href={`/products/${encodeURIComponent(item.productSlug)}`}>{item.productName}</a><span>{item.size} · × {item.quantity}</span></li>)}</ul><div className="account-waitlist__bottom"><span><strong>{formatPrice(reservation.depositPaise / 100)}</strong><small>{reservation.status === 'refunded' ? 'Refund completed (legacy)' : reservation.status === 'refund_pending' ? 'Refund processing (legacy)' : reservation.status === 'payment_failed' ? 'Payment not completed' : reservation.status === 'converted' ? 'Applied as credit to your order' : 'Non-refundable reservation fee'}</small></span>{reservation.convertedOrder && <button type="button" className="account-text-button" onClick={() => setActiveSection('orders')}>View order {reservation.convertedOrder.orderNumber} →</button>}</div></article>)}</div> : <div className="account-empty"><Sparkles size={24} /><h3>Your priority list is empty.</h3><p>Add the products you’re interested in and join the Founding 200 to reserve exclusive launch access.</p><button className="button button--copper" type="button" onClick={onClose}>Explore the collection</button></div>}
           </section> : activeSection === 'addresses' ? <section id="account-section-panel" className="account-section" role="tabpanel" aria-labelledby="account-addresses-tab">
             <div className="account-section__heading"><div><span className="eyebrow">Delivery addresses</span><h3>Saved addresses</h3></div><button className="button button--copper account-add-address" type="button" onClick={beginNewAddress}><Plus size={15} /> Add address</button></div>
             {addressFormOpen && <CustomerAddressForm draft={addressDraft} editing={Boolean(editingAddressId)} busy={busy} onChange={setAddressDraft} onSubmit={saveAddress} onCancel={() => { setAddressFormOpen(false); setEditingAddressId(null) }} />}

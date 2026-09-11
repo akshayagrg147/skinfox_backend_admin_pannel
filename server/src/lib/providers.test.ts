@@ -33,12 +33,12 @@ describe('RazorpayAdapter', () => {
   })
 
   it('checks the captured payment details with Razorpay', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 'pay_test_456', order_id: 'order_test_123', amount: 9900, status: 'captured' }))
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 'pay_test_456', order_id: 'order_test_123', amount: 9900, currency: 'INR', status: 'captured' }))
     vi.stubGlobal('fetch', fetchMock)
     const provider = new RazorpayAdapter('rzp_test_public', 'test_secret')
 
     await expect(provider.fetchPayment('pay_test_456')).resolves.toEqual({
-      providerPaymentId: 'pay_test_456', providerOrderId: 'order_test_123', amountPaise: 9900, status: 'captured',
+      providerPaymentId: 'pay_test_456', providerOrderId: 'order_test_123', amountPaise: 9900, currency: 'INR', status: 'captured',
     })
     expect(fetchMock).toHaveBeenCalledWith('https://api.razorpay.com/v1/payments/pay_test_456', expect.objectContaining({ method: 'GET' }))
   })

@@ -12,6 +12,7 @@ export const waitlistSettingsSchema = z.object({
   founderPricePaise: z.number().int().min(100).max(10_000_000).default(59_900),
   launchPricePaise: z.number().int().min(100).max(10_000_000).default(64_900),
   regularPricePaise: z.number().int().min(100).max(10_000_000).default(70_000),
+  pricingMode: z.enum(['exact_revealed_price', 'discount_off_mrp', 'percentage_of_mrp']).default('exact_revealed_price'),
 }).strict()
   .superRefine((value, ctx) => {
     if (value.founderPricePaise > value.launchPricePaise) ctx.addIssue({ code: 'custom', path: ['founderPricePaise'], message: 'Founder price cannot exceed launch price' })
@@ -37,6 +38,7 @@ export function waitlistDefaultsFromEnv(env: NodeJS.ProcessEnv = process.env): W
     founderPricePaise: 59_900,
     launchPricePaise: 64_900,
     regularPricePaise: 70_000,
+    pricingMode: 'exact_revealed_price',
   })
 }
 

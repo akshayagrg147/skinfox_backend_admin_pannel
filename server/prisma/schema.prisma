@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
@@ -125,25 +125,25 @@ enum ContactStatus {
 }
 
 model AdminUser {
-  id                 String            @id @default(cuid())
-  email              String            @unique
-  name               String
-  passwordHash       String
-  role               AdminRole         @default(SUPPORT_AGENT)
-  roleId             String?
-  roleRef            Role?             @relation(fields: [roleId], references: [id], onDelete: SetNull)
-  isActive           Boolean           @default(true)
-  mfaRequired        Boolean           @default(false)
-  mustChangePassword Boolean           @default(true)
-  lastLoginAt        DateTime?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
-  sessions           AdminSession[]
-  invitations        AdminInvitation[]
-  mfaCredential      MfaCredential?
-  auditLogs          AuditLog[]
-  revisions          ProductRevision[]
-  approvedAffiliates Affiliate[] @relation("AffiliateApprover")
+  id                         String                       @id @default(cuid())
+  email                      String                       @unique
+  name                       String
+  passwordHash               String
+  role                       AdminRole                    @default(SUPPORT_AGENT)
+  roleId                     String?
+  roleRef                    Role?                        @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  isActive                   Boolean                      @default(true)
+  mfaRequired                Boolean                      @default(false)
+  mustChangePassword         Boolean                      @default(true)
+  lastLoginAt                DateTime?
+  createdAt                  DateTime                     @default(now())
+  updatedAt                  DateTime                     @updatedAt
+  sessions                   AdminSession[]
+  invitations                AdminInvitation[]
+  mfaCredential              MfaCredential?
+  auditLogs                  AuditLog[]
+  revisions                  ProductRevision[]
+  approvedAffiliates         Affiliate[]                  @relation("AffiliateApprover")
   affiliateRedemptionReviews AffiliateRedemptionRequest[] @relation("AffiliateRedemptionReviewer")
 }
 
@@ -620,40 +620,40 @@ model ShippingQuote {
 }
 
 model Customer {
-  id                String            @id @default(cuid())
-  email             String?           @unique
-  fullName          String
-  phone             String?           @unique
-  phoneVerifiedAt   DateTime?
-  emailVerifiedAt   DateTime?
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
-  founderNumber     Int?              @unique
-  founderJoinedAt   DateTime?
-  addresses Address[]
-  consents  CustomerConsent[]
-  orders    Order[]
-  checkouts CheckoutSession[]
-  notes     CustomerNote[]
-  carts     Cart[]
-  sessions  CustomerSession[]
+  id                   String                 @id @default(cuid())
+  email                String?                @unique
+  fullName             String
+  phone                String?                @unique
+  phoneVerifiedAt      DateTime?
+  emailVerifiedAt      DateTime?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  founderNumber        Int?                   @unique
+  founderJoinedAt      DateTime?
+  addresses            Address[]
+  consents             CustomerConsent[]
+  orders               Order[]
+  checkouts            CheckoutSession[]
+  notes                CustomerNote[]
+  carts                Cart[]
+  sessions             CustomerSession[]
   // Legacy relation retained so existing customer records remain readable;
   // new customer authentication uses Firebase Google/email identities.
-  otpChallenges CustomerOtpChallenge[]
-  identities CustomerIdentity[]
+  otpChallenges        CustomerOtpChallenge[]
+  identities           CustomerIdentity[]
   waitlistReservations WaitlistReservation[]
 }
 
 model CustomerIdentity {
-  id         String   @id @default(cuid())
-  customerId String
-  firebaseProjectId String @default("skinfox")
-  provider   String
-  providerUid String
-  email      String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  id                String   @id @default(cuid())
+  customerId        String
+  firebaseProjectId String   @default("skinfox")
+  provider          String
+  providerUid       String
+  email             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  customer          Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@unique([firebaseProjectId, providerUid])
   @@index([customerId])
@@ -682,33 +682,33 @@ model Address {
 // Deprecated customer SMS OTP records. Kept for migration compatibility only;
 // no active route creates or verifies these challenges.
 model CustomerOtpChallenge {
-  id        String   @id @default(cuid())
+  id         String    @id @default(cuid())
   customerId String?
-  phone     String
-  codeHash  String
-  attempts  Int      @default(0)
-  expiresAt DateTime
+  phone      String
+  codeHash   String
+  attempts   Int       @default(0)
+  expiresAt  DateTime
   verifiedAt DateTime?
-  createdAt DateTime @default(now())
-  customer  Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  createdAt  DateTime  @default(now())
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
   @@index([phone, createdAt])
   @@index([expiresAt, verifiedAt])
 }
 
 model CustomerSession {
-  id         String   @id @default(cuid())
-  tokenHash  String   @unique
-  customerId String
+  id                String    @id @default(cuid())
+  tokenHash         String    @unique
+  customerId        String
   firebaseProjectId String?
-  firebaseUid String?
-  expiresAt  DateTime
-  revokedAt  DateTime?
-  lastSeenAt DateTime @default(now())
-  ip         String?
-  userAgent  String?
-  createdAt  DateTime @default(now())
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  firebaseUid       String?
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  lastSeenAt        DateTime  @default(now())
+  ip                String?
+  userAgent         String?
+  createdAt         DateTime  @default(now())
+  customer          Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId, expiresAt])
 }
@@ -733,63 +733,76 @@ model CustomerNote {
 }
 
 model Order {
-  id                String             @id @default(cuid())
-  publicToken       String             @unique
-  orderNumber       String             @unique
-  customerId        String?
-  checkoutSessionId String?            @unique
-  status            OrderStatus        @default(pending_payment)
-  currency          String             @default("INR")
-  subtotalPaise     Int
-  discountPaise     Int
-  taxPaise          Int
-  shippingPaise     Int
-  codPaise          Int
-  totalPaise        Int
-  shippingAddress   Json
-  billingAddress    Json?
-  customer          Customer?          @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  checkoutSession   CheckoutSession?   @relation(fields: [checkoutSessionId], references: [id], onDelete: SetNull)
-  items             OrderItem[]
-  statusEvents      OrderStatusEvent[]
-  notes             OrderNote[]
-  payments          Payment[]
-  refunds           Refund[]
-  shipments         Shipment[]
-  returns           ReturnRequest[]
-  affiliateAttribution AffiliateAttribution?
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  id                     String                @id @default(cuid())
+  publicToken            String                @unique
+  orderNumber            String                @unique
+  customerId             String?
+  checkoutSessionId      String?               @unique
+  status                 OrderStatus           @default(pending_payment)
+  currency               String                @default("INR")
+  subtotalPaise          Int
+  discountPaise          Int
+  taxPaise               Int
+  shippingPaise          Int
+  codPaise               Int
+  totalPaise             Int
+  shippingAddress        Json?
+  billingAddress         Json?
+  source                 String                @default("storefront")
+  waitlistReservationId  String?               @unique
+  pricingMode            String?
+  pricingPercent         Int?
+  mrpSubtotalPaise       Int?
+  waitlistDiscountPaise  Int?
+  reservationCreditPaise Int                   @default(0)
+  remainingBalancePaise  Int?
+  conversionSnapshot     Json?
+  completionDeadlineAt   DateTime?
+  convertedAt            DateTime?
+  balancePaidAt          DateTime?
+  customer               Customer?             @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  checkoutSession        CheckoutSession?      @relation(fields: [checkoutSessionId], references: [id], onDelete: SetNull)
+  waitlistReservation    WaitlistReservation?  @relation(fields: [waitlistReservationId], references: [id], onDelete: SetNull)
+  items                  OrderItem[]
+  statusEvents           OrderStatusEvent[]
+  notes                  OrderNote[]
+  payments               Payment[]
+  refunds                Refund[]
+  shipments              Shipment[]
+  returns                ReturnRequest[]
+  affiliateAttribution   AffiliateAttribution?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
 
   @@index([status, createdAt])
 }
 
 model Affiliate {
-  id                  String                       @id @default(cuid())
-  fullName            String
-  email               String?                      @unique
-  phone               String                       @unique
-  panEncrypted        String
-  panLast4            String
-  whatsappNumber      String?
-  city                String?
-  state               String?
-  payoutUpiId         String?
-  status              AffiliateStatus              @default(pending)
-  referralCode        String                       @unique
-  approvedAt          DateTime?
-  approvedById        String?
-  rejectionReason     String?
-  createdAt           DateTime                     @default(now())
-  updatedAt           DateTime                     @updatedAt
-  approvedBy          AdminUser?                   @relation("AffiliateApprover", fields: [approvedById], references: [id], onDelete: SetNull)
-  carts               Cart[]
-  sessions            AffiliateSession[]
-  otpChallenges       AffiliateOtpChallenge[]
-  clicks              AffiliateReferralClick[]
-  attributions        AffiliateAttribution[]
-  walletEntries       AffiliateWalletEntry[]
-  redemptionRequests  AffiliateRedemptionRequest[]
+  id                 String                       @id @default(cuid())
+  fullName           String
+  email              String?                      @unique
+  phone              String                       @unique
+  panEncrypted       String
+  panLast4           String
+  whatsappNumber     String?
+  city               String?
+  state              String?
+  payoutUpiId        String?
+  status             AffiliateStatus              @default(pending)
+  referralCode       String                       @unique
+  approvedAt         DateTime?
+  approvedById       String?
+  rejectionReason    String?
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+  approvedBy         AdminUser?                   @relation("AffiliateApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  carts              Cart[]
+  sessions           AffiliateSession[]
+  otpChallenges      AffiliateOtpChallenge[]
+  clicks             AffiliateReferralClick[]
+  attributions       AffiliateAttribution[]
+  walletEntries      AffiliateWalletEntry[]
+  redemptionRequests AffiliateRedemptionRequest[]
 
   @@index([status, createdAt])
 }
@@ -825,62 +838,62 @@ model AffiliateOtpChallenge {
 }
 
 model AffiliateReferralClick {
-  id          String    @id @default(cuid())
-  affiliateId String
-  cartId      String?
+  id           String    @id @default(cuid())
+  affiliateId  String
+  cartId       String?
   referralCode String
-  visitorHash String?
-  landingPath String?
-  createdAt   DateTime  @default(now())
-  affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  visitorHash  String?
+  landingPath  String?
+  createdAt    DateTime  @default(now())
+  affiliate    Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
 
   @@index([affiliateId, createdAt])
   @@index([cartId, createdAt])
 }
 
 model AffiliateAttribution {
-  id              String    @id @default(cuid())
+  id              String                @id @default(cuid())
   affiliateId     String
-  orderId         String    @unique
+  orderId         String                @unique
   referralCode    String
   commissionPaise Int
-  createdAt       DateTime  @default(now())
-  affiliate       Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Restrict)
-  order           Order     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  createdAt       DateTime              @default(now())
+  affiliate       Affiliate             @relation(fields: [affiliateId], references: [id], onDelete: Restrict)
+  order           Order                 @relation(fields: [orderId], references: [id], onDelete: Restrict)
   walletEntry     AffiliateWalletEntry?
 
   @@index([affiliateId, createdAt])
 }
 
 model AffiliateWalletEntry {
-  id              String                   @id @default(cuid())
-  affiliateId     String
-  type            AffiliateWalletEntryType
-  amountPaise     Int
-  description     String
-  attributionId   String?                  @unique
-  redemptionId    String?
-  createdAt       DateTime                 @default(now())
-  affiliate       Affiliate                @relation(fields: [affiliateId], references: [id], onDelete: Restrict)
-  attribution     AffiliateAttribution?    @relation(fields: [attributionId], references: [id], onDelete: SetNull)
-  redemption      AffiliateRedemptionRequest? @relation(fields: [redemptionId], references: [id], onDelete: SetNull)
+  id            String                      @id @default(cuid())
+  affiliateId   String
+  type          AffiliateWalletEntryType
+  amountPaise   Int
+  description   String
+  attributionId String?                     @unique
+  redemptionId  String?
+  createdAt     DateTime                    @default(now())
+  affiliate     Affiliate                   @relation(fields: [affiliateId], references: [id], onDelete: Restrict)
+  attribution   AffiliateAttribution?       @relation(fields: [attributionId], references: [id], onDelete: SetNull)
+  redemption    AffiliateRedemptionRequest? @relation(fields: [redemptionId], references: [id], onDelete: SetNull)
 
   @@index([affiliateId, createdAt])
 }
 
 model AffiliateRedemptionRequest {
-  id          String                    @id @default(cuid())
-  affiliateId String
-  amountPaise Int
-  status      AffiliateRedemptionStatus @default(requested)
-  payoutUpiId String?
-  reviewedAt  DateTime?
-  reviewedById String?
-  note        String?
-  createdAt   DateTime                  @default(now())
-  updatedAt   DateTime                  @updatedAt
-  affiliate   Affiliate                 @relation(fields: [affiliateId], references: [id], onDelete: Restrict)
-  reviewedBy  AdminUser?                @relation("AffiliateRedemptionReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  id            String                    @id @default(cuid())
+  affiliateId   String
+  amountPaise   Int
+  status        AffiliateRedemptionStatus @default(requested)
+  payoutUpiId   String?
+  reviewedAt    DateTime?
+  reviewedById  String?
+  note          String?
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  affiliate     Affiliate                 @relation(fields: [affiliateId], references: [id], onDelete: Restrict)
+  reviewedBy    AdminUser?                @relation("AffiliateRedemptionReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
   walletEntries AffiliateWalletEntry[]
 
   @@index([affiliateId, status, createdAt])
@@ -1220,36 +1233,39 @@ model LaunchInterest {
   updatedAt            DateTime @updatedAt
 }
 
-/// A paid priority-access reservation. Product prices are deliberately not
-/// copied here: customers join before launch pricing is revealed.
+/// A paid priority-access reservation. The pricing rule/value is captured at
+/// join time so later Admin changes never alter a customer's entitlement.
 model WaitlistReservation {
-  id                     String         @id @default(cuid())
-  publicToken            String         @unique
-  waitlistId             String         @unique
-  customerId             String
-  status                 WaitlistStatus @default(payment_pending)
-  currency               String         @default("INR")
-  depositPaise           Int
-  discountPercent        Int
-  phone                  String
-  consent                Boolean
-  consentAt              DateTime
-  termsVersion           String
-  provider               String         @default("razorpay")
-  providerOrderId        String?        @unique
-  providerPaymentId      String?        @unique
-  providerRefundId       String?        @unique
-  paymentCapturedPaise   Int            @default(0)
-  refundPaise            Int            @default(0)
-  refundStatus           String?
-  joinedAt               DateTime?
-  cancelledAt            DateTime?
-  refundedAt             DateTime?
-  idempotencyKey         String         @unique
-  customer               Customer       @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  items                  WaitlistItem[]
-  createdAt              DateTime       @default(now())
-  updatedAt              DateTime       @updatedAt
+  id                   String         @id @default(cuid())
+  publicToken          String         @unique
+  waitlistId           String         @unique
+  customerId           String
+  status               WaitlistStatus @default(payment_pending)
+  currency             String         @default("INR")
+  depositPaise         Int
+  discountPercent      Int
+  pricingMode          String         @default("exact_revealed_price")
+  pricingValuePaise    Int?
+  phone                String
+  consent              Boolean
+  consentAt            DateTime
+  termsVersion         String
+  provider             String         @default("razorpay")
+  providerOrderId      String?        @unique
+  providerPaymentId    String?        @unique
+  providerRefundId     String?        @unique
+  paymentCapturedPaise Int            @default(0)
+  refundPaise          Int            @default(0)
+  refundStatus         String?
+  joinedAt             DateTime?
+  cancelledAt          DateTime?
+  refundedAt           DateTime?
+  idempotencyKey       String         @unique
+  customer             Customer       @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  items                WaitlistItem[]
+  convertedOrder       Order?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
 
   @@index([customerId, createdAt])
   @@index([status, createdAt])
@@ -1317,16 +1333,16 @@ model CareFinder {
 }
 
 model CareFinderQuestion {
-  id           String             @id @default(cuid())
-  careFinderId String
-  key          String
-  prompt       String
-  sortOrder    Int                @default(0)
+  id            String             @id @default(cuid())
+  careFinderId  String
+  key           String
+  prompt        String
+  sortOrder     Int                @default(0)
   selectionMode String             @default("single")
-  required     Boolean            @default(true)
-  condition    Json?
-  careFinder   CareFinder         @relation(fields: [careFinderId], references: [id], onDelete: Cascade)
-  options      CareFinderOption[]
+  required      Boolean            @default(true)
+  condition     Json?
+  careFinder    CareFinder         @relation(fields: [careFinderId], references: [id], onDelete: Cascade)
+  options       CareFinderOption[]
 
   @@unique([careFinderId, key])
 }

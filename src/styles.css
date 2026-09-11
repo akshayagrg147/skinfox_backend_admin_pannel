@@ -7650,6 +7650,52 @@ blockquote {
   font-size: .76rem;
 }
 
+.order-card--waitlist {
+  background: linear-gradient(145deg, #fffdfa, #fbf4fb);
+  border-color: #e3d5e6;
+}
+
+.order-card__waitlist-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  color: var(--copper-dark);
+  font-size: .58rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.order-card__breakdown {
+  display: grid;
+  gap: 7px;
+  margin: 14px 0;
+  padding: 12px;
+  border: 1px solid #eadfeb;
+  border-radius: 11px;
+  background: rgba(255,255,255,.64);
+  color: #75756f;
+  font-size: .62rem;
+}
+
+.order-card__breakdown span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.order-card__breakdown b { color: var(--ink); font-weight: 700; }
+.order-card__breakdown .order-card__balance { padding-top: 7px; border-top: 1px solid #eadfeb; color: var(--ink); font-size: .68rem; }
+.order-card__action { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 14px; color: #73756f; font-size: .62rem; }
+.order-card__action select { flex: 1 1 160px; min-height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; }
+.order-card__action .button, .order-card__pay { min-height: 38px; padding: 0 15px; font-size: .61rem; }
+.order-card__pay { width: 100%; margin-top: 13px; justify-content: center; }
+.order-card__pending { display: flex; align-items: flex-start; gap: 9px; margin-top: 13px; padding: 11px 12px; border: 1px solid #eadfeb; border-radius: 10px; background: #faf5fb; color: var(--copper-dark); font-size: .62rem; }
+.order-card__pending span { display: grid; gap: 3px; }
+.order-card__pending strong { color: var(--ink); font-size: .66rem; }
+.order-card__pending small { color: #73756f; line-height: 1.45; }
+
 .address-card {
   padding: 18px 20px;
 }

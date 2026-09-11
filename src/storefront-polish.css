@@ -615,3 +615,105 @@ svg { flex-shrink: 0; }
   .range-grid { grid-template-columns: 1fr; gap: 16px; }
   .range-card__media { aspect-ratio: 16 / 10; }
 }
+
+/* Footer layout. Columns now size to their own content instead of stretching to
+   the tallest block — stretching left the link columns about 130px of empty
+   space, which the full-height dividers then framed. Whitespace separates the
+   columns, and desktop links use a reading rhythm; the 40px touch height from
+   the small-screen rules below still applies on phones. */
+.site-footer__top { align-items: start; }
+.site-footer__affiliate { min-height: 0; }
+.site-footer__top > div:not(.site-footer__brand):not(.site-footer__affiliate) { padding-left: 0; border-left: 0; }
+
+@media (min-width: 681px) {
+  .site-footer__top > div:not(.site-footer__brand):not(.site-footer__affiliate) { gap: 2px; }
+  .site-footer__top > div:not(.site-footer__brand):not(.site-footer__affiliate) > span { margin-bottom: 12px; }
+  .site-footer__top > div:not(.site-footer__brand):not(.site-footer__affiliate) > a,
+  .site-footer__top > div:not(.site-footer__brand):not(.site-footer__affiliate) > button {
+    /* Sized to the text, so the hover underline matches the label, not the column. */
+    align-self: flex-start;
+    min-height: 0;
+    padding-block: 5px;
+  }
+}
+
+/* Footer type scale. Most footer text sat at 10–13px, below comfortable reading
+   size; links and body copy now sit at 14–15px, with labels and small print
+   raised in proportion so the hierarchy is unchanged. Selectors mirror the
+   originals above so these win by order. */
+.site-footer__brand-kicker { font-size: 1.05rem; }
+.site-footer__brand-intro { max-width: 340px; font-size: .9rem; }
+.site-footer__top .site-footer__values > span { font-size: .7rem; }
+.site-footer__top > div > span { font-size: .75rem; }
+.site-footer__top > div:not(.site-footer__brand):not(.site-footer__affiliate) > a,
+.site-footer__top > div:not(.site-footer__brand):not(.site-footer__affiliate) > button { font-size: .95rem; }
+.site-footer__top .site-footer__social > .site-footer__email { font-size: .85rem; }
+.site-footer__affiliate strong { font-size: clamp(1.5rem, 1.9vw, 1.8rem); }
+.site-footer__affiliate p { max-width: 300px; font-size: .9rem; }
+.site-footer__top .site-footer__affiliate > a { font-size: .9rem; }
+.site-footer__bottom p, .site-footer__bottom a { font-size: .8rem; }
+
+/* Footer composition. Two short link lists sat between a tall brand block and a
+   tall affiliate card, so any four-across layout left a ~180px hole under the
+   links. The affiliate card now runs as a horizontal band beneath the two link
+   columns: the right side then roughly matches the brand block's height, and
+   the space is used rather than left empty. */
+@media (min-width: 961px) {
+  .site-footer__top {
+    grid-template-columns: minmax(300px, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: clamp(40px, 5vw, 80px);
+    row-gap: 30px;
+  }
+  .site-footer__brand { grid-column: 1; grid-row: 1 / span 2; }
+  .site-footer__affiliate { grid-column: 2 / span 2; grid-row: 2; }
+}
+
+/* Tablet: brand on the left across two rows, the two link groups stacked on the
+   right — together they roughly match the brand's height — then the affiliate
+   band across the full width. A full-width brand row would leave its right half
+   empty, since the brand copy is capped at ~340px. */
+@media (min-width: 521px) and (max-width: 960px) {
+  .site-footer__top > div.site-footer__brand { grid-column: 1; grid-row: 1 / span 2; }
+  .site-footer__affiliate { grid-column: 1 / -1; }
+}
+
+/* Wherever the affiliate card is wide, lay it out as a band: copy on the left,
+   the call to action on the right. Below 520px it stays stacked. */
+@media (min-width: 521px) {
+  /* Matches the specificity of the base `.site-footer__top > div:not(:first-child)`
+     flex rule, which otherwise wins and keeps the card stacked. */
+  .site-footer__top > div.site-footer__affiliate {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 32px;
+    align-items: center;
+  }
+  .site-footer__affiliate::before,
+  .site-footer__affiliate > span,
+  .site-footer__affiliate strong,
+  .site-footer__affiliate p { grid-column: 1; }
+  .site-footer__affiliate p { max-width: 46ch; margin-bottom: 0; }
+  .site-footer__top .site-footer__affiliate > a {
+    grid-column: 2;
+    grid-row: 1 / span 4;
+    width: auto;
+    margin-top: 0;
+    padding-inline: 30px;
+    white-space: nowrap;
+  }
+}
+
+/* The copyright line sat 88px below the content (a 54px margin on top of the
+   section's own padding); the section padding alone now sets the gap. */
+.site-footer__top { padding-bottom: 44px; }
+.site-footer__bottom { margin-top: 0; }
+
+/* In band form the "Become an affiliate" label already heads the card, so the
+   small accent bar above it only adds height. */
+@media (min-width: 521px) {
+  .site-footer__top > div.site-footer__affiliate::before { display: none; }
+  .site-footer__top > div.site-footer__affiliate { padding-block: 22px; }
+}
+@media (min-width: 961px) {
+  .site-footer__top { row-gap: 24px; }
+}
