@@ -63,6 +63,20 @@ describe('CustomerAccount', () => {
     expect(onCustomerChange).toHaveBeenCalledWith(expect.objectContaining({ id: 'customer-1', email: 'asha@example.com' }))
   })
 
+  it('explains a waitlist order balance with a plain-language calculation', async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === '/customer/auth/me') return Promise.resolve({ customer: { id: 'customer-1', fullName: 'Asha Sharma', email: 'asha@example.com', emailVerified: true } }) as never
+      if (path === '/customer/orders') return Promise.resolve([{ publicToken: 'waitlist-order-token', orderNumber: 'SF-WL-2026-ABCD', source: 'waitlist', status: 'pending_payment', totalPaise: 650000, createdAt: '2026-09-08T00:00:00.000Z', mrpSubtotalPaise: 910000, waitlistDiscountPaise: 131300, reservationCreditPaise: 128700, remainingBalancePaise: 650000, items: [{ id: 'line-1', productName: 'Rayyvia Sun Protect', size: '60 g', quantity: 1, finalLineTotalPaise: 778700 }], shippingAddress: null }]) as never
+      if (path === '/customer/addresses' || path === '/customer/waitlist') return Promise.resolve([]) as never
+      return Promise.resolve({}) as never
+    })
+    render(<CustomerAccount open onClose={() => undefined} apiAvailable onCustomerChange={() => undefined} />)
+    const breakdown = await screen.findByText(/balance calculation/i)
+    expect(breakdown.parentElement).toHaveTextContent('MRP ₹9,100 − ₹1,313 discount − ₹1,287 fee paid = ₹6,500 due')
+    expect(screen.getByText(/waitlist discount \(14% off mrp\)/i)).toBeInTheDocument()
+    expect(screen.getByText(/amount still due/i)).toBeInTheDocument()
+  })
+
   it('keeps a new email account in the verification state until the email is verified', async () => {
     exchangeMock.mockResolvedValue({ customer: { id: 'customer-2', fullName: 'Neha Rao', email: 'neha@example.com', emailVerified: false } } as never)
     render(<CustomerAccount open onClose={() => undefined} apiAvailable onCustomerChange={() => undefined} />)

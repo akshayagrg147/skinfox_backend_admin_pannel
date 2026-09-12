@@ -7679,12 +7679,16 @@ blockquote {
   font-size: .62rem;
 }
 
-.order-card__breakdown span {
+.order-card__breakdown > span {
   display: flex;
   justify-content: space-between;
   gap: 12px;
 }
 
+.order-card__breakdown > span > span { min-width: 0; }
+.order-card__formula { display: grid; gap: 4px; margin: -2px 0 2px; padding: 8px 9px 9px; border-radius: 8px; background: #fbf7fc; }
+.order-card__formula > span { color: #8a7e8d; font-size: .53rem; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+.order-card__formula strong { color: var(--ink); font-size: .62rem; font-weight: 700; line-height: 1.5; }
 .order-card__breakdown b { color: var(--ink); font-weight: 700; }
 .order-card__breakdown .order-card__balance { padding-top: 7px; border-top: 1px solid #eadfeb; color: var(--ink); font-size: .68rem; }
 .order-card__action { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 14px; color: #73756f; font-size: .62rem; }
