@@ -18,5 +18,13 @@ describe('ProductCard pricing', () => {
     expect(pricing).toHaveClass('product-card__price')
     expect(title!).not.toContainElement(pricing)
     expect(pricing).toHaveTextContent('Offer price₹525MRP ₹700Save ₹175 · 25% off')
+
+    const preview = visual.querySelector('.product-visual--hover-preview')
+    const photos = visual.querySelectorAll('.product-visual__photo')
+    expect(preview).toBeInTheDocument()
+    expect(photos).toHaveLength(2)
+    expect(photos[0]).toHaveClass('product-visual__photo--primary')
+    expect(photos[1]).toHaveClass('product-visual__photo--secondary')
+    expect(photos[1]).toHaveAttribute('src', products[0].media[1].src)
   })
 })

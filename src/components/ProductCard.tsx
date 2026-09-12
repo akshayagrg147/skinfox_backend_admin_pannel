@@ -30,7 +30,7 @@ export function ProductCard({ product, index, onAdd }: ProductCardProps) {
     >
       <a className="product-card__visual" href={productPath(product)} aria-label={`View full details for ${product.name} ${product.subtitle}`}>
         <span className="product-card__badge">{product.badge}</span>
-        <ProductVisual product={product} />
+        <ProductVisual product={product} hoverPreview />
         <span className="product-card__explore">Explore <ArrowUpRight size={15} /></span>
       </a>
       <div className="product-card__content">

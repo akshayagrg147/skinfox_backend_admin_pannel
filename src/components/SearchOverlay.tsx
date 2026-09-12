@@ -40,7 +40,7 @@ export function SearchOverlay({ open, onClose, catalogue = products, apiMode = f
       <div className="search-results">
         {results.map((product) => (
           <a key={product.id} href={productPath(product)} aria-label={`View full details for ${product.name} — ${product.subtitle}`} onClick={onClose}>
-            <span className="search-result__visual" style={{ background: product.tint }}><ProductVisual product={product} compact /></span>
+            <span className="search-result__visual" style={{ background: product.tint }}><ProductVisual product={product} compact hoverPreview /></span>
             <span><small>{product.concern}</small><strong>{product.name}</strong><i>{product.subtitle}</i></span>
             <ArrowRight size={18} />
           </a>

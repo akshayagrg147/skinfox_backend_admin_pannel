@@ -22,8 +22,9 @@ export function HeroCollectionShowcase({ products, loading = false }: HeroCollec
       <div className="hero-collection__halo" aria-hidden="true" />
       <div className={`hero-collection__grid ${visibleProducts.length > 4 || loading ? 'is-expanded' : ''}`}>
         {loading && Array.from({ length: 6 }, (_, index) => <div className="hero-skeleton" aria-hidden="true" key={index} />)}
-        {visibleProducts.map((product, index) => (
-          <motion.figure
+        {visibleProducts.map((product, index) => {
+          const secondaryImage = product.media.filter((item) => item.type === 'image')[1]
+          return <motion.figure
             key={product.id}
             className="hero-collection__card"
             role="listitem"
@@ -34,8 +35,9 @@ export function HeroCollectionShowcase({ products, loading = false }: HeroCollec
             transition={{ duration: 0.78, delay: 0.12 + index * 0.09, ease: [0.22, 1, 0.36, 1] }}
           >
             <a href={productPath(product)} aria-label={`View full details for ${product.name} ${product.subtitle}`}>
-              <span className="hero-collection__image">
-                <img src={product.image} srcSet={productImageSrcSet(product.image)} sizes="(max-width: 680px) 44vw, (max-width: 960px) 28vw, 210px" alt={product.imageAlt} width={320} height={320} decoding="async" loading={index < 3 ? 'eager' : 'lazy'} {...{ fetchpriority: index === 0 ? 'high' : 'auto' }} />
+              <span className={`hero-collection__image${secondaryImage ? ' hero-collection__image--hover-preview' : ''}`}>
+                <img className="hero-collection__image-primary" src={product.image} srcSet={productImageSrcSet(product.image)} sizes="(max-width: 680px) 44vw, (max-width: 960px) 28vw, 210px" alt={product.imageAlt} width={320} height={320} decoding="async" loading={index < 3 ? 'eager' : 'lazy'} {...{ fetchpriority: index === 0 ? 'high' : 'auto' }} />
+                {secondaryImage && <img className="hero-collection__image-secondary" src={secondaryImage.src} srcSet={productImageSrcSet(secondaryImage.src)} sizes="(max-width: 680px) 44vw, (max-width: 960px) 28vw, 210px" alt="" aria-hidden="true" width={320} height={320} decoding="async" loading="lazy" />}
               </span>
               <figcaption>
                 <span>{product.category}</span>
@@ -45,7 +47,7 @@ export function HeroCollectionShowcase({ products, loading = false }: HeroCollec
               </figcaption>
             </a>
           </motion.figure>
-        ))}
+        })}
       </div>
       <p className="hero-collection__caption hero-collection__caption--aside">
         Everyday essentials. One considered collection.
