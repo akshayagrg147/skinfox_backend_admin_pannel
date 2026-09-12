@@ -93,7 +93,7 @@ td { color: #4d5870; }
 .admin-data-table--waitlist tbody tr:last-child td { border-bottom: 0; }
 .admin-data-table--waitlist td.table-cell--waitlistId { color: #31405c; }
 .table-id { display: inline-block; color: #293955; font: 700 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .02em; overflow-wrap: anywhere; }
-.founder-badge { display: inline-flex; min-width: 28px; justify-content: center; padding: 4px 8px; border-radius: 999px; color: #176c54; background: #e5f5ee; font-size: 11px; font-weight: 750; }
+.waitlist-number-badge { display: inline-flex; min-width: 28px; justify-content: center; padding: 4px 8px; border-radius: 999px; color: #176c54; background: #e5f5ee; font-size: 11px; font-weight: 750; }
 .table-muted { color: #a3a9b4; }
 .status-chip { display: inline-flex; align-items: center; max-width: 100%; padding: 5px 8px; border-radius: 999px; color: #5d6576; background: #eef0f3; font-size: 10px; font-weight: 750; line-height: 1.2; text-transform: capitalize; }
 .status-chip--joined { color: #176c54; background: #e5f5ee; }

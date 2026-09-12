@@ -35,7 +35,7 @@ describe('WaitlistModal', () => {
     expect(postStorefront).toHaveBeenNthCalledWith(1, '/waitlist/reservations', expect.objectContaining({ phone: '9876543210', consent: true, termsVersion: '2026-09-10-nonrefundable' }), expect.objectContaining({ 'Idempotency-Key': expect.any(String) }))
     expect(openRazorpayCheckout).toHaveBeenCalledWith(expect.objectContaining({ key: 'rzp_test_key', order_id: 'order_123', amount: 9900 }))
     expect(postStorefront).toHaveBeenNthCalledWith(2, '/waitlist/reservations/reservation-public-token/verify', expect.objectContaining({ razorpayPaymentId: 'pay_123' }), expect.any(Object))
-    expect(await screen.findByText('You’re officially part of the Founding 200.')).toBeInTheDocument()
+    expect(await screen.findByText('You’re officially on the SkinFox priority waitlist.')).toBeInTheDocument()
     expect(screen.getByText('You’re #84 of 200')).toBeInTheDocument()
     expect(screen.getByText('SFWL-2026-12AB34CD56')).toBeInTheDocument()
     expect(onComplete).toHaveBeenCalledOnce()

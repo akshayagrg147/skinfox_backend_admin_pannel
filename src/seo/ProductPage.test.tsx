@@ -52,7 +52,7 @@ describe('ProductPage', () => {
     render(<ProductPage product={products[0]} productSlug={products[0].id} waitlist={waitlist} onAdd={vi.fn()} onFindCare={vi.fn()} />)
     expect(screen.getByText(/Exclusive Launch Price/)).toHaveTextContent('Revealing Soon')
     expect(screen.getByText('83 / 200')).toBeInTheDocument()
-    expect(screen.getByText('117 founder places remaining')).toBeInTheDocument()
+    expect(screen.getByText('117 priority places remaining')).toBeInTheDocument()
     expect(screen.getByText('Reveals soon')).toBeInTheDocument()
     expect(screen.queryByText('₹599')).not.toBeInTheDocument()
     expect(screen.queryByText(/Founder’s Price/i)).not.toBeInTheDocument()

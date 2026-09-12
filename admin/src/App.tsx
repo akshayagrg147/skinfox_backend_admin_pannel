@@ -175,7 +175,7 @@ function WaitlistManagement({ canManage }: { canManage: boolean }) {
     <div className="page-intro"><div><span className="kicker">Launch access / Razorpay</span><h2>Priority waitlist</h2><p className="muted">Control the live customer experience and find support cases by waitlist ID, customer, phone or email.</p></div><button className="secondary-button" onClick={() => { void settings.refetch(); void reservations.refetch(); void summaryReservations.refetch() }}>Refresh <Activity size={16} /></button></div>
     <div className="metric-grid waitlist-metrics">
       <article className="metric-card"><span>Waitlist status</span><strong className={settings.data?.enabled ? 'metric-status--live' : 'metric-status--closed'}>{settings.data?.enabled ? 'Open' : 'Closed'}</strong><small>{settings.data?.enabled ? 'Prices hidden · deposits enabled' : 'Prices visible · checkout enabled'}</small></article>
-      <article className="metric-card"><span>Founder places</span><strong>{settings.data?.founderClaimed ?? joined} / {settings.data?.founderCapacity ?? 200}</strong><small>{settings.data?.founderRemaining ?? 0} places remaining</small></article>
+      <article className="metric-card"><span>Priority places</span><strong>{settings.data?.founderClaimed ?? joined} / {settings.data?.founderCapacity ?? 200}</strong><small>{settings.data?.founderRemaining ?? 0} places remaining</small></article>
       <article className="metric-card"><span>Deposits captured</span><strong>₹{(captured / 100).toLocaleString('en-IN')}</strong><small>Before completed refunds</small></article>
       <article className="metric-card"><span>Refunds pending</span><strong>{refundPending}</strong><small>Awaiting provider confirmation</small></article>
     </div>
@@ -185,17 +185,17 @@ function WaitlistManagement({ canManage }: { canManage: boolean }) {
         {settings.isLoading ? <TableSkeleton /> : <>
           <label className="waitlist-toggle"><span><strong>Accept new waitlist reservations</strong><small>Turning this off advances the storefront to the public Launch Price.</small></span><input type="checkbox" checked={enabled} onChange={(event) => { const next = event.target.checked; setEnabled(next); setStage(next ? 'waitlist' : 'launch') }} disabled={!canManage} /><i aria-hidden="true" /></label>
           <div className="form-grid waitlist-fields">
-            <label className="form-field--wide">Storefront launch stage<select value={stage} onChange={(event) => { const next = event.target.value as WaitlistSettings['stage']; setStage(next); setEnabled(next === 'waitlist' || next === 'founder_reveal') }} disabled={!canManage}><option value="waitlist">Waitlist · member price hidden</option><option value="founder_reveal">Member reveal · ₹599 reserved</option><option value="launch">Public launch · ₹649</option><option value="regular">Regular sale · ₹700</option></select><small>This controls the customer wording and active price tier.</small></label>
+            <label className="form-field--wide">Storefront launch stage<select value={stage} onChange={(event) => { const next = event.target.value as WaitlistSettings['stage']; setStage(next); setEnabled(next === 'waitlist' || next === 'founder_reveal') }} disabled={!canManage}><option value="waitlist">Waitlist · early price hidden</option><option value="founder_reveal">Priority reveal · ₹599 reserved</option><option value="launch">Public launch · ₹649</option><option value="regular">Regular sale · ₹700</option></select><small>This controls the customer wording and active price tier.</small></label>
             <label>Early-access capacity<input type="number" min="1" max="10000" step="1" value={founderCapacity} onChange={(event) => setFounderCapacity(event.target.value)} disabled={!canManage} required /><small>Early-access membership closes automatically at this number.</small></label>
             <label>Reservation fee per product (₹)<input type="number" min="1" max="100000" step="1" value={depositRupees} onChange={(event) => setDepositRupees(event.target.value)} disabled={!canManage} required /><small>Non-refundable fee multiplied by the total product quantity in each new reservation.</small></label>
             <label>Launch discount (%)<input type="number" min="1" max="90" step="1" value={discountPercent} onChange={(event) => setDiscountPercent(event.target.value)} disabled={!canManage} required /><small>Saved with each new reservation.</small></label>
             <label className="form-field--wide">Waitlist price rule<select value={pricingMode} onChange={(event) => setPricingMode(event.target.value as WaitlistSettings['pricingMode'])} disabled={!canManage}><option value="exact_revealed_price">Exact waitlist member price</option><option value="discount_off_mrp">Discount off MRP (70% off ₹700 = ₹210)</option><option value="percentage_of_mrp">Percentage of MRP (70% of ₹700 = ₹490)</option></select><small>Stored with each new reservation; existing reservations keep their original rule.</small></label>
-            <label>Waitlist member price (₹)<input type="number" min="1" step="1" value={founderPrice} onChange={(event) => setFounderPrice(event.target.value)} disabled={!canManage} required /></label>
+            <label>Priority waitlist price (₹)<input type="number" min="1" step="1" value={founderPrice} onChange={(event) => setFounderPrice(event.target.value)} disabled={!canManage} required /></label>
             <label>Launch price (₹)<input type="number" min="1" step="1" value={launchPrice} onChange={(event) => setLaunchPrice(event.target.value)} disabled={!canManage} required /></label>
             <label>Regular price / MRP (₹)<input type="number" min="1" step="1" value={regularPrice} onChange={(event) => setRegularPrice(event.target.value)} disabled={!canManage} required /></label>
             <label className="form-field--wide">Terms version<input maxLength={40} value={termsVersion} onChange={(event) => setTermsVersion(event.target.value)} disabled={!canManage} required /><small>Change this whenever customer-facing waitlist terms change.</small></label>
           </div>
-          {!priceLadderValid && <div className="alert alert--error"><CircleAlert size={16} />Prices must follow Founder ≤ Launch ≤ Regular.</div>}
+          {!priceLadderValid && <div className="alert alert--error"><CircleAlert size={16} />Prices must follow Early-access ≤ Launch ≤ Regular.</div>}
           <div className={`payment-readiness ${settings.data?.paymentConfigured ? 'is-ready' : 'is-blocked'}`}><LockKeyhole size={17} /><span><strong>{settings.data?.paymentConfigured ? 'Razorpay is ready' : 'Razorpay is not configured'}</strong><small>{settings.data?.paymentConfigured ? 'Payment credentials remain encrypted on the server.' : 'Keep the waitlist closed until server credentials are configured.'}</small></span></div>
           {!canManage && <div className="alert"><LockKeyhole size={16} />Your role has read-only waitlist access.</div>}
           {save.isError && <div className="alert alert--error" role="alert"><CircleAlert size={16} />{save.error instanceof Error ? save.error.message : 'Unable to save waitlist settings.'}</div>}
@@ -424,13 +424,15 @@ function editableSnapshot(record: Resource) {
   }))
 }
 function tableFieldLabel(field: string) {
-  return field === 'waitlistId' ? 'Waitlist ID' : field.replace(/([A-Z])/g, ' $1')
+  if (field === 'waitlistId') return 'Waitlist ID'
+  if (field === 'founderNumber') return 'Waitlist number'
+  return field.replace(/([A-Z])/g, ' $1')
 }
 
 function renderTableCell(value: unknown, field: string) {
   const formatted = formatAdminCell(value, field)
   if (field === 'waitlistId' && formatted !== '—') return <code className="table-id">{formatted}</code>
-  if (field === 'founderNumber' && formatted !== '—') return <span className="founder-badge">#{formatted}</span>
+  if (field === 'founderNumber' && formatted !== '—') return <span className="waitlist-number-badge">#{formatted}</span>
   if (field === 'status' || field === 'refundStatus') {
     if (formatted === '—') return <span className="table-muted">—</span>
     const state = formatted.toLowerCase().replaceAll(' ', '-')

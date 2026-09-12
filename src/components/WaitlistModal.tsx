@@ -157,15 +157,15 @@ export function WaitlistModal({ open, lines, config, apiAvailable, onClose, onCo
     {stage === 'auth' && <div className="waitlist-auth">{error && <p className="form-error" role="alert">{error}</p>}<CustomerAuthForm apiAvailable={apiAvailable} destination="waitlist" onAuthenticated={authenticated} /></div>}
     {stage === 'details' && <div className="waitlist-layout">
       <form className="waitlist-form" onSubmit={submit} noValidate>
-        <span className="eyebrow"><Sparkles size={14} /> Founding 200 access</span>
+        <span className="eyebrow"><Sparkles size={14} /> Priority waitlist access</span>
         <h2>Reserve your place.<br /><em>Meet the price later.</em></h2>
         <p className="waitlist-lead">Join the waitlist and unlock an exclusive launch price before everyone else. The one-time reservation fee is {money(config.depositPaise)} per product unit, making your current total {money(totalDepositPaise)}.</p>
-        <div className="waitlist-benefits"><p><ShieldCheck size={18} /><span><strong>Priority reservation</strong><small>Your place is securely recorded against your SkinFox account and waitlist ID.</small></span></p><p><Sparkles size={18} /><span><strong>Exclusive member pricing</strong><small>Reserved for the first {config.founderCapacity} members of the SkinFox launch.</small></span></p><p><Clock3 size={18} /><span><strong>Early launch access</strong><small>See the member launch price before it becomes available publicly.</small></span></p></div>
+        <div className="waitlist-benefits"><p><ShieldCheck size={18} /><span><strong>Priority reservation</strong><small>Your place is securely recorded against your SkinFox account and waitlist ID.</small></span></p><p><Sparkles size={18} /><span><strong>Priority launch pricing</strong><small>Reserved for the first {config.founderCapacity} waitlist members.</small></span></p><p><Clock3 size={18} /><span><strong>Early product access</strong><small>See your launch price before it becomes available publicly.</small></span></p></div>
         <label className="account-field"><span>Mobile number</span><input type="tel" value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/g, '').slice(0, 10))} inputMode="numeric" autoComplete="tel" maxLength={10} required placeholder="9876543210" /><small>Used only for important launch and reservation updates.</small></label>
         <label className="consent-check waitlist-consent"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /><span>I agree to the <a href="/terms-and-conditions#priority-waitlist" target="_blank" rel="noreferrer">Priority Waitlist Terms</a>, understand that the final product price will be revealed later, and accept that the reservation fee is non-refundable except where required by law.</span></label>
         {error && <p className="form-error" role="alert">{error}</p>}
         {reservation && stage === 'details' && <p className="waitlist-reference-note"><span>Waitlist ID</span><strong>{reservation.waitlistId}</strong><small>Share this ID with SkinFox support if you need help with this payment attempt.</small></p>}
-        {config.foundingClosed ? <p className="waitlist-config-note" role="status">Founding {config.founderCapacity} is now closed. Launch Price {money(config.launchPricePaise)} is the next available tier.</p> : !config.paymentConfigured && <p className="waitlist-config-note" role="status">Secure payment setup is not active yet. Add the Razorpay keys on the server to start accepting deposits.</p>}
+        {config.foundingClosed ? <p className="waitlist-config-note" role="status">The priority waitlist is now closed. Launch Price {money(config.launchPricePaise)} is the next available tier.</p> : !config.paymentConfigured && <p className="waitlist-config-note" role="status">Secure payment setup is not active yet. Add the Razorpay keys on the server to start accepting deposits.</p>}
         <button className="button button--copper waitlist-pay" type="submit" disabled={busy || config.foundingClosed || config.stage !== 'waitlist' || !config.paymentConfigured || lines.length === 0}>{busy ? <><LoaderCircle className="auth-spinner" size={17} /> Opening secure payment…</> : <><LockKeyhole size={17} /> Pay {money(totalDepositPaise)} & join</>}</button>
         <p className="waitlist-secure"><LockKeyhole size={13} /> Payment is handled by Razorpay. SkinFox never receives or stores your card or UPI credentials.</p>
       </form>
@@ -174,13 +174,13 @@ export function WaitlistModal({ open, lines, config, apiAvailable, onClose, onCo
     {stage === 'success' && reservation && <div className={`waitlist-success ${reservation.status === 'joined' ? 'is-confirmed' : 'is-pending'}`} role="status">
       <div className="waitlist-success__topline">
         <span className="waitlist-success__icon" aria-hidden="true">{reservation.status === 'joined' ? <Check size={26} strokeWidth={2.5} /> : <Clock3 size={25} />}</span>
-        <span className="waitlist-success__eyebrow">{reservation.status === 'joined' ? 'Founding access reserved' : 'Payment confirmation pending'}</span>
+        <span className="waitlist-success__eyebrow">{reservation.status === 'joined' ? 'Priority access reserved' : 'Payment confirmation pending'}</span>
       </div>
-      <h2>{reservation.status === 'joined' ? 'You’re officially part of the Founding 200.' : 'We’re confirming your payment.'}</h2>
-      <p className="waitlist-success__lead">{reservation.status === 'joined' ? 'Your exclusive SkinFox launch price will be revealed soon.' : 'Please do not pay again. Razorpay will notify us automatically, and your account will show the updated status.'}</p>
+      <h2>{reservation.status === 'joined' ? 'You’re officially on the SkinFox priority waitlist.' : 'We’re confirming your payment.'}</h2>
+      <p className="waitlist-success__lead">{reservation.status === 'joined' ? 'Your SkinFox launch price will be revealed soon.' : 'Please do not pay again. Razorpay will notify us automatically, and your account will show the updated status.'}</p>
       <div className="waitlist-success__details">
         {reservation.status === 'joined' && reservation.founderNumber && <div className="waitlist-success__spot">
-          <span className="waitlist-success__card-label"><Sparkles size={14} /> Founder member</span>
+          <span className="waitlist-success__card-label"><Sparkles size={14} /> Waitlist member</span>
           <strong>You’re #{reservation.founderNumber} of {reservation.founderCapacity ?? config.founderCapacity}</strong>
           <span>Your place is linked securely to your SkinFox account.</span>
         </div>}
