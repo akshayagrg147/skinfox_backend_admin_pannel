@@ -13,6 +13,15 @@ describe('waitlist order pricing', () => {
     expect(result.finalAmountDuePaise).toBe(27200)
   })
 
+  it('applies the launch discount independently to each product MRP', () => {
+    const result = calculateWaitlistOrderPricing([
+      line(1),
+      { ...line(1), productId: 'coco', productName: 'Coco Kiss', productSlug: 'coco-kiss', size: '100 ml', mrpPaise: 80000 },
+    ], { mode: 'discount_off_mrp', percent: 70, reservationCreditPaise: 0 })
+    expect(result.lines.map((entry) => entry.unitMemberPricePaise)).toEqual([21000, 24000])
+    expect(result.memberProductSubtotalPaise).toBe(45000)
+  })
+
   it('supports percentage-of-MRP pricing', () => {
     const result = calculateWaitlistOrderPricing([line(1)], { mode: 'percentage_of_mrp', percent: 70, reservationCreditPaise: 0 })
     expect(result.memberProductSubtotalPaise).toBe(49000)

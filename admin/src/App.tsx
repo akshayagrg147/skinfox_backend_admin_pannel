@@ -108,10 +108,6 @@ function WaitlistManagement({ canManage }: { canManage: boolean }) {
   const [termsVersion, setTermsVersion] = useState('2026-09-10')
   const [stage, setStage] = useState<WaitlistSettings['stage']>('waitlist')
   const [founderCapacity, setFounderCapacity] = useState('200')
-  const [founderPrice, setFounderPrice] = useState('599')
-  const [launchPrice, setLaunchPrice] = useState('649')
-  const [regularPrice, setRegularPrice] = useState('700')
-  const [pricingMode, setPricingMode] = useState<WaitlistSettings['pricingMode']>('exact_revealed_price')
   const deferredSearch = useDeferredValue(search)
   const settings = useQuery({ queryKey: ['waitlist-settings'], queryFn: () => get<WaitlistSettings>('/admin/waitlist-settings') })
   const summaryReservations = useQuery({ queryKey: ['waitlist-reservations-summary'], queryFn: () => get<Resource[]>('/admin/waitlist-reservations?limit=100') })
@@ -129,11 +125,17 @@ function WaitlistManagement({ canManage }: { canManage: boolean }) {
     setTermsVersion(settings.data.termsVersion)
     setStage(settings.data.stage)
     setFounderCapacity(String(settings.data.founderCapacity))
-    setFounderPrice(String(settings.data.founderPricePaise / 100))
-    setLaunchPrice(String(settings.data.launchPricePaise / 100))
-    setRegularPrice(String(settings.data.regularPricePaise / 100))
-    setPricingMode(settings.data.pricingMode ?? 'exact_revealed_price')
   }, [settings.data])
+
+  // Preserve the existing public launch tiers for the conversion flow while
+  // keeping the operator-facing setup focused on the three waitlist controls.
+  // New reservations use a discount calculated from each product's own MRP.
+  const preservedPrices = {
+    founderPricePaise: Number(settings.data?.founderPricePaise ?? 59_900),
+    launchPricePaise: Number(settings.data?.launchPricePaise ?? 64_900),
+    regularPricePaise: Number(settings.data?.regularPricePaise ?? 70_000),
+  }
+  const pricingMode: WaitlistSettings['pricingMode'] = 'discount_off_mrp'
 
   const save = useMutation({
     mutationFn: () => patch<WaitlistSettings>('/admin/waitlist-settings', {
@@ -143,9 +145,7 @@ function WaitlistManagement({ canManage }: { canManage: boolean }) {
       termsVersion: termsVersion.trim(),
       stage,
       founderCapacity: Number(founderCapacity),
-      founderPricePaise: Math.round(Number(founderPrice) * 100),
-      launchPricePaise: Math.round(Number(launchPrice) * 100),
-      regularPricePaise: Math.round(Number(regularPrice) * 100),
+      ...preservedPrices,
       pricingMode,
     }),
     onSuccess: async (next) => {
@@ -161,7 +161,7 @@ function WaitlistManagement({ canManage }: { canManage: boolean }) {
   const joined = (summaryReservations.data ?? []).filter((row) => row.status === 'joined').length
   const captured = (summaryReservations.data ?? []).reduce((sum, row) => sum + Number(row.paymentCapturedPaise ?? 0), 0)
   const refundPending = (summaryReservations.data ?? []).filter((row) => row.status === 'refund_pending').length
-  const priceLadderValid = Number(founderPrice) > 0 && Number(founderPrice) <= Number(launchPrice) && Number(launchPrice) <= Number(regularPrice)
+  const priceLadderValid = preservedPrices.founderPricePaise > 0 && preservedPrices.founderPricePaise <= preservedPrices.launchPricePaise && preservedPrices.launchPricePaise <= preservedPrices.regularPricePaise
   const invalid = !Number.isFinite(Number(depositRupees)) || Number(depositRupees) < 1 || Number(depositRupees) > 100000 || !Number.isInteger(Number(discountPercent)) || Number(discountPercent) < 1 || Number(discountPercent) > 90 || !Number.isInteger(Number(founderCapacity)) || Number(founderCapacity) < 1 || !priceLadderValid || !termsVersion.trim()
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -181,21 +181,16 @@ function WaitlistManagement({ canManage }: { canManage: boolean }) {
     </div>
     <div className="waitlist-admin-grid">
       <form className="panel waitlist-control-panel" onSubmit={submit}>
-        <div className="panel-heading"><div><span className="kicker">Live storefront controls</span><h3>Launch configuration</h3></div><span className={`configuration-state ${enabled ? 'is-live' : ''}`}>{enabled ? 'Open' : 'Closed'}</span></div>
+        <div className="panel-heading"><div><span className="kicker">Pre-activation setup</span><h3>Waitlist controls</h3></div><span className={`configuration-state ${enabled ? 'is-live' : ''}`}>{enabled ? 'Open' : 'Closed'}</span></div>
         {settings.isLoading ? <TableSkeleton /> : <>
-          <label className="waitlist-toggle"><span><strong>Accept new waitlist reservations</strong><small>Turning this off advances the storefront to the public Launch Price.</small></span><input type="checkbox" checked={enabled} onChange={(event) => { const next = event.target.checked; setEnabled(next); setStage(next ? 'waitlist' : 'launch') }} disabled={!canManage} /><i aria-hidden="true" /></label>
+          <p className="waitlist-control-intro">Set the three values used for every new reservation. Each selected product uses its own MRP when the launch discount is applied.</p>
+          <label className="waitlist-toggle"><span><strong>Accept new waitlist reservations</strong><small>Turn this off when you are ready to stop accepting new reservations.</small></span><input type="checkbox" checked={enabled} onChange={(event) => { const next = event.target.checked; setEnabled(next); setStage(next ? 'waitlist' : 'launch') }} disabled={!canManage} /><i aria-hidden="true" /></label>
           <div className="form-grid waitlist-fields">
-            <label className="form-field--wide">Storefront launch stage<select value={stage} onChange={(event) => { const next = event.target.value as WaitlistSettings['stage']; setStage(next); setEnabled(next === 'waitlist' || next === 'founder_reveal') }} disabled={!canManage}><option value="waitlist">Waitlist · early price hidden</option><option value="founder_reveal">Priority reveal · ₹599 reserved</option><option value="launch">Public launch · ₹649</option><option value="regular">Regular sale · ₹700</option></select><small>This controls the customer wording and active price tier.</small></label>
-            <label>Early-access capacity<input type="number" min="1" max="10000" step="1" value={founderCapacity} onChange={(event) => setFounderCapacity(event.target.value)} disabled={!canManage} required /><small>Early-access membership closes automatically at this number.</small></label>
+            <label>Waitlist capacity<input type="number" min="1" max="10000" step="1" value={founderCapacity} onChange={(event) => setFounderCapacity(event.target.value)} disabled={!canManage} required /><small>Reservations close automatically when this many members join.</small></label>
             <label>Reservation fee per product (₹)<input type="number" min="1" max="100000" step="1" value={depositRupees} onChange={(event) => setDepositRupees(event.target.value)} disabled={!canManage} required /><small>Non-refundable fee multiplied by the total product quantity in each new reservation.</small></label>
-            <label>Launch discount (%)<input type="number" min="1" max="90" step="1" value={discountPercent} onChange={(event) => setDiscountPercent(event.target.value)} disabled={!canManage} required /><small>Saved with each new reservation.</small></label>
-            <label className="form-field--wide">Waitlist price rule<select value={pricingMode} onChange={(event) => setPricingMode(event.target.value as WaitlistSettings['pricingMode'])} disabled={!canManage}><option value="exact_revealed_price">Exact waitlist member price</option><option value="discount_off_mrp">Discount off MRP (70% off ₹700 = ₹210)</option><option value="percentage_of_mrp">Percentage of MRP (70% of ₹700 = ₹490)</option></select><small>Stored with each new reservation; existing reservations keep their original rule.</small></label>
-            <label>Priority waitlist price (₹)<input type="number" min="1" step="1" value={founderPrice} onChange={(event) => setFounderPrice(event.target.value)} disabled={!canManage} required /></label>
-            <label>Launch price (₹)<input type="number" min="1" step="1" value={launchPrice} onChange={(event) => setLaunchPrice(event.target.value)} disabled={!canManage} required /></label>
-            <label>Regular price / MRP (₹)<input type="number" min="1" step="1" value={regularPrice} onChange={(event) => setRegularPrice(event.target.value)} disabled={!canManage} required /></label>
-            <label className="form-field--wide">Terms version<input maxLength={40} value={termsVersion} onChange={(event) => setTermsVersion(event.target.value)} disabled={!canManage} required /><small>Change this whenever customer-facing waitlist terms change.</small></label>
+            <label>Launch discount from MRP (%)<input type="number" min="1" max="90" step="1" value={discountPercent} onChange={(event) => setDiscountPercent(event.target.value)} disabled={!canManage} required /><small>Example: 70% off ₹700 = ₹210. Applied separately to every product in the customer's reservation.</small></label>
           </div>
-          {!priceLadderValid && <div className="alert alert--error"><CircleAlert size={16} />Prices must follow Early-access ≤ Launch ≤ Regular.</div>}
+          <div className="waitlist-setting-note"><Sparkles size={17} /><span><strong>Per-product pricing</strong><small>The discount is calculated from each product's MRP when reservations become orders. Existing reservations keep the pricing snapshot they were created with.</small></span></div>
           <div className={`payment-readiness ${settings.data?.paymentConfigured ? 'is-ready' : 'is-blocked'}`}><LockKeyhole size={17} /><span><strong>{settings.data?.paymentConfigured ? 'Razorpay is ready' : 'Razorpay is not configured'}</strong><small>{settings.data?.paymentConfigured ? 'Payment credentials remain encrypted on the server.' : 'Keep the waitlist closed until server credentials are configured.'}</small></span></div>
           {!canManage && <div className="alert"><LockKeyhole size={16} />Your role has read-only waitlist access.</div>}
           {save.isError && <div className="alert alert--error" role="alert"><CircleAlert size={16} />{save.error instanceof Error ? save.error.message : 'Unable to save waitlist settings.'}</div>}
