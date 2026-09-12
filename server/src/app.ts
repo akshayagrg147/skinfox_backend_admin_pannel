@@ -289,7 +289,10 @@ export function buildApp(): FastifyInstance {
     return cart
   }
   const cartResponse = async (cart: any, cod = false, serviceable = true, customer?: any) => {
-    const founderEligible = ['founder_reveal', 'launch'].includes(activeWaitlistSettings.stage) && customer?.founderNumber && customer.founderNumber <= activeWaitlistSettings.founderCapacity && Boolean(await prisma.waitlistReservation.findFirst({ where: { customerId: customer.id, status: { in: [WaitlistStatus.joined, WaitlistStatus.converted] } }, select: { id: true } }))
+    // Founder pricing is snapshotted into the converted waitlist order. Once
+    // the public launch opens, new cart items must use the public launch price
+    // for every shopper, including former waitlist members.
+    const founderEligible = activeWaitlistSettings.stage === 'founder_reveal' && customer?.founderNumber && customer.founderNumber <= activeWaitlistSettings.founderCapacity && Boolean(await prisma.waitlistReservation.findFirst({ where: { customerId: customer.id, status: { in: [WaitlistStatus.joined, WaitlistStatus.converted] } }, select: { id: true } }))
     const lines = cart.items.map((item: any) => {
       // Prefer the fully hydrated product variant (with inventory) over the
       // lightweight CartItem relation so availability is never reported as zero

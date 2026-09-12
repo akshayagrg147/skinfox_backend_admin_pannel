@@ -59,12 +59,16 @@ describe('ProductPage', () => {
     expect(screen.queryByText(/% off/i)).not.toBeInTheDocument()
   })
 
-  it('reveals ₹599 only for an eligible early member and otherwise shows the ₹649 launch price', () => {
-    const { rerender } = render(<ProductPage product={products[0]} productSlug={products[0].id} waitlist={{ ...waitlist, enabled: false, stage: 'launch', founderClaimed: 200, founderRemaining: 0, foundingClosed: true }} founderNumber={84} onAdd={vi.fn()} onFindCare={vi.fn()} />)
-    expect(screen.getByText(/Member Launch Price/).parentElement).toHaveTextContent('₹599')
-    expect(screen.getByRole('button', { name: 'Claim My Launch Price' })).toBeInTheDocument()
-    rerender(<ProductPage product={products[0]} productSlug={products[0].id} waitlist={{ ...waitlist, enabled: false, stage: 'launch', founderClaimed: 200, founderRemaining: 0, foundingClosed: true }} onAdd={vi.fn()} onFindCare={vi.fn()} />)
-    expect(screen.getByText(/Founding 200 is now closed/i)).toBeInTheDocument()
+  it('shows public launch pricing after the waitlist closes, including for former members', () => {
+    const launchSettings = { ...waitlist, enabled: false, stage: 'launch' as const, founderClaimed: 200, founderRemaining: 0, foundingClosed: true }
+    const { rerender } = render(<ProductPage product={products[0]} productSlug={products[0].id} waitlist={launchSettings} founderNumber={84} onAdd={vi.fn()} onFindCare={vi.fn()} />)
     expect(screen.getByText(/Launch Price/).parentElement).toHaveTextContent('₹649')
+    expect(screen.getByRole('button', { name: 'Add to bag' })).toBeInTheDocument()
+    expect(screen.queryByText(/Member Launch Price/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Exclusive to the First 200/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Founding 200/i)).not.toBeInTheDocument()
+    rerender(<ProductPage product={products[0]} productSlug={products[0].id} waitlist={launchSettings} onAdd={vi.fn()} onFindCare={vi.fn()} />)
+    expect(screen.getByText(/Launch Price/).parentElement).toHaveTextContent('₹649')
+    expect(screen.getByRole('button', { name: 'Add to bag' })).toBeInTheDocument()
   })
 })
