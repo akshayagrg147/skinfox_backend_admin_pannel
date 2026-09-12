@@ -94,6 +94,7 @@ describe('ScrollProductStory', () => {
 
     expect(container.querySelector('.scroll-story--enhanced')).toBeInTheDocument()
     expect(container.querySelector('.scroll-story--static')).not.toBeInTheDocument()
+    expect(container.querySelector('section.scroll-story')).toHaveAttribute('id', 'story')
 
     const story = screen.getByRole('list', { name: 'SkinFox Hydrelle product' })
     const productItems = within(story).getAllByRole('listitem')
@@ -118,6 +119,7 @@ describe('ScrollProductStory', () => {
 
     expect(container.querySelector('.scroll-story--static')).toBeInTheDocument()
     expect(container.querySelector('.scroll-story--enhanced')).not.toBeInTheDocument()
+    expect(container.querySelector('section.scroll-story')).toHaveAttribute('id', 'story')
 
     const story = screen.getByRole('list', { name: 'SkinFox Hydrelle product' })
     expect(within(story).getAllByRole('listitem')).toHaveLength(1)

@@ -24,12 +24,17 @@ describe('Header mobile menu', () => {
     expect(document.body).toHaveClass('is-locked')
     const mobileNavigation = screen.getByRole('navigation', { name: 'Mobile navigation' })
     expect(mobileNavigation).toBeInTheDocument()
-    expect(within(mobileNavigation).getByRole('link', { name: 'Shop the collection' })).toHaveAttribute('href', '#shop')
+    expect(within(mobileNavigation).getByRole('link', { name: 'Shop the edit' })).toHaveAttribute('href', '#shop')
     expect(within(mobileNavigation).getByRole('button', { name: 'My account' })).toBeInTheDocument()
     expect(within(mobileNavigation).getByRole('button', { name: 'Find my care' })).toBeInTheDocument()
-    expect(within(mobileNavigation).getByRole('link', { name: 'Our range' })).toHaveAttribute('href', '#range')
+    expect(within(mobileNavigation).getByRole('link', { name: 'Explore the range' })).toHaveAttribute('href', '#range')
     expect(within(mobileNavigation).getByRole('link', { name: 'Our story' })).toHaveAttribute('href', '#story')
-    expect(within(mobileNavigation).getByRole('link', { name: 'Questions, answered' })).toHaveAttribute('href', '#faq')
+    expect(within(mobileNavigation).getByRole('link', { name: 'Care & support' })).toHaveAttribute('href', '#faq')
+
+    const desktopNavigation = screen.getByRole('navigation', { name: 'Main navigation' })
+    const desktopLinks = within(desktopNavigation).getAllByRole('link')
+    expect(desktopLinks.map((link) => link.getAttribute('href'))).toEqual(['#shop', '#range', '#story', '#faq'])
+    expect(desktopLinks.map((link) => link.textContent)).toEqual(['Shop the edit', 'Explore the range', 'Our story', 'Care & support'])
 
     fireEvent.keyDown(window, { key: 'Escape' })
 

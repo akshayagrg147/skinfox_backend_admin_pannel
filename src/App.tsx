@@ -339,7 +339,7 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
 
         <section id="range" className="range-section section-pad" aria-labelledby="range-title">
           <div className="shell">
-            <div className="range-section__intro" id="story">
+            <div className="range-section__intro">
               <span className="section-number">The SkinFox range</span>
               <h2 id="range-title">One collection.<br /><em>More ways to care.</em></h2>
               <p>Care is personal. SkinFox brings together skincare, body care and hair essentials, so you can build a routine around what matters to you. Clear product details, room to explore, and a helping hand whenever you need one.</p>

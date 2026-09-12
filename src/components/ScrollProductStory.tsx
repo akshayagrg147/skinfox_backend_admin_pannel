@@ -48,6 +48,7 @@ function BottleAsset({ product }: { product: Product }) {
 function StaticStory({ product }: ScrollProductStoryProps) {
   return (
     <section
+      id="story"
       className="scroll-story scroll-story--static"
       aria-labelledby="scroll-story-static-title"
     >
@@ -167,6 +168,7 @@ function EnhancedStory({ product }: ScrollProductStoryProps) {
   return (
     <section
       ref={sectionRef}
+      id="story"
       className="scroll-story scroll-story--enhanced"
       aria-labelledby="scroll-story-title"
     >
