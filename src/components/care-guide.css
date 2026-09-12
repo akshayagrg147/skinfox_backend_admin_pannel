@@ -641,6 +641,14 @@
   font-size: 11px;
 }
 
+.care-edit-item__price-note {
+  max-width: 150px;
+  color: #88798a !important;
+  font-size: 10px !important;
+  line-height: 1.45;
+  text-align: right;
+}
+
 .care-edit-item__price button {
   display: inline-flex;
   align-items: center;
@@ -681,6 +689,88 @@
 
 .care-week {
   margin-top: 22px;
+}
+
+.care-routine-overview {
+  margin-top: 22px;
+  padding: 28px;
+  border: 1px solid #e5dfe5;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #fcfafc, #f8f5f8);
+}
+
+.care-routine-overview__header {
+  max-width: 640px;
+  margin-bottom: 21px;
+}
+
+.care-routine-overview__header h3 {
+  margin: 7px 0 6px;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 27px;
+  font-weight: 500;
+  letter-spacing: -.035em;
+  line-height: 1.25;
+}
+
+.care-routine-overview__header p {
+  margin: 0;
+  color: #827585;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.care-routine-overview__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.care-routine-card {
+  min-width: 0;
+  padding: 19px 18px;
+  border: 1px solid #e9e1ea;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .72);
+}
+
+.care-routine-card__eyebrow {
+  display: block;
+  color: #795c83;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.care-routine-card > strong {
+  display: block;
+  margin-top: 6px;
+  color: #493153;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.care-routine-card ul {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.care-routine-card li {
+  display: grid;
+  gap: 3px;
+  color: #5c4b61;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.care-routine-card li small {
+  color: #88798a;
+  font-size: 10px;
+  line-height: 1.5;
 }
 
 .care-week__heading {
@@ -858,6 +948,7 @@
   .care-guide--sidebar .care-guide__identity strong { font-size: 12px; }
   .care-finder-options button { padding-inline: 14px; }
   .care-edit-item { grid-template-columns: 82px minmax(0, 1fr) auto; gap: 16px; }
+  .care-routine-overview__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 720px) {
@@ -882,6 +973,8 @@
   .care-edit-item__price { grid-column: 2; padding: 0; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 10px 15px; }
   .care-edit-item__price button { margin-left: auto; }
   .care-edit__actions { padding: 20px; gap: 15px 23px; }
+  .care-routine-overview { padding: 22px 20px; }
+  .care-routine-overview__grid { grid-template-columns: 1fr; }
   .care-week__heading { padding: 22px 20px 18px; }
   .care-week__heading h3 { font-size: 23px; }
   .care-week__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0 20px 20px; }
@@ -911,6 +1004,8 @@
   .care-edit-item__price strong { font-size: 18px; }
   .care-edit__actions > .care-finder-primary-button { width: 100%; }
   .care-edit__actions { justify-content: center; }
+  .care-routine-overview { padding: 20px 16px; }
+  .care-routine-overview__header h3 { font-size: 24px; }
   .care-week__heading { gap: 10px; padding-inline: 16px; }
   .care-week__icon { width: 36px; height: 36px; flex-basis: 36px; border-radius: 10px; }
   .care-week__heading .care-finder-kicker { font-size: 9px; }

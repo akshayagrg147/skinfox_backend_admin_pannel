@@ -178,4 +178,39 @@ describe('SkinFox care guide navigation', () => {
     expect(await screen.findByText('1 of 2 photo checks left today')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /take a photo/i })).toBeInTheDocument()
   })
+
+  it('hydrates API recommendation prices and keeps every recommended product in the routine', async () => {
+    const recommendation = {
+      package: {
+        name: 'The Skin Reset',
+        description: 'A considered edit.',
+        totalPaise: 0,
+        mrpTotalPaise: 0,
+        savingsPaise: 0,
+        items: [
+          { product: { slug: 'rayyvia-sun-protect' }, role: 'essential', reason: 'Protection', frequency: 'Daily', days: ['Every day'], timeOfDay: 'Morning', instructions: 'Follow the label.', guidanceStatus: 'approved', pricePaise: 52500, mrpPaise: 70000 },
+          { product: { slug: 'coco-kiss-moisturizing-lotion' }, role: 'essential', reason: 'Moisture', frequency: 'As directed on pack', days: ['As directed'], timeOfDay: 'As directed', instructions: 'Follow the label.', guidanceStatus: 'approved', pricePaise: 45000, mrpPaise: 60000 },
+        ],
+      },
+      summary: { careArea: 'skin', primaryGoal: 'dry_skin', secondaryGoals: [] },
+      routine: { weeklyPlan: [], repeatForDays: 30 },
+      guidanceReview: [],
+      explanation: 'Two products matched.',
+      disclaimer: 'Cosmetic care guidance only.',
+      guidanceNote: 'Follow the label.',
+    }
+    sessionStorage.setItem('skinfox-care-finder-session', JSON.stringify({ answers: { careArea: 'skin' }, result: recommendation }))
+
+    render(<RoutineQuiz open onClose={vi.fn()} onAdd={vi.fn()} catalogue={products} finder={finder} />)
+
+    expect(await screen.findByText('₹525')).toBeInTheDocument()
+    expect(screen.getByText('₹450')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Your complete care rhythm.' })).toBeInTheDocument()
+    expect(screen.getByText('Daily focus')).toBeInTheDocument()
+    expect(screen.getByText('Weekly rhythm')).toBeInTheDocument()
+    expect(screen.getByText('Monthly consistency')).toBeInTheDocument()
+    expect(screen.getAllByText('Coco Kiss').length).toBeGreaterThan(1)
+    expect(screen.getAllByText('Rayyvia Sun Protect').length).toBeGreaterThan(1)
+    expect(screen.queryByText(/N\/A/i)).not.toBeInTheDocument()
+  })
 })

@@ -1,7 +1,8 @@
 import { ArrowLeft, ArrowRight, CalendarDays, Camera, Check, CircleAlert, Clock3, RotateCcw, ShieldCheck, Sparkles, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { formatPrice, getQuizRecommendation } from '../data/products'
+import { formatPrice, formatProductPrice, getQuizRecommendation } from '../data/products'
 import type { Product } from '../types'
+import { mapProduct } from '../hooks/useStorefront'
 import { getStorefront, postStorefront } from '../lib/storefrontApi'
 import { ModalShell } from './ModalShell'
 import { ProductVisual } from './ProductVisual'
@@ -13,19 +14,108 @@ type Answer = string | string[]
 type Condition = { key: string; equals?: string; in?: string[]; not?: string[] }
 type FinderOption = { value: string; label: string; description?: string; condition?: Condition | null }
 type FinderQuestion = { key: string; prompt: string; selectionMode?: 'single' | 'multi'; required?: boolean; condition?: Condition | null; options: FinderOption[] }
-type RecommendationItem = { product: Product; role: 'essential' | 'optional'; reason: string; frequency: string; days: string[]; timeOfDay: string; instructions: string; guidanceStatus: 'approved' | 'needs_review' }
+type RecommendationItem = { product: Product; role: 'essential' | 'optional'; reason: string; frequency: string; days: string[]; timeOfDay: string; instructions: string; guidanceStatus: 'approved' | 'needs_review'; stepOrder?: number | null }
+type RoutineStep = { productId: string; productName: string; timeOfDay: string; stepOrder?: number | null; guidanceStatus: string }
 type RecommendationResult = {
   package: { name: string; description: string; items: RecommendationItem[]; totalPaise: number; mrpTotalPaise: number; savingsPaise: number } | null
   summary: { careArea: string; primaryGoal: string | null; secondaryGoals: string[] }
-  routine: { weeklyPlan: Array<{ day: string; steps: Array<{ productId: string; productName: string; timeOfDay: string; stepOrder?: number | null; guidanceStatus: string }> }>; repeatForDays: number }
+  routine: { weeklyPlan: Array<{ day: string; steps: RoutineStep[] }>; repeatForDays: number; calendar?: Array<{ day: number; weekday: string; steps: RoutineStep[] }> }
   guidanceReview: Array<{ productId: string; productName: string; message: string }>
   explanation: string
   disclaimer: string
   guidanceNote: string
 }
 
+type RecommendationProductPayload = Partial<Product> & { id?: string; slug?: string; pricePaise?: number | null; mrpPaise?: number | null }
+type RecommendationItemPayload = Omit<RecommendationItem, 'product'> & { product: RecommendationProductPayload; pricePaise?: number | null; mrpPaise?: number | null }
+type RecommendationResultPayload = Omit<RecommendationResult, 'package' | 'routine'> & {
+  package: Omit<NonNullable<RecommendationResult['package']>, 'items'> & { items: RecommendationItemPayload[] } | null
+  routine?: RecommendationResult['routine']
+}
+
 type PhotoAnalysis = { configured: boolean; usable: boolean; observations: string[]; answers: Record<string, Answer>; note: string; remaining?: number; limit?: number }
 type PhotoQuota = { configured: boolean; allowed: boolean; remaining: number; limit: number }
+
+const WEEK_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const hasOwn = (value: object, key: PropertyKey) => Object.prototype.hasOwnProperty.call(value, key)
+const paiseToRupees = (value: number | null | undefined) => typeof value === 'number' && Number.isFinite(value) ? value / 100 : null
+
+const recommendationProduct = (item: RecommendationItemPayload, catalogue: Product[]) => {
+  const payload = item.product ?? {}
+  const id = payload.slug ?? payload.id
+  const catalogueProduct = id ? catalogue.find((product) => product.id === id) : undefined
+  const payloadPrice = hasOwn(item, 'pricePaise') ? item.pricePaise : hasOwn(payload, 'pricePaise') ? payload.pricePaise : undefined
+  const payloadMrp = item.mrpPaise ?? payload.mrpPaise
+  const price = payloadPrice === undefined ? (catalogueProduct?.price ?? null) : paiseToRupees(payloadPrice)
+  const mrp = paiseToRupees(payloadMrp) ?? catalogueProduct?.mrp ?? null
+
+  // The catalogue is the source of the complete Product shape (including the
+  // static artwork). API recommendations only need to override commercial
+  // fields; this also prevents a raw API object from rendering `₹NaN`/N/A.
+  if (catalogueProduct) return { ...catalogueProduct, price, mrp }
+  return mapProduct({ ...payload, id: id ?? payload.id ?? 'care-recommendation', pricePaise: payloadPrice, mrpPaise: payloadMrp })
+}
+
+const routineStepFor = (item: RecommendationItem): RoutineStep => ({ productId: item.product.id, productName: item.product.name, timeOfDay: item.timeOfDay, stepOrder: item.stepOrder ?? null, guidanceStatus: item.guidanceStatus })
+
+const routineDaysFor = (item: RecommendationItem) => {
+  const days = item.days.map((day) => day.trim().toLowerCase())
+  if (days.some((day) => ['every day', 'daily', 'all days'].includes(day))) return WEEK_DAYS
+  const namedDays = WEEK_DAYS.filter((day) => days.includes(day.toLowerCase()))
+  return namedDays.length ? namedDays : WEEK_DAYS
+}
+
+const normalizeRoutine = (routine: RecommendationResult['routine'] | undefined, items: RecommendationItem[]): RecommendationResult['routine'] => {
+  const incoming = routine?.weeklyPlan ?? []
+  const weeklyPlan = WEEK_DAYS.map((day) => {
+    const existing = incoming.find((candidate) => candidate.day.toLowerCase() === day.toLowerCase())
+    return { day, steps: [...(existing?.steps ?? [])] }
+  })
+
+  // Some products intentionally have `As directed` cadence metadata rather
+  // than named weekdays. Keep those products visible in the routine too, so a
+  // two-product edit never becomes a one-product schedule.
+  items.forEach((item) => {
+    const productId = item.product.id
+    const alreadyScheduled = weeklyPlan.some((day) => day.steps.some((step) => step.productId === productId))
+    if (alreadyScheduled) return
+    const step = routineStepFor(item)
+    routineDaysFor(item).forEach((dayName) => {
+      const day = weeklyPlan.find((candidate) => candidate.day === dayName)
+      if (day && !day.steps.some((candidate) => candidate.productId === productId)) day.steps.push(step)
+    })
+  })
+
+  weeklyPlan.forEach((day) => day.steps.sort((a, b) => (a.stepOrder ?? 99) - (b.stepOrder ?? 99) || a.productName.localeCompare(b.productName)))
+  const repeatForDays = routine?.repeatForDays && routine.repeatForDays > 0 ? routine.repeatForDays : 30
+  const calendar = routine?.calendar?.length ? routine.calendar : Array.from({ length: repeatForDays }, (_, index) => ({ day: index + 1, weekday: WEEK_DAYS[index % WEEK_DAYS.length], steps: weeklyPlan[index % WEEK_DAYS.length].steps }))
+  return { weeklyPlan, repeatForDays, calendar }
+}
+
+const normalizeRecommendationResult = (payload: RecommendationResultPayload, catalogue: Product[]): RecommendationResult => {
+  const rawItems = payload.package?.items ?? []
+  const items = rawItems.map((item) => ({ ...item, product: recommendationProduct(item, catalogue) }))
+  const fallbackTotal = items.reduce((sum, item) => sum + (item.product.price ?? 0) * 100, 0)
+  const fallbackMrp = items.reduce((sum, item) => sum + (item.product.mrp ?? item.product.price ?? 0) * 100, 0)
+  const packageValue = payload.package ? {
+    ...payload.package,
+    items,
+    totalPaise: payload.package.totalPaise > 0 ? payload.package.totalPaise : fallbackTotal,
+    mrpTotalPaise: payload.package.mrpTotalPaise > 0 ? payload.package.mrpTotalPaise : fallbackMrp,
+    savingsPaise: payload.package.savingsPaise > 0 ? payload.package.savingsPaise : Math.max(0, fallbackMrp - fallbackTotal),
+  } : null
+  const routine = payload.routine ? {
+    ...payload.routine,
+    weeklyPlan: payload.routine.weeklyPlan.map((day) => ({
+      ...day,
+      steps: day.steps.map((step) => {
+        const matched = items.find((item) => item.product.id === step.productId || item.product.name === step.productName)
+        return matched ? { ...step, productId: matched.product.id, productName: matched.product.name } : step
+      }),
+    })),
+  } : undefined
+  return { ...payload, package: packageValue, routine: normalizeRoutine(routine, items) }
+}
 
 type RoutineQuizProps = {
   open: boolean
@@ -108,6 +198,8 @@ export function RoutineQuiz({ open, onClose, onAdd, catalogue = [], finder }: Ro
   const advanceTimer = useRef<number | null>(null)
   const requestVersion = useRef(0)
   const headingRef = useRef<HTMLHeadingElement>(null)
+  const catalogueRef = useRef(catalogue)
+  catalogueRef.current = catalogue
   const serverFinder = finder?.questions?.some((question) => question.key === 'careArea') ? finder : null
   const questions = useMemo(() => (serverFinder?.questions?.length ? serverFinder.questions : fallbackQuestions), [serverFinder])
   const activeQuestions = useMemo(() => questions.filter((question) => conditionMatches(question.condition, answers)), [answers, questions])
@@ -121,10 +213,10 @@ export function RoutineQuiz({ open, onClose, onAdd, catalogue = [], finder }: Ro
     setAdvancing(false)
     if (!open) return
     try {
-      const saved = JSON.parse(sessionStorage.getItem('skinfox-care-finder-session') ?? 'null') as { answers?: Record<string, Answer>; result?: RecommendationResult } | null
+      const saved = JSON.parse(sessionStorage.getItem('skinfox-care-finder-session') ?? 'null') as { answers?: Record<string, Answer>; result?: RecommendationResultPayload } | null
       if (saved?.result && saved.answers) {
         setAnswers(saved.answers)
-        setResult(saved.result)
+        setResult(normalizeRecommendationResult(saved.result, catalogueRef.current))
         setStep(0)
         setLoading(false)
         setAddedIds([])
@@ -188,10 +280,10 @@ export function RoutineQuiz({ open, onClose, onAdd, catalogue = [], finder }: Ro
       if (serverFinder && !import.meta.env.MODE.includes('test')) {
         const response = await postStorefront<RecommendationResult>('/care-finder/recommendations', { answers: nextAnswers })
         if (version !== requestVersion.current) return
-        setResult(response)
+        setResult(normalizeRecommendationResult(response as unknown as RecommendationResultPayload, catalogue))
         void postStorefront('/care-finder/events', { event: 'completed', answers: nextAnswers, recommendations: response }).catch(() => undefined)
-      } else setResult(localRecommendation(nextAnswers, catalogue))
-    } catch { if (version === requestVersion.current) setResult(localRecommendation(nextAnswers, catalogue)) }
+      } else setResult(normalizeRecommendationResult(localRecommendation(nextAnswers, catalogue) as unknown as RecommendationResultPayload, catalogue))
+    } catch { if (version === requestVersion.current) setResult(normalizeRecommendationResult(localRecommendation(nextAnswers, catalogue) as unknown as RecommendationResultPayload, catalogue)) }
     finally { if (version === requestVersion.current) { setLoading(false); setAdvancing(false) } }
   }
 
@@ -261,7 +353,7 @@ export function RoutineQuiz({ open, onClose, onAdd, catalogue = [], finder }: Ro
   const addRoutine = () => packageItems.forEach((item) => addItem(item.product))
   const purchasableItems = packageItems.filter((item) => item.product.price !== null)
   const routineInBag = purchasableItems.length > 0 && purchasableItems.every((item) => addedIds.includes(item.product.id))
-  const packageTotalLabel = result?.package && result.package.totalPaise > 0 ? formatPrice(result.package.totalPaise / 100) : 'Confirm at launch'
+  const packageTotalLabel = result?.package && result.package.totalPaise > 0 ? formatPrice(result.package.totalPaise / 100) : 'Price on launch'
   const config = finder?.config
 
   useEffect(() => {
@@ -331,9 +423,17 @@ export function RoutineQuiz({ open, onClose, onAdd, catalogue = [], finder }: Ro
           <div className="care-edit__items">{packageItems.map((item, index) => <article className="care-edit-item" key={item.product.id}>
             <div className="care-edit-item__visual" style={{ background: item.product.tint }}><ProductVisual product={item.product} compact /></div>
             <div className="care-edit-item__copy"><div className="care-edit-item__meta"><span>Step {String(index + 1).padStart(2, '0')} · {item.role}</span><span>{item.product.size}</span></div><h4>{item.product.name}</h4><p>{item.reason}</p><div className="care-edit-item__guidance"><span><Clock3 size={13} aria-hidden="true" />{item.frequency}</span><span>{item.days.join(', ')}</span><span>{item.timeOfDay}</span></div><p className="care-edit-item__directions">{item.instructions}</p></div>
-            <div className="care-edit-item__price"><strong>{item.product.price !== null ? formatPrice(item.product.price) : 'At launch'}</strong>{savingsLabel(item.product) && <small>{savingsLabel(item.product)}</small>}<button type="button" aria-label={`${addedIds.includes(item.product.id) ? 'Added' : 'Add'} ${item.product.name} to bag`} onClick={() => addItem(item.product)} disabled={item.product.price === null || addedIds.includes(item.product.id)}>{item.product.price === null ? 'At launch' : addedIds.includes(item.product.id) ? 'In bag' : 'Add to bag'} {addedIds.includes(item.product.id) ? <Check size={15} aria-hidden="true" /> : <ArrowRight size={15} aria-hidden="true" />}</button></div>
+            <div className="care-edit-item__price"><strong>{formatProductPrice(item.product)}</strong>{savingsLabel(item.product) && <small>{savingsLabel(item.product)}</small>}{item.product.price === null && <small className="care-edit-item__price-note">Final selling price will be confirmed at launch.</small>}<button type="button" aria-label={`${addedIds.includes(item.product.id) ? 'Added' : 'Add'} ${item.product.name} to bag`} onClick={() => addItem(item.product)} disabled={item.product.price === null || addedIds.includes(item.product.id)}>{item.product.price === null ? 'Price pending' : addedIds.includes(item.product.id) ? 'In bag' : 'Add to bag'} {addedIds.includes(item.product.id) ? <Check size={15} aria-hidden="true" /> : <ArrowRight size={15} aria-hidden="true" />}</button></div>
           </article>)}</div>
           <div className="care-edit__actions"><button type="button" className="care-finder-primary-button" onClick={addRoutine} disabled={!purchasableItems.length || routineInBag}>{!purchasableItems.length ? 'Not available yet' : routineInBag ? 'Routine in bag' : 'Add complete routine'}{routineInBag ? <Check size={17} aria-hidden="true" /> : <ArrowRight size={17} aria-hidden="true" />}</button><button type="button" className="care-finder-text-button" onClick={edit}>Edit answers</button><span role="status" className="care-edit__bag-status">{addedIds.length > 0 ? `${addedIds.length} ${addedIds.length === 1 ? 'product' : 'products'} added to your bag` : ''}</span></div>
+        </section>
+        <section className="care-routine-overview" aria-label="Daily weekly and monthly care routine">
+          <div className="care-routine-overview__header"><span className="care-finder-kicker">A clear plan for every product</span><h3>Your complete care rhythm.</h3><p>Each recommended product is included below. Follow the product label whenever it differs from this cosmetic routine guide.</p></div>
+          <div className="care-routine-overview__grid">
+            <article className="care-routine-card"><span className="care-routine-card__eyebrow">Daily focus</span><strong>{packageItems.length} {packageItems.length === 1 ? 'step' : 'steps'}</strong><ul>{packageItems.map((item) => <li key={item.product.id}><span>{item.product.name}</span><small>{item.frequency} · {item.timeOfDay}</small></li>)}</ul></article>
+            <article className="care-routine-card"><span className="care-routine-card__eyebrow">Weekly rhythm</span><strong>7-day guide</strong><ul>{packageItems.map((item) => <li key={item.product.id}><span>{item.product.name}</span><small>{item.days.join(', ')}</small></li>)}</ul></article>
+            <article className="care-routine-card"><span className="care-routine-card__eyebrow">Monthly consistency</span><strong>{result.routine.repeatForDays}-day repeat</strong><ul>{packageItems.map((item) => <li key={item.product.id}><span>{item.product.name}</span><small>Repeat this cadence for the full {result.routine.repeatForDays} days</small></li>)}</ul></article>
+          </div>
         </section>
         <section className="care-week" aria-label={`${result.routine.repeatForDays} day care routine`}>
           <div className="care-week__heading"><span className="care-week__icon"><CalendarDays size={23} aria-hidden="true" /></span><div><span className="care-finder-kicker">A little consistency goes a long way</span><h3>Your {result.routine.repeatForDays}-day care rhythm.</h3><p>Use this week as your guide, and always follow your product’s directions.</p></div></div>
