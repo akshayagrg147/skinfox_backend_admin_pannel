@@ -26,6 +26,7 @@ import { LocalEmailAdapter, LocalStorageAdapter, ManualShippingAdapter, Razorpay
 import { productImageAssetSchema, productMediaInputSchema } from './lib/productAssets.js'
 import { calculateWaitlistDepositPaise, createWaitlistId, parseStoredWaitlistSettings, waitlistDefaultsFromEnv, waitlistSettingsSchema, type WaitlistSettings } from './lib/waitlistConfig.js'
 import { calculateWaitlistOrderPricing, type WaitlistPricingMode } from './lib/waitlistOrders.js'
+import { adjustInventory, inventoryHistory, inventoryWorkspace } from './lib/inventoryWorkspace.js'
 
 const secureCookies = () => process.env.COOKIE_SECURE === undefined ? process.env.NODE_ENV === 'production' : process.env.COOKIE_SECURE === 'true'
 const defaultWaitlistSettings = waitlistDefaultsFromEnv()
@@ -1231,7 +1232,119 @@ export function buildApp(): FastifyInstance {
     app.delete(`/api/v1/admin/${resource}/:id`, async (request, reply) => { const user = await requireAdmin(roles)(request); const delegate = (prisma as any)[delegateName]; const before = await delegate.findUnique({ where: { id: request.params.id } }); if (!before) throw notFound(`${resource} record not found.`); const supportsArchivedAt = getAdminCrudModel(delegateName).fields.some((field) => field.name === 'archivedAt'); const result = 'status' in before ? await delegate.update({ where: { id: request.params.id }, data: { status: PublicationStatus.archived, ...(supportsArchivedAt ? { archivedAt: new Date() } : {}) } }) : await delegate.delete({ where: { id: request.params.id } }); await audit(user, request, 'archive', resource, request.params.id, before, result, String(request.body?.reason ?? 'Admin action')); return data(reply, result) })
   }
 
-  routes.get('/api/v1/admin/products', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const params = pageParams(request); const where: any = { ...(request.query?.status ? { status: request.query.status } : {}), ...(params.q ? { OR: [{ name: { contains: params.q, mode: 'insensitive' } }, { slug: { contains: params.q, mode: 'insensitive' } }] } : {}) }; const [items, total] = await Promise.all([prisma.product.findMany({ where, include: { media: true, variants: true }, orderBy: { updatedAt: 'desc' }, skip: (params.page - 1) * params.limit, take: params.limit }), prisma.product.count({ where })]); return data(reply, items.map((item) => publicProduct(item, true)), { page: params.page, limit: params.limit, total, hasNextPage: params.page * params.limit < total }) })
+  routes.get('/api/v1/admin/products', async (request, reply) => {
+    await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request)
+    const params = pageParams(request)
+    const requestedPeriod = Number(request.query?.periodDays ?? 30)
+    const periodDays = [7, 30, 90].includes(requestedPeriod) ? requestedPeriod : 30
+    const categoryFilter = String(request.query?.category ?? '').trim().toLowerCase()
+    const inventoryFilter = String(request.query?.inventory ?? '').trim().toLowerCase()
+    const performanceFilter = String(request.query?.performance ?? '').trim().toLowerCase()
+    const requestedSort = String(request.query?.sort ?? 'updated')
+    const sortKey = ['name', 'stock', 'unitsSold', 'updated'].includes(requestedSort) ? requestedSort : 'updated'
+    const direction = String(request.query?.direction ?? 'desc') === 'asc' ? 1 : -1
+    const where: any = {
+      ...(request.query?.status ? { status: request.query.status } : {}),
+      ...(params.q ? {
+        OR: [
+          { name: { contains: params.q, mode: 'insensitive' } },
+          { slug: { contains: params.q, mode: 'insensitive' } },
+          { variants: { some: { sku: { contains: params.q, mode: 'insensitive' } } } },
+        ],
+      } : {}),
+    }
+    const items = await prisma.product.findMany({
+      where,
+      include: { media: true, categoryRef: true, variants: { include: { inventory: true } } },
+      orderBy: { updatedAt: 'desc' },
+    })
+    const productIds = items.map((item) => item.id)
+    const eligibleStatuses = [OrderStatus.confirmed, OrderStatus.processing, OrderStatus.packed, OrderStatus.shipped, OrderStatus.delivered]
+    const periodStart = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000)
+    const salesItems = productIds.length ? await prisma.orderItem.findMany({
+      where: { productId: { in: productIds }, order: { status: { in: eligibleStatuses } } },
+      select: { productId: true, quantity: true, order: { select: { id: true, customerId: true, createdAt: true } } },
+    }) : []
+    const slowMaxUnits = Number(process.env.ADMIN_PRODUCT_SLOW_MAX_UNITS ?? 3)
+    const sellingMinUnits = Number(process.env.ADMIN_PRODUCT_SELLING_MIN_UNITS ?? 4)
+    const salesByProduct = new Map<string, { unitsSold: number; orderIds: Set<string>; customers: Map<string, Set<string>> }>()
+    for (const entry of salesItems) {
+      if (!entry.productId) continue
+      const current = salesByProduct.get(entry.productId) ?? { unitsSold: 0, orderIds: new Set<string>(), customers: new Map<string, Set<string>>() }
+      current.orderIds.add(entry.order.id)
+      if (entry.order.createdAt >= periodStart) current.unitsSold += Number(entry.quantity ?? 0)
+      if (entry.order.customerId) {
+        const customerOrders = current.customers.get(entry.order.customerId) ?? new Set<string>()
+        customerOrders.add(entry.order.id)
+        current.customers.set(entry.order.customerId, customerOrders)
+      }
+      salesByProduct.set(entry.productId, current)
+    }
+    const rows = items.map((item) => {
+      const sales = salesByProduct.get(item.id) ?? { unitsSold: 0, orderIds: new Set<string>(), customers: new Map<string, Set<string>>() }
+      const inventory = { tracked: false, onHandQty: 0, reservedQty: 0, sellableQty: 0, lowStock: false, lowStockThreshold: null as number | null }
+      for (const variant of item.variants) {
+        for (const stock of variant.inventory ?? []) {
+          const onHand = Number(stock.availableQty ?? 0)
+          const reserved = Number(stock.reservedQty ?? 0)
+          const sellable = Math.max(onHand - reserved, 0)
+          inventory.tracked = true
+          inventory.onHandQty += onHand
+          inventory.reservedQty += reserved
+          inventory.sellableQty += sellable
+          inventory.lowStock = inventory.lowStock || sellable <= Number(stock.lowStockThreshold ?? 5)
+          inventory.lowStockThreshold = inventory.lowStockThreshold === null ? Number(stock.lowStockThreshold ?? 5) : Math.min(inventory.lowStockThreshold, Number(stock.lowStockThreshold ?? 5))
+        }
+      }
+      const productIsNew = new Date(item.createdAt) > periodStart
+      const performance = productIsNew ? 'new' : sales.unitsSold === 0 ? 'no_sales' : sales.unitsSold <= slowMaxUnits ? 'slow' : sales.unitsSold >= sellingMinUnits ? 'selling' : 'slow'
+      const stockState = !inventory.tracked ? 'untracked' : inventory.sellableQty === 0 ? 'out_of_stock' : inventory.lowStock ? 'low_stock' : 'in_stock'
+      const repeatOrders = [...sales.customers.values()].reduce((total, orderIds) => total + Math.max(0, orderIds.size - 1), 0)
+      const publicItem = publicProduct(item, true)
+      return {
+        ...publicItem,
+        category: item.categoryRef?.name ?? item.category,
+        productMetrics: {
+          periodDays,
+          salesDataAvailable: true,
+          unitsSold: sales.unitsSold,
+          repeatOrders,
+          orderCount: sales.orderIds.size,
+          performance,
+          performanceLabel: performance === 'no_sales' ? 'No sales' : performance === 'slow' ? 'Slow-moving' : performance === 'selling' ? 'Selling' : 'New',
+          slowMaxUnits,
+          sellingMinUnits,
+          stockState,
+          stockLabel: stockState === 'untracked' ? 'Not tracked' : stockState === 'out_of_stock' ? 'Out of stock' : stockState === 'low_stock' ? 'Low stock' : 'In stock',
+          inventoryTracked: inventory.tracked,
+          onHandQty: inventory.onHandQty,
+          reservedQty: inventory.reservedQty,
+          sellableQty: inventory.sellableQty,
+          lowStockThreshold: inventory.lowStockThreshold,
+          variantCount: item.variants.length,
+          sku: item.variants.map((variant) => variant.sku).filter(Boolean).join(', '),
+        },
+      }
+    })
+    const filtered = rows.filter((row) => {
+      const metrics = row.productMetrics
+      const rowCategory = String(row.category ?? '').toLowerCase()
+      if (categoryFilter && rowCategory !== categoryFilter) return false
+      if (inventoryFilter && String(metrics.stockState) !== inventoryFilter) return false
+      if (performanceFilter && String(metrics.performance) !== performanceFilter) return false
+      return true
+    })
+    filtered.sort((left, right) => {
+      const leftMetrics = left.productMetrics
+      const rightMetrics = right.productMetrics
+      const leftValue = sortKey === 'name' ? String(left.name ?? '').toLowerCase() : sortKey === 'stock' ? Number(leftMetrics.sellableQty ?? 0) : sortKey === 'unitsSold' ? Number(leftMetrics.unitsSold ?? 0) : new Date(String(left.updatedAt)).getTime()
+      const rightValue = sortKey === 'name' ? String(right.name ?? '').toLowerCase() : sortKey === 'stock' ? Number(rightMetrics.sellableQty ?? 0) : sortKey === 'unitsSold' ? Number(rightMetrics.unitsSold ?? 0) : new Date(String(right.updatedAt)).getTime()
+      return (leftValue < rightValue ? -1 : leftValue > rightValue ? 1 : 0) * direction
+    })
+    const total = filtered.length
+    const start = (params.page - 1) * params.limit
+    return data(reply, filtered.slice(start, start + params.limit), { page: params.page, limit: params.limit, total, hasNextPage: start + params.limit < total, periodDays, categories: [...new Set(rows.map((row) => String(row.category ?? '').trim()).filter(Boolean))].sort() })
+  })
   routes.post('/api/v1/admin/products', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const input = productCreateSchema.parse(request.body); const { media, sku, ...productData } = input; const created = await prisma.$transaction(async (tx) => { const product = await tx.product.create({ data: productData as any }); await tx.productVariant.create({ data: { productId: product.id, sku: sku ?? `${product.slug.toUpperCase()}-DEFAULT`, name: product.size, size: product.size, pricePaise: product.pricePaise, mrpPaise: product.mrpPaise, purchaseState: product.purchaseState } }); if (media.length) await tx.productMedia.createMany({ data: media.map((item, index) => ({ ...item, productId: product.id, sortOrder: item.sortOrder ?? index, type: item.type as any })) }); await tx.productRevision.create({ data: { productId: product.id, version: 1, snapshot: input as any, status: product.status, createdById: user.id } }); return tx.product.findUniqueOrThrow({ where: { id: product.id }, include: { media: true, variants: true } }) }); await audit(user, request, 'create', 'Product', created.id, null, created); return reply.status(201).send({ data: publicProduct(created, true), meta: { requestId: request.id } }) })
   routes.get('/api/v1/admin/products/:id', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const product = await prisma.product.findUnique({ where: { id: request.params.id }, include: { media: true, variants: { include: { inventory: true } }, revisions: { orderBy: { version: 'desc' } }, claims: true, collections: { include: { collection: true } } } }); if (!product) throw notFound('Product not found.'); return data(reply, publicProduct(product, true)) })
   routes.patch('/api/v1/admin/products/:id', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const before = await prisma.product.findUnique({ where: { id: request.params.id }, include: { media: true, variants: true } }); if (!before) throw notFound('Product not found.'); const input = productPatchSchema.parse(request.body); const { media, sku: _sku, ...changes } = input; const effectivePrice = changes.pricePaise !== undefined ? changes.pricePaise : before.pricePaise; const effectiveMrp = changes.mrpPaise !== undefined ? changes.mrpPaise : before.mrpPaise; const effectivePurchaseState = changes.purchaseState !== undefined ? changes.purchaseState : before.purchaseState; if (effectivePrice !== null && effectiveMrp !== null && effectiveMrp < effectivePrice) throw validationError('MRP cannot be lower than selling price.'); if (effectivePurchaseState === PurchaseState.available && effectivePrice === null) throw validationError('Available products require a selling price.'); const updated = await prisma.$transaction(async (tx) => { const item = await tx.product.update({ where: { id: request.params.id }, data: changes as any, include: { media: true, variants: true } }); if (changes.pricePaise !== undefined || changes.mrpPaise !== undefined || changes.purchaseState !== undefined || changes.size !== undefined) await tx.productVariant.updateMany({ where: { productId: item.id }, data: { ...(changes.pricePaise !== undefined ? { pricePaise: changes.pricePaise } : {}), ...(changes.mrpPaise !== undefined ? { mrpPaise: changes.mrpPaise } : {}), ...(changes.purchaseState !== undefined ? { purchaseState: changes.purchaseState } : {}), ...(changes.size !== undefined ? { size: changes.size, name: changes.size } : {}) } }); if (media) { await tx.productMedia.deleteMany({ where: { productId: item.id } }); await tx.productMedia.createMany({ data: media.map((entry: any, index: number) => ({ ...entry, productId: item.id, sortOrder: entry.sortOrder ?? index, type: entry.type })) }); } const latest = await tx.productRevision.findFirst({ where: { productId: item.id }, orderBy: { version: 'desc' } }); const snapshot = await tx.product.findUniqueOrThrow({ where: { id: item.id }, include: { media: true } }); await tx.productRevision.create({ data: { productId: item.id, version: (latest?.version ?? 0) + 1, snapshot: productSnapshot(snapshot) as any, status: snapshot.status, createdById: user.id } }); return tx.product.findUniqueOrThrow({ where: { id: item.id }, include: { media: true, variants: true } }) }); await audit(user, request, 'update', 'Product', before.id, before, updated); return data(reply, publicProduct(updated, true)) })
@@ -1255,14 +1368,72 @@ export function buildApp(): FastifyInstance {
   routes.get('/api/v1/admin/inventory', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER, AdminRole.ORDER_MANAGER])(request); const params = pageParams(request); const [items, total] = await Promise.all([prisma.inventoryItem.findMany({ include: { variant: { include: { product: true } }, location: true }, orderBy: { availableQty: 'asc' }, skip: (params.page - 1) * params.limit, take: params.limit }), prisma.inventoryItem.count()]); return data(reply, items, { page: params.page, limit: params.limit, total }) })
   routes.get('/api/v1/admin/inventory/low-stock', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); return data(reply, await prisma.inventoryItem.findMany({ where: { availableQty: { lte: 5 } }, include: { variant: { include: { product: true } } } })) })
   routes.get('/api/v1/admin/inventory/:variantId', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); return data(reply, await prisma.inventoryItem.findMany({ where: { variantId: request.params.variantId }, include: { location: true, variant: true } })) })
-  routes.post('/api/v1/admin/inventory/adjustments', async (request, reply) => { const replay = await idemReplay(request, 'inventory-adjustment'); if (replay) return reply.status(replay.status).send(replay.body); const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const input = z.object({ variantId: z.string(), locationId: z.string(), quantity: z.number().int(), reason: z.string().min(3) }).parse(request.body); const result = await prisma.$transaction(async (tx) => { const item = await tx.inventoryItem.update({ where: { variantId_locationId: { variantId: input.variantId, locationId: input.locationId } }, data: { availableQty: { increment: input.quantity } } }); const movement = await tx.inventoryMovement.create({ data: { ...input, type: 'adjustment', actorId: user.id } }); return { item, movement } }); await audit(user, request, 'inventory_adjustment', 'InventoryItem', input.variantId, null, result, input.reason); const envelope = { data: result, meta: { requestId: request.id } }; await idemStore(request, 'inventory-adjustment', 200, envelope); return reply.send(envelope) })
+  routes.post('/api/v1/admin/inventory/adjustments', async (request, reply) => {
+    const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request)
+    const key = String(request.headers['idempotency-key'] ?? '')
+    if (!key) throw validationError('An adjustment reference is required. Refresh and try again.')
+    return reply.send(await adjustInventory(request.body, { user, key, requestId: request.id, ip: request.ip, userAgent: request.headers['user-agent'] }))
+  })
   routes.post('/api/v1/admin/inventory/bulk-adjustments', async (request, reply) => { const replay = await idemReplay(request, 'inventory-bulk-adjustment'); if (replay) return reply.status(replay.status).send(replay.body); const entries = z.array(z.object({ variantId: z.string(), locationId: z.string(), quantity: z.number().int(), reason: z.string().min(3) })).parse(request.body?.entries); const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const result = await prisma.$transaction(entries.map((entry) => prisma.inventoryItem.update({ where: { variantId_locationId: { variantId: entry.variantId, locationId: entry.locationId } }, data: { availableQty: { increment: entry.quantity } } }))); for (const entry of entries) await prisma.inventoryMovement.create({ data: { ...entry, type: 'adjustment', actorId: user.id } }); const response = { updated: result.length }; const envelope = { data: response, meta: { requestId: request.id } }; await idemStore(request, 'inventory-bulk-adjustment', 200, envelope); return reply.send(envelope) })
   routes.get('/api/v1/admin/inventory/history', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER, AdminRole.ORDER_MANAGER])(request); return data(reply, await prisma.inventoryMovement.findMany({ include: { variant: { include: { product: true } }, location: true }, orderBy: { createdAt: 'desc' }, take: 100 })) })
   routes.post('/api/v1/admin/inventory/import', async (request, reply) => { const replay = await idemReplay(request, 'inventory-import'); if (replay) return reply.status(replay.status).send(replay.body); const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const entries = z.array(z.object({ variantId: z.string(), locationId: z.string(), quantity: z.number().int(), reason: z.string().min(3) })).max(500).parse(request.body?.entries ?? request.body); await prisma.$transaction(async (tx) => { for (const entry of entries) { await tx.inventoryItem.update({ where: { variantId_locationId: { variantId: entry.variantId, locationId: entry.locationId } }, data: { availableQty: { increment: entry.quantity } } }); await tx.inventoryMovement.create({ data: { ...entry, type: 'adjustment', actorId: user.id } }) } }); await audit(user, request, 'inventory_import', 'InventoryItem', null, null, { count: entries.length }); const response = { imported: entries.length }; const envelope = { data: response, meta: { requestId: request.id } }; await idemStore(request, 'inventory-import', 200, envelope); return reply.send(envelope) })
   routes.get('/api/v1/admin/inventory/export', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); return data(reply, await prisma.inventoryItem.findMany({ include: { variant: true, location: true } })) })
 
+  routes.get('/api/v1/admin/inventory/workspace', async (request, reply) => {
+    await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER, AdminRole.ORDER_MANAGER])(request)
+    return data(reply, await inventoryWorkspace())
+  })
+  routes.get('/api/v1/admin/inventory/movements', async (request, reply) => {
+    await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER, AdminRole.ORDER_MANAGER])(request)
+    const result = await inventoryHistory(request.query)
+    return data(reply, result.rows, { total: result.total, page: result.page, limit: result.limit, hasNextPage: result.page * result.limit < result.total })
+  })
+
   const transition: Record<string, OrderStatus> = { confirm: OrderStatus.confirmed, process: OrderStatus.processing, pack: OrderStatus.packed, fulfill: OrderStatus.processing, ship: OrderStatus.shipped, deliver: OrderStatus.delivered, cancel: OrderStatus.cancelled }
-  routes.get('/api/v1/admin/orders', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT])(request); const params = pageParams(request); const where: any = { ...(request.query?.status ? { status: request.query.status } : {}), ...(params.q ? { OR: [{ orderNumber: { contains: params.q, mode: 'insensitive' } }, { publicToken: { contains: params.q, mode: 'insensitive' } }, { waitlistReservationId: { contains: params.q, mode: 'insensitive' } }, { customer: { is: { OR: [{ fullName: { contains: params.q, mode: 'insensitive' } }, { email: { contains: params.q, mode: 'insensitive' } }, { phone: { contains: params.q } }] } } }] } : {}) }; const [items, total] = await Promise.all([prisma.order.findMany({ where, include: { customer: true, items: true, payments: true }, orderBy: { createdAt: 'desc' }, skip: (params.page - 1) * params.limit, take: params.limit }), prisma.order.count({ where })]); return data(reply, items.map((order) => ({ ...order, customer: maskCustomer(order.customer) })), { page: params.page, limit: params.limit, total }) })
+  routes.get('/api/v1/admin/orders', async (request, reply) => {
+    await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT])(request)
+    const params = pageParams(request)
+    const query = request.query ?? {}
+    const requestedStatus = String(query.status ?? '').trim()
+    const paymentStatus = String(query.paymentStatus ?? '').trim()
+    const paymentMethod = String(query.paymentMethod ?? '').trim()
+    const source = String(query.source ?? '').trim()
+    const sort = String(query.sort ?? 'createdAt').trim()
+    const direction = String(query.direction ?? 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc'
+    const from = String(query.from ?? '').trim()
+    const to = String(query.to ?? '').trim()
+    const baseWhere: any = {}
+    if (params.q) baseWhere.OR = [
+      { orderNumber: { contains: params.q, mode: 'insensitive' } },
+      { publicToken: { contains: params.q, mode: 'insensitive' } },
+      { waitlistReservationId: { contains: params.q, mode: 'insensitive' } },
+      { items: { some: { OR: [{ productName: { contains: params.q, mode: 'insensitive' } }, { sku: { contains: params.q, mode: 'insensitive' } }] } } },
+      { customer: { is: { OR: [{ fullName: { contains: params.q, mode: 'insensitive' } }, { email: { contains: params.q, mode: 'insensitive' } }, { phone: { contains: params.q } }] } } },
+    ]
+    if (source && source !== 'all') baseWhere.source = source
+    if (from || to) baseWhere.createdAt = { ...(from ? { gte: new Date(from) } : {}), ...(to ? { lte: new Date(to) } : {}) }
+    const paymentFilters: any[] = []
+    if (paymentStatus && paymentStatus !== 'all') paymentFilters.push({ payments: { some: { status: paymentStatus } } })
+    if (paymentMethod && paymentMethod !== 'all') paymentFilters.push({ payments: { some: { provider: paymentMethod } } })
+    if (paymentFilters.length) baseWhere.AND = paymentFilters
+    const missingAddress = { OR: [{ shippingAddress: { equals: Prisma.JsonNull } }, { shippingAddress: { equals: {} } }] }
+    const needsActionWhere = { OR: [
+      { status: { in: [OrderStatus.pending_payment, OrderStatus.payment_failed] } },
+      { status: { in: [OrderStatus.confirmed, OrderStatus.processing, OrderStatus.packed] }, ...missingAddress },
+    ] }
+    const where = requestedStatus === 'needs_action' ? { AND: [baseWhere, needsActionWhere] } : { ...baseWhere, ...(requestedStatus && requestedStatus !== 'all' ? { status: requestedStatus } : {}) }
+    const orderBy = sort === 'totalPaise' ? { totalPaise: direction } : sort === 'remainingBalancePaise' ? { remainingBalancePaise: direction } : { createdAt: direction }
+    const [items, total, allForCounts] = await Promise.all([
+      prisma.order.findMany({ where, include: { customer: true, items: true, payments: true, shipments: { select: { provider: true, status: true, trackingNumber: true } } }, orderBy, skip: (params.page - 1) * params.limit, take: params.limit }),
+      prisma.order.count({ where }),
+      prisma.order.findMany({ where: baseWhere, select: { status: true, shippingAddress: true, source: true } }),
+    ])
+    const counts = Object.fromEntries(Object.values(OrderStatus).map((status) => [status, allForCounts.filter((order) => order.status === status).length]))
+    counts.needs_action = allForCounts.filter((order) => [OrderStatus.pending_payment, OrderStatus.payment_failed].includes(order.status) || ([OrderStatus.confirmed, OrderStatus.processing, OrderStatus.packed].includes(order.status) && (!order.shippingAddress || (typeof order.shippingAddress === 'object' && Object.keys(order.shippingAddress as object).length === 0)))).length
+    const sources = [...new Set(allForCounts.map((order) => order.source).filter(Boolean))]
+    const paymentMethods = [...new Set((await prisma.payment.findMany({ where: { order: baseWhere }, select: { provider: true }, distinct: ['provider'] })).map((entry) => entry.provider))]
+    return data(reply, items.map((order) => ({ ...order, customer: maskCustomer(order.customer) })), { page: params.page, limit: params.limit, total, hasNextPage: params.page * params.limit < total, counts, sources, paymentMethods })
+  })
   const adminWaitlistSettings = async () => waitlistConfig(await founderClaimedCount(), true)
   routes.get('/api/v1/admin/waitlist-settings', async (request, reply) => {
     await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT, AdminRole.ANALYST])(request)

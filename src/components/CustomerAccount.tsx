@@ -1,6 +1,6 @@
 import { Bell, CheckCircle2, CircleDollarSign, ClipboardList, Home, LoaderCircle, LockKeyhole, LogOut, MapPin, MailCheck, PackageCheck, Pencil, Plus, ShieldCheck, Sparkles, Trash2, UserRound, WalletCards } from 'lucide-react'
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { formatPrice } from '../data/products'
+import { formatPrice, products } from '../data/products'
 import { deleteStorefront, getStorefront, patchStorefront, postStorefront } from '../lib/storefrontApi'
 import { exchangeFirebaseUser, firebaseAuthErrorMessage, linkEmailPassword, refreshFirebaseUser, resendEmailVerification, signOutFirebase } from '../lib/firebaseAuth'
 import { BrandMark } from './BrandMark'
@@ -13,7 +13,8 @@ export type AccountSection = 'profile' | 'orders' | 'waitlist' | 'supercoin' | '
 
 type SavedAddress = { id: string; label: string; fullName: string; phone: string; addressLine1: string; addressLine2?: string | null; landmark?: string | null; city: string; state: string; pincode: string; isDefault: boolean }
 type AddressDraft = Omit<SavedAddress, 'id'>
-type CustomerOrder = { publicToken: string; orderNumber: string; status: string; source?: string; waitlistReservationId?: string | null; subtotalPaise?: number; discountPaise?: number; taxPaise?: number; shippingPaise?: number; totalPaise: number; createdAt: string; mrpSubtotalPaise?: number | null; waitlistDiscountPaise?: number | null; reservationCreditPaise?: number; remainingBalancePaise?: number | null; pricingMode?: string | null; completionDeadlineAt?: string | null; balancePaidAt?: string | null; payments?: Array<{ provider: string; status: string }>; items: Array<{ id: string; productName: string; size?: string | null; quantity: number; finalLineTotalPaise: number }>; shippingAddress?: { fullName?: string; addressLine1?: string; addressLine2?: string | null; city?: string; state?: string; pincode?: string } | null }
+type CustomerOrderItem = { id: string; productId?: string | null; sku?: string | null; productName: string; size?: string | null; quantity: number; primaryImage?: string | null; unitSellingPricePaise?: number | null; mrpPaise?: number | null; discountPaise?: number | null; finalLineTotalPaise: number; reservationCreditPaise?: number | null; remainingBalancePaise?: number | null }
+type CustomerOrder = { publicToken: string; orderNumber: string; status: string; source?: string; waitlistReservationId?: string | null; subtotalPaise?: number; discountPaise?: number; taxPaise?: number; shippingPaise?: number; codPaise?: number; totalPaise: number; createdAt: string; mrpSubtotalPaise?: number | null; waitlistDiscountPaise?: number | null; reservationCreditPaise?: number; remainingBalancePaise?: number | null; pricingMode?: string | null; completionDeadlineAt?: string | null; balancePaidAt?: string | null; payments?: Array<{ provider: string; status: string }>; items: CustomerOrderItem[]; shippingAddress?: { fullName?: string; addressLine1?: string; addressLine2?: string | null; city?: string; state?: string; pincode?: string } | null }
 type WaitlistReservation = { publicToken: string; waitlistId: string; status: string; depositPaise: number; discountPercent: number; pricingMode?: string; pricingValuePaise?: number | null; founderNumber?: number | null; founderCapacity?: number; refundPaise: number; refundStatus?: string | null; createdAt: string; joinedAt?: string | null; convertedOrder?: { publicToken: string; orderNumber: string; status: string; totalPaise: number; remainingBalancePaise?: number | null; shippingAddress?: CustomerOrder['shippingAddress'] } | null; items: Array<{ productId: string; productName: string; productSlug: string; size: string; quantity: number }> }
 
 const customerCsrfHeaders = (): Record<string, string> => {
@@ -22,6 +23,31 @@ const customerCsrfHeaders = (): Record<string, string> => {
 }
 
 const humanise = (value: string) => value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+
+const numericPaise = (value: number | null | undefined) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
+
+const displayPaise = (value: number | null | undefined) => {
+  const parsed = numericPaise(value)
+  return parsed === null ? 'Not available' : formatPrice(parsed / 100)
+}
+
+const formatDiscountPercent = (mrpPaise: number | null, discountPaise: number) => {
+  if (mrpPaise === null || mrpPaise <= 0 || discountPaise <= 0) return null
+  const percentage = (discountPaise / mrpPaise) * 100
+  if (!Number.isFinite(percentage)) return null
+  const rounded = Math.round(percentage * 100) / 100
+  return `${rounded.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')}%`
+}
+
+const orderItemImage = (item: CustomerOrderItem) => {
+  const storedImage = item.primaryImage?.trim()
+  if (storedImage) return storedImage
+  const catalogueItem = products.find((product) => product.id === item.productId || product.id === item.sku || product.name === item.productName)
+  return catalogueItem?.image ?? ''
+}
 
 const customerInitials = (name?: string) => {
   const initials = (name ?? 'SkinFox customer')
@@ -372,27 +398,69 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
               const waitlistOrder = order.source === 'waitlist'
               const addressReady = Boolean(order.shippingAddress && Object.keys(order.shippingAddress).length)
               const balanceDue = Math.max(0, Number(order.remainingBalancePaise ?? (waitlistOrder ? order.totalPaise : 0)))
-              const mrpValue = Math.max(0, Number(order.mrpSubtotalPaise ?? order.subtotalPaise ?? 0))
-              const waitlistBenefit = Math.max(0, Number(order.waitlistDiscountPaise ?? order.discountPaise ?? 0))
-              const reservationCredit = Math.max(0, Number(order.reservationCreditPaise ?? 0))
-              const shipping = Math.max(0, Number(order.shippingPaise ?? 0))
-              const tax = Math.max(0, Number(order.taxPaise ?? 0))
-              const discountPercent = mrpValue > 0 && waitlistBenefit > 0 ? Math.round((waitlistBenefit / mrpValue) * 100) : null
+              const itemProductTotal = order.items.reduce((total, item) => total + (numericPaise(item.finalLineTotalPaise) ?? 0), 0)
+              const itemMrpValues = order.items.map((item) => {
+                const mrp = numericPaise(item.mrpPaise)
+                const quantity = Math.max(0, Number(item.quantity) || 0)
+                return mrp === null ? null : mrp * quantity
+              })
+              const itemMrpValue = itemMrpValues.every((value) => value !== null) ? itemMrpValues.reduce((total, value) => total + (value ?? 0), 0) : null
+              const subtotal = numericPaise(order.subtotalPaise) ?? itemProductTotal
+              const mrpValue = numericPaise(order.mrpSubtotalPaise) ?? itemMrpValue
+              const orderDiscount = numericPaise(waitlistOrder ? (order.waitlistDiscountPaise ?? order.discountPaise) : order.discountPaise) ?? 0
+              const productTotal = Math.max(0, subtotal - orderDiscount)
+              const reservationCredit = Math.max(0, numericPaise(order.reservationCreditPaise) ?? 0)
+              const shipping = Math.max(0, numericPaise(order.shippingPaise) ?? 0)
+              const tax = Math.max(0, numericPaise(order.taxPaise) ?? 0)
+              const codFee = Math.max(0, numericPaise(order.codPaise) ?? 0)
+              const summaryTotal = waitlistOrder ? balanceDue : Math.max(0, numericPaise(order.totalPaise) ?? 0)
+              // Calculate the displayed rate from the immutable order
+              // snapshot. This stays accurate even when an exact launch price
+              // was used and the saved admin percentage was only a hint.
+              const waitlistDiscountPercent = waitlistOrder ? formatDiscountPercent(mrpValue, orderDiscount) : null
+              const formulaBase = waitlistOrder && mrpValue !== null ? `MRP ${displayPaise(mrpValue)}` : `Products ${displayPaise(subtotal)}`
               const balanceFormula = [
-                `MRP ${formatPrice(mrpValue / 100)}`,
-                `− ${formatPrice(waitlistBenefit / 100)} discount`,
-                `− ${formatPrice(reservationCredit / 100)} fee paid`,
-                ...(shipping > 0 ? [`+ ${formatPrice(shipping / 100)} shipping`] : []),
-                ...(tax > 0 ? [`+ ${formatPrice(tax / 100)} tax`] : []),
-                `= ${formatPrice(balanceDue / 100)} due`,
+                formulaBase,
+                ...(orderDiscount > 0 ? [waitlistOrder && waitlistDiscountPercent && mrpValue !== null ? `− (${waitlistDiscountPercent} × ${displayPaise(mrpValue)} ≈ ${displayPaise(orderDiscount)})` : `− ${displayPaise(orderDiscount)} ${waitlistOrder ? 'waitlist discount' : 'discount'}`] : []),
+                ...(waitlistOrder && reservationCredit > 0 ? [`− ${displayPaise(reservationCredit)} reservation credit`] : []),
+                ...(shipping > 0 ? [`+ ${displayPaise(shipping)} shipping`] : []),
+                ...(tax > 0 ? [`+ ${displayPaise(tax)} tax`] : []),
+                ...(codFee > 0 ? [`+ ${displayPaise(codFee)} COD fee`] : []),
+                `= ${displayPaise(summaryTotal)} ${waitlistOrder ? 'due' : 'total'}`,
               ].join(' ')
               const paymentConfirmationPending = Boolean(waitlistOrder && !order.balancePaidAt && order.payments?.some((payment) => payment.provider === 'razorpay_waitlist_balance' && ['pending', 'authorised'].includes(payment.status)))
               return <article className={`order-card ${waitlistOrder ? 'order-card--waitlist' : ''}`} key={order.publicToken}>
                 <div className="order-card__top"><div><strong>{order.orderNumber}</strong><small>{new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(order.createdAt))}</small></div><span className={`order-status order-status--${order.status}`}>{humanise(order.status)}</span></div>
                 {waitlistOrder && <div className="order-card__waitlist-badge"><Sparkles size={14} /> Waitlist order{order.waitlistReservationId ? ` · ${order.waitlistReservationId}` : ''}</div>}
-                <ul>{order.items.map((item) => <li key={item.id}><span>{item.productName}{item.size ? <small>{item.size}</small> : null}</span><b>× {item.quantity}</b></li>)}</ul>
-                {waitlistOrder && <div className="order-card__breakdown"><div className="order-card__formula"><span>Balance calculation</span><strong>{balanceFormula}</strong></div><span><span>Product value at MRP</span><b>{formatPrice(mrpValue / 100)}</b></span><span><span>Waitlist discount{discountPercent !== null ? ` (${discountPercent}% off MRP)` : ''}</span><b>−{formatPrice(waitlistBenefit / 100)}</b></span><span><span>Reservation fee paid (credit)</span><b>−{formatPrice(reservationCredit / 100)}</b></span>{shipping > 0 && <span><span>Shipping</span><b>+{formatPrice(shipping / 100)}</b></span>}{tax > 0 && <span><span>Tax</span><b>+{formatPrice(tax / 100)}</b></span>}<span className="order-card__balance"><span>Amount still due</span><b>{formatPrice(balanceDue / 100)}</b></span></div>}
-                <div className="order-card__bottom"><span><MapPin size={14} /> {order.shippingAddress?.city ?? (waitlistOrder ? 'Delivery address required' : 'Delivery address saved')}{order.shippingAddress?.pincode ? ` · ${order.shippingAddress.pincode}` : ''}</span><strong>{formatPrice(order.totalPaise / 100)}</strong></div>
+                <div className="order-card__products-heading"><span>Products</span><span>{order.items.length} {order.items.length === 1 ? 'item' : 'items'}</span></div>
+                <ul className="order-card__items">{order.items.map((item) => {
+                  const quantity = Math.max(0, Number(item.quantity) || 0)
+                  const lineTotal = numericPaise(item.finalLineTotalPaise)
+                  const unitPrice = numericPaise(item.unitSellingPricePaise) ?? (lineTotal !== null && quantity > 0 ? Math.round(lineTotal / quantity) : null)
+                  const mrpUnit = numericPaise(item.mrpPaise)
+                  const recordedLineDiscount = numericPaise(item.discountPaise)
+                  const lineDiscount = recordedLineDiscount !== null && recordedLineDiscount > 0 ? recordedLineDiscount : (mrpUnit !== null && unitPrice !== null ? Math.max(0, (mrpUnit - unitPrice) * quantity) : null)
+                  const image = orderItemImage(item)
+                  const hasLineAllocation = item.reservationCreditPaise !== undefined || item.remainingBalancePaise !== undefined
+                  return <li className="order-line" key={item.id}>
+                    <div className="order-line__header">
+                      <div className="order-line__media">{image ? <img src={image} alt={`${item.productName}${item.size ? ` ${item.size}` : ''}`} loading="lazy" decoding="async" /> : <PackageCheck size={18} aria-hidden="true" />}</div>
+                      <div className="order-line__identity"><strong>{item.productName}</strong><span>{item.size || 'Pack size not available'}</span></div>
+                      <div className="order-line__quantity"><span>Quantity</span><strong>× {quantity}</strong></div>
+                    </div>
+                    <div className="order-line__pricing">
+                      <span><small>MRP / unit</small><b>{displayPaise(mrpUnit)}</b></span>
+                      <span><small>Your price / unit</small><b>{displayPaise(unitPrice)}</b></span>
+                      <span className="order-line__total"><small>Product total</small><b>{displayPaise(lineTotal)}</b></span>
+                      {hasLineAllocation && <span className="order-line__allocation"><small>Already paid</small><b>{displayPaise(item.reservationCreditPaise)}</b><small>Remaining</small><b>{displayPaise(item.remainingBalancePaise)}</b></span>}
+                    </div>
+                    {lineDiscount !== null && lineDiscount > 0 && <span className="order-line__saving">Includes {displayPaise(lineDiscount)} saved on this product</span>}
+                  </li>
+                })}</ul>
+                {waitlistOrder && <p className="order-card__credit-note">Your reservation fee is credited once against this order total below. It is not allocated to individual products.</p>}
+                {!waitlistOrder && orderDiscount > 0 && <p className="order-card__credit-note">The order discount is applied at checkout and shown in the summary below.</p>}
+                <div className="order-card__breakdown"><div className="order-card__formula"><span>Payment summary</span><strong>{balanceFormula}</strong></div>{mrpValue !== null ? <span><span>Total MRP value</span><b>{displayPaise(mrpValue)}</b></span> : <span><span>Total MRP value</span><b>Not available</b></span>}{orderDiscount > 0 && <span><span>{waitlistOrder && waitlistDiscountPercent ? `Waitlist discount (${waitlistDiscountPercent} of MRP)` : waitlistOrder ? 'Waitlist discount' : 'Order discount'}</span><b>−{displayPaise(orderDiscount)}</b></span>}<span><span>Products after discount</span><b>{displayPaise(productTotal)}</b></span>{waitlistOrder && reservationCredit > 0 && <span><span>Reservation fee paid (credit)</span><b>−{displayPaise(reservationCredit)}</b></span>}{shipping > 0 && <span><span>Shipping</span><b>+{displayPaise(shipping)}</b></span>}{tax > 0 && <span><span>Tax</span><b>+{displayPaise(tax)}</b></span>}{codFee > 0 && <span><span>COD fee</span><b>+{displayPaise(codFee)}</b></span>}<span className="order-card__balance"><span>{waitlistOrder ? 'Amount still due' : 'Order total'}</span><b>{displayPaise(summaryTotal)}</b></span></div>
+                <div className="order-card__bottom"><span><MapPin size={14} /> {order.shippingAddress?.city ?? (waitlistOrder ? 'Delivery address required' : 'Delivery address saved')}{order.shippingAddress?.pincode ? ` · ${order.shippingAddress.pincode}` : ''}</span><strong>{waitlistOrder ? `Due ${displayPaise(summaryTotal)}` : displayPaise(summaryTotal)}</strong></div>
                 {waitlistOrder && !addressReady && <div className="order-card__action"><span>Choose a saved address to continue.</span>{addresses.length ? <><select aria-label={`Address for ${order.orderNumber}`} value={addressSelections[order.publicToken] ?? ''} onChange={(event) => setAddressSelections((current) => ({ ...current, [order.publicToken]: event.target.value }))}><option value="">Select address</option>{addresses.map((address) => <option key={address.id} value={address.id}>{address.label} · {address.city}</option>)}</select><button type="button" className="button button--copper" onClick={() => void assignWaitlistAddress(order, addressSelections[order.publicToken] ?? '')} disabled={busy || !addressSelections[order.publicToken]}>Use address</button></> : <button type="button" className="button button--copper" onClick={() => setActiveSection('addresses')}>Add address</button>}</div>}
                 {waitlistOrder && addressReady && paymentConfirmationPending && <div className="order-card__pending" role="status"><LockKeyhole size={15} /><span><strong>Payment confirmation pending</strong><small>Please don’t pay again. We’ll update this order automatically.</small></span></div>}
                 {waitlistOrder && addressReady && balanceDue > 0 && !order.balancePaidAt && !paymentConfirmationPending && <button type="button" className="button button--copper order-card__pay" onClick={() => void payWaitlistBalance(order)} disabled={busy}><LockKeyhole size={15} /> Pay remaining {formatPrice(balanceDue / 100)}</button>}

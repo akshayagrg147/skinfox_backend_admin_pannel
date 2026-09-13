@@ -35,7 +35,7 @@ describe('CustomerAccount', () => {
     vi.clearAllMocks()
     getMock.mockImplementation((path: string) => {
       if (path === '/customer/auth/me') return Promise.resolve({ customer: null }) as never
-      if (path === '/customer/orders') return Promise.resolve([{ publicToken: 'order-token', orderNumber: 'SF-2026-ABCD', status: 'confirmed', totalPaise: 70000, createdAt: '2026-09-08T00:00:00.000Z', items: [{ id: 'line-1', productName: 'Rayyvia Sun Protect', size: '60 g', quantity: 1, finalLineTotalPaise: 70000 }], shippingAddress: { city: 'Mumbai', pincode: '400001' } }]) as never
+      if (path === '/customer/orders') return Promise.resolve([{ publicToken: 'order-token', orderNumber: 'SF-2026-ABCD', status: 'confirmed', totalPaise: 70000, subtotalPaise: 70000, createdAt: '2026-09-08T00:00:00.000Z', items: [{ id: 'line-1', productName: 'Rayyvia Sun Protect', size: '60 g', quantity: 1, primaryImage: '/products/rayyvia-sun-protect-primary.webp', unitSellingPricePaise: 70000, mrpPaise: 70000, discountPaise: 0, finalLineTotalPaise: 70000 }], shippingAddress: { city: 'Mumbai', pincode: '400001' } }]) as never
       if (path === '/customer/addresses') return Promise.resolve([{ id: 'address-1', label: 'Home', fullName: 'Asha Sharma', phone: '9876543210', addressLine1: '12 Marine Drive', city: 'Mumbai', state: 'Maharashtra', pincode: '400001', isDefault: true }]) as never
       return Promise.resolve({}) as never
     })
@@ -60,21 +60,56 @@ describe('CustomerAccount', () => {
     const orders = screen.getByRole('tabpanel')
     expect(within(orders).getByText('SF-2026-ABCD')).toBeInTheDocument()
     expect(within(orders).getByText('Rayyvia Sun Protect')).toBeInTheDocument()
+    expect(within(orders).getByText('MRP / unit')).toBeInTheDocument()
+    expect(within(orders).getByText('Your price / unit')).toBeInTheDocument()
+    expect(within(orders).getByText('Product total')).toBeInTheDocument()
     expect(onCustomerChange).toHaveBeenCalledWith(expect.objectContaining({ id: 'customer-1', email: 'asha@example.com' }))
   })
 
   it('explains a waitlist order balance with a plain-language calculation', async () => {
     getMock.mockImplementation((path: string) => {
       if (path === '/customer/auth/me') return Promise.resolve({ customer: { id: 'customer-1', fullName: 'Asha Sharma', email: 'asha@example.com', emailVerified: true } }) as never
-      if (path === '/customer/orders') return Promise.resolve([{ publicToken: 'waitlist-order-token', orderNumber: 'SF-WL-2026-ABCD', source: 'waitlist', status: 'pending_payment', totalPaise: 650000, createdAt: '2026-09-08T00:00:00.000Z', mrpSubtotalPaise: 910000, waitlistDiscountPaise: 131300, reservationCreditPaise: 128700, remainingBalancePaise: 650000, items: [{ id: 'line-1', productName: 'Rayyvia Sun Protect', size: '60 g', quantity: 1, finalLineTotalPaise: 778700 }], shippingAddress: null }]) as never
+      if (path === '/customer/orders') return Promise.resolve([{ publicToken: 'waitlist-order-token', orderNumber: 'SF-WL-2026-ABCD', source: 'waitlist', status: 'pending_payment', totalPaise: 650000, createdAt: '2026-09-08T00:00:00.000Z', mrpSubtotalPaise: 910000, subtotalPaise: 910000, waitlistDiscountPaise: 131300, reservationCreditPaise: 128700, remainingBalancePaise: 650000, items: [{ id: 'line-1', productName: 'Rayyvia Sun Protect', size: '60 g', quantity: 1, primaryImage: '/products/rayyvia-sun-protect-primary.webp', unitSellingPricePaise: 778700, mrpPaise: 910000, discountPaise: 131300, finalLineTotalPaise: 778700 }], shippingAddress: null }]) as never
       if (path === '/customer/addresses' || path === '/customer/waitlist') return Promise.resolve([]) as never
       return Promise.resolve({}) as never
     })
     render(<CustomerAccount open onClose={() => undefined} apiAvailable onCustomerChange={() => undefined} />)
-    const breakdown = await screen.findByText(/balance calculation/i)
-    expect(breakdown.parentElement).toHaveTextContent('MRP ₹9,100 − ₹1,313 discount − ₹1,287 fee paid = ₹6,500 due')
-    expect(screen.getByText(/waitlist discount \(14% off mrp\)/i)).toBeInTheDocument()
+    const summary = await screen.findByText(/payment summary/i)
+    expect(summary.parentElement).toHaveTextContent('MRP ₹9,100 − (14.43% × ₹9,100 ≈ ₹1,313) − ₹1,287 reservation credit = ₹6,500 due')
+    expect(summary.closest('.order-card__breakdown')).toHaveTextContent('Waitlist discount (14.43% of MRP)')
+    expect(screen.getByText('MRP / unit')).toBeInTheDocument()
+    expect(screen.getByText('Your price / unit')).toBeInTheDocument()
+    expect(screen.getByText('Product total')).toBeInTheDocument()
+    expect(screen.getAllByText('₹9,100')).toHaveLength(2)
+    expect(screen.getAllByText('₹7,787')).toHaveLength(3)
+    expect(screen.getByText(/reservation fee is credited once against this order total/i)).toBeInTheDocument()
     expect(screen.getByText(/amount still due/i)).toBeInTheDocument()
+  })
+
+  it('shows saved MRP, unit price, quantity, and total for each product line', async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === '/customer/auth/me') return Promise.resolve({ customer: { id: 'customer-1', fullName: 'Asha Sharma', email: 'asha@example.com', emailVerified: true } }) as never
+      if (path === '/customer/orders') return Promise.resolve([{
+        publicToken: 'multi-line-order-token', orderNumber: 'SF-WL-2026-MULTI', source: 'waitlist', status: 'pending_payment', totalPaise: 164900, subtotalPaise: 220000, mrpSubtotalPaise: 220000, waitlistDiscountPaise: 35300, reservationCreditPaise: 19800, remainingBalancePaise: 164900, createdAt: '2026-09-08T00:00:00.000Z',
+        items: [
+          { id: 'line-rayyvia', productName: 'Rayyvia Sun Protect', size: '60 g', quantity: 2, primaryImage: '/products/rayyvia-sun-protect-primary.webp', unitSellingPricePaise: 59900, mrpPaise: 70000, discountPaise: 20200, finalLineTotalPaise: 119800 },
+          { id: 'line-coco', productName: 'Coco Kiss', size: '100 ml', quantity: 1, primaryImage: '/products/coco-kiss-lotion-primary.webp', unitSellingPricePaise: 64900, mrpPaise: 80000, discountPaise: 15100, finalLineTotalPaise: 64900 },
+        ], shippingAddress: null,
+      }]) as never
+      if (path === '/customer/addresses' || path === '/customer/waitlist') return Promise.resolve([]) as never
+      return Promise.resolve({}) as never
+    })
+
+    render(<CustomerAccount open onClose={() => undefined} apiAvailable onCustomerChange={() => undefined} />)
+    const rayyviaRow = (await screen.findByText('Rayyvia Sun Protect')).closest('.order-line') as HTMLElement
+    const cocoRow = screen.getByText('Coco Kiss').closest('.order-line') as HTMLElement
+    expect(within(rayyviaRow).getByText('₹700')).toBeInTheDocument()
+    expect(within(rayyviaRow).getByText('₹599')).toBeInTheDocument()
+    expect(within(rayyviaRow).getByText('× 2')).toBeInTheDocument()
+    expect(within(rayyviaRow).getByText('₹1,198')).toBeInTheDocument()
+    expect(within(cocoRow).getByText('₹800')).toBeInTheDocument()
+    expect(within(cocoRow).getAllByText('₹649')).toHaveLength(2)
+    expect(within(cocoRow).getByText('× 1')).toBeInTheDocument()
   })
 
   it('keeps a new email account in the verification state until the email is verified', async () => {

@@ -20,6 +20,25 @@ npm run build
 npm run preview
 ```
 
+### Use the AWS API from the local frontend
+
+The browser never connects directly to PostgreSQL. In local development, the
+Vite dev server proxies `/api/*` to the API target, and that API reads the AWS
+database. To use the hosted environment while keeping cookies and credentials
+on the local origin, create an ignored `.env.local` file in the repository
+root:
+
+```dotenv
+VITE_DEV_API_TARGET=https://skinfox.in
+```
+
+Restart the Vite process after changing this value, then open
+`http://localhost:4173`. The storefront, admin (`4174`) and affiliate (`4175`)
+dev servers share this target. Do not put `DATABASE_URL`, service-account JSON,
+or any other server secret in a Vite environment variable. Use a separate
+local target (`http://localhost:4000`) when you want to work against the local
+API instead.
+
 The storefront is at `http://localhost:4173`, the API at `http://localhost:4000`, the OpenAPI UI at `http://localhost:4000/api/docs`, the admin panel at `http://localhost:4174`, and the affiliate dashboard at `http://localhost:4175`.
 
 Quick API smoke checks:
