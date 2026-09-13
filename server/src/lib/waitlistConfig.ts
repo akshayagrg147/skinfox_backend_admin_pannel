@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import { randomBytes } from 'node:crypto'
 
+export const WAITLIST_RESET_CONFIRMATION = 'RESET WAITLIST'
+export const waitlistResetConfirmationSchema = z.object({ confirmation: z.literal(WAITLIST_RESET_CONFIRMATION) }).strict()
+
 export const waitlistSettingsSchema = z.object({
   enabled: z.boolean(),
   depositPaise: z.number().int().min(100).max(10_000_000),
@@ -12,7 +15,10 @@ export const waitlistSettingsSchema = z.object({
   founderPricePaise: z.number().int().min(100).max(10_000_000).default(59_900),
   launchPricePaise: z.number().int().min(100).max(10_000_000).default(64_900),
   regularPricePaise: z.number().int().min(100).max(10_000_000).default(70_000),
-  pricingMode: z.enum(['exact_revealed_price', 'discount_off_mrp', 'percentage_of_mrp']).default('exact_revealed_price'),
+  // Waitlist pricing is always derived from each product's MRP. Keeping this
+  // as the schema default prevents a missing/legacy settings payload from
+  // silently falling back to the old exact-price rule.
+  pricingMode: z.enum(['exact_revealed_price', 'discount_off_mrp', 'percentage_of_mrp']).default('discount_off_mrp'),
 }).strict()
   .superRefine((value, ctx) => {
     if (value.founderPricePaise > value.launchPricePaise) ctx.addIssue({ code: 'custom', path: ['founderPricePaise'], message: 'Founder price cannot exceed launch price' })
@@ -38,7 +44,7 @@ export function waitlistDefaultsFromEnv(env: NodeJS.ProcessEnv = process.env): W
     founderPricePaise: 59_900,
     launchPricePaise: 64_900,
     regularPricePaise: 70_000,
-    pricingMode: 'exact_revealed_price',
+    pricingMode: 'discount_off_mrp',
   })
 }
 
@@ -47,7 +53,13 @@ export function parseStoredWaitlistSettings(value: unknown, fallback: WaitlistSe
   const legacyStage = stored && stored.stage === undefined && stored.enabled === false ? 'launch' : undefined
   const legacyRefundPolicy = stored && stored.refundable === undefined
   const parsed = waitlistSettingsSchema.safeParse(stored ? { ...fallback, ...stored, ...(legacyStage ? { stage: legacyStage } : {}), ...(legacyRefundPolicy ? { refundable: false, termsVersion: fallback.termsVersion } : {}) } : value)
-  return parsed.success ? parsed.data : fallback
+  if (!parsed.success) return fallback
+
+  // Exact revealed pricing was part of the early waitlist flow. The active
+  // storefront configuration now uses the administrator's percentage for
+  // every product, while already-created reservations still retain their
+  // immutable pricing snapshots in the database.
+  return { ...parsed.data, pricingMode: 'discount_off_mrp' }
 }
 
 export function calculateWaitlistDepositPaise(unitDepositPaise: number, quantities: readonly number[]): number {

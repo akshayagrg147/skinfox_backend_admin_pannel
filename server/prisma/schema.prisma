@@ -613,10 +613,18 @@ model ShippingQuote {
   pincode           String
   serviceable       Boolean
   chargePaise       Int
+  provider          String          @default("manual")
+  providerQuoteId   String?
+  courierId         String?
+  courierName       String?
+  metadata          Json?
   estimatedFrom     DateTime?
   estimatedTo       DateTime?
+  expiresAt         DateTime?
   checkoutSession   CheckoutSession @relation(fields: [checkoutSessionId], references: [id], onDelete: Cascade)
   createdAt         DateTime        @default(now())
+
+  @@index([checkoutSessionId, createdAt])
 }
 
 model Customer {
@@ -989,22 +997,45 @@ model Shipment {
   id                 String          @id @default(cuid())
   orderId            String
   provider           String          @default("manual")
+  providerOrderId    String?
   providerShipmentId String?
+  courierId          String?
+  courierName        String?
   trackingNumber     String?
+  trackingUrl        String?
+  labelUrl           String?
+  manifestUrl        String?
+  pickupId           String?
+  providerStatus     String?
   status             String          @default("pending")
+  metadata           Json?
+  bookingError       String?
+  bookedAt           DateTime?
+  pickupScheduledAt  DateTime?
+  lastSyncedAt       DateTime?
+  packedWeightGrams  Int?
+  lengthCm           Float?
+  breadthCm          Float?
+  heightCm           Float?
   order              Order           @relation(fields: [orderId], references: [id], onDelete: Restrict)
   events             ShipmentEvent[]
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
+
+  @@index([provider, providerShipmentId])
+  @@index([trackingNumber])
 }
 
 model ShipmentEvent {
   id         String   @id @default(cuid())
   shipmentId String
+  externalId String?
   status     String
   payload    Json?
   shipment   Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
   createdAt  DateTime @default(now())
+
+  @@unique([shipmentId, externalId])
 }
 
 model ReturnRequest {
@@ -1244,7 +1275,7 @@ model WaitlistReservation {
   currency             String         @default("INR")
   depositPaise         Int
   discountPercent      Int
-  pricingMode          String         @default("exact_revealed_price")
+  pricingMode          String         @default("discount_off_mrp")
   pricingValuePaise    Int?
   phone                String
   consent              Boolean

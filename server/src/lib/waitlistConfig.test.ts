@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { calculateWaitlistDepositPaise, createWaitlistId, parseStoredWaitlistSettings, waitlistDefaultsFromEnv, waitlistSettingsSchema } from './waitlistConfig.js'
+import { calculateWaitlistDepositPaise, createWaitlistId, parseStoredWaitlistSettings, WAITLIST_RESET_CONFIRMATION, waitlistDefaultsFromEnv, waitlistResetConfirmationSchema, waitlistSettingsSchema } from './waitlistConfig.js'
 
 describe('waitlist configuration', () => {
-  const launchDefaults = { refundable: false, stage: 'waitlist', founderCapacity: 200, founderPricePaise: 59900, launchPricePaise: 64900, regularPricePaise: 70000, pricingMode: 'exact_revealed_price' }
+  const launchDefaults = { refundable: false, stage: 'waitlist', founderCapacity: 200, founderPricePaise: 59900, launchPricePaise: 64900, regularPricePaise: 70000, pricingMode: 'discount_off_mrp' }
 
   it('uses safe environment defaults', () => {
     expect(waitlistDefaultsFromEnv({})).toEqual({ enabled: true, depositPaise: 9900, discountPercent: 25, termsVersion: '2026-09-10-nonrefundable', ...launchDefaults })
@@ -26,6 +26,11 @@ describe('waitlist configuration', () => {
     expect(parseStoredWaitlistSettings({ enabled: true, depositPaise: 9900, discountPercent: 25, termsVersion: 'legacy' }, fallback)).toEqual(fallback)
   })
 
+  it('normalises legacy exact-price settings to percentage pricing', () => {
+    const fallback = waitlistDefaultsFromEnv({})
+    expect(parseStoredWaitlistSettings({ ...fallback, pricingMode: 'exact_revealed_price' }, fallback).pricingMode).toBe('discount_off_mrp')
+  })
+
   it('does not allow the waitlist reservation fee to be configured as refundable', () => {
     expect(waitlistSettingsSchema.safeParse({ ...waitlistDefaultsFromEnv({}), refundable: true }).success).toBe(false)
   })
@@ -45,5 +50,11 @@ describe('waitlist configuration', () => {
 
   it('creates a readable customer support reference', () => {
     expect(createWaitlistId(new Date('2026-09-10T00:00:00.000Z'))).toMatch(/^SFWL-2026-[A-F0-9]{10}$/)
+  })
+
+  it('requires the exact reset confirmation phrase', () => {
+    expect(waitlistResetConfirmationSchema.safeParse({ confirmation: WAITLIST_RESET_CONFIRMATION }).success).toBe(true)
+    expect(waitlistResetConfirmationSchema.safeParse({ confirmation: 'reset waitlist' }).success).toBe(false)
+    expect(waitlistResetConfirmationSchema.safeParse({ confirmation: WAITLIST_RESET_CONFIRMATION, extra: true }).success).toBe(false)
   })
 })

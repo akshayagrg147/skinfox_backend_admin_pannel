@@ -1,0 +1,30 @@
+ALTER TABLE "ShippingQuote" ADD COLUMN "provider" TEXT NOT NULL DEFAULT 'manual';
+ALTER TABLE "ShippingQuote" ADD COLUMN "providerQuoteId" TEXT;
+ALTER TABLE "ShippingQuote" ADD COLUMN "courierId" TEXT;
+ALTER TABLE "ShippingQuote" ADD COLUMN "courierName" TEXT;
+ALTER TABLE "ShippingQuote" ADD COLUMN "metadata" JSONB;
+ALTER TABLE "ShippingQuote" ADD COLUMN "expiresAt" TIMESTAMP(3);
+CREATE INDEX "ShippingQuote_checkoutSessionId_createdAt_idx" ON "ShippingQuote"("checkoutSessionId", "createdAt");
+
+ALTER TABLE "Shipment" ADD COLUMN "providerOrderId" TEXT;
+ALTER TABLE "Shipment" ADD COLUMN "courierId" TEXT;
+ALTER TABLE "Shipment" ADD COLUMN "courierName" TEXT;
+ALTER TABLE "Shipment" ADD COLUMN "trackingUrl" TEXT;
+ALTER TABLE "Shipment" ADD COLUMN "labelUrl" TEXT;
+ALTER TABLE "Shipment" ADD COLUMN "manifestUrl" TEXT;
+ALTER TABLE "Shipment" ADD COLUMN "pickupId" TEXT;
+ALTER TABLE "Shipment" ADD COLUMN "providerStatus" TEXT;
+ALTER TABLE "Shipment" ADD COLUMN "metadata" JSONB;
+ALTER TABLE "Shipment" ADD COLUMN "bookingError" TEXT;
+ALTER TABLE "Shipment" ADD COLUMN "bookedAt" TIMESTAMP(3);
+ALTER TABLE "Shipment" ADD COLUMN "pickupScheduledAt" TIMESTAMP(3);
+ALTER TABLE "Shipment" ADD COLUMN "lastSyncedAt" TIMESTAMP(3);
+ALTER TABLE "Shipment" ADD COLUMN "packedWeightGrams" INTEGER;
+ALTER TABLE "Shipment" ADD COLUMN "lengthCm" DOUBLE PRECISION;
+ALTER TABLE "Shipment" ADD COLUMN "breadthCm" DOUBLE PRECISION;
+ALTER TABLE "Shipment" ADD COLUMN "heightCm" DOUBLE PRECISION;
+CREATE INDEX "Shipment_provider_providerShipmentId_idx" ON "Shipment"("provider", "providerShipmentId");
+CREATE INDEX "Shipment_trackingNumber_idx" ON "Shipment"("trackingNumber");
+
+ALTER TABLE "ShipmentEvent" ADD COLUMN "externalId" TEXT;
+CREATE UNIQUE INDEX "ShipmentEvent_shipmentId_externalId_key" ON "ShipmentEvent"("shipmentId", "externalId");

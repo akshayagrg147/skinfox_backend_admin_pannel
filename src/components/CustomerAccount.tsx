@@ -14,7 +14,7 @@ export type AccountSection = 'profile' | 'orders' | 'waitlist' | 'supercoin' | '
 type SavedAddress = { id: string; label: string; fullName: string; phone: string; addressLine1: string; addressLine2?: string | null; landmark?: string | null; city: string; state: string; pincode: string; isDefault: boolean }
 type AddressDraft = Omit<SavedAddress, 'id'>
 type CustomerOrderItem = { id: string; productId?: string | null; sku?: string | null; productName: string; size?: string | null; quantity: number; primaryImage?: string | null; unitSellingPricePaise?: number | null; mrpPaise?: number | null; discountPaise?: number | null; finalLineTotalPaise: number; reservationCreditPaise?: number | null; remainingBalancePaise?: number | null }
-type CustomerOrder = { publicToken: string; orderNumber: string; status: string; source?: string; waitlistReservationId?: string | null; subtotalPaise?: number; discountPaise?: number; taxPaise?: number; shippingPaise?: number; codPaise?: number; totalPaise: number; createdAt: string; mrpSubtotalPaise?: number | null; waitlistDiscountPaise?: number | null; reservationCreditPaise?: number; remainingBalancePaise?: number | null; pricingMode?: string | null; completionDeadlineAt?: string | null; balancePaidAt?: string | null; payments?: Array<{ provider: string; status: string }>; items: CustomerOrderItem[]; shippingAddress?: { fullName?: string; addressLine1?: string; addressLine2?: string | null; city?: string; state?: string; pincode?: string } | null }
+type CustomerOrder = { publicToken: string; orderNumber: string; status: string; source?: string; waitlistReservationId?: string | null; subtotalPaise?: number; discountPaise?: number; taxPaise?: number; shippingPaise?: number; codPaise?: number; totalPaise: number; createdAt: string; mrpSubtotalPaise?: number | null; waitlistDiscountPaise?: number | null; reservationCreditPaise?: number; remainingBalancePaise?: number | null; pricingMode?: string | null; pricingPercent?: number | null; completionDeadlineAt?: string | null; balancePaidAt?: string | null; payments?: Array<{ provider: string; status: string }>; items: CustomerOrderItem[]; shippingAddress?: { fullName?: string; addressLine1?: string; addressLine2?: string | null; city?: string; state?: string; pincode?: string } | null }
 type WaitlistReservation = { publicToken: string; waitlistId: string; status: string; depositPaise: number; discountPercent: number; pricingMode?: string; pricingValuePaise?: number | null; founderNumber?: number | null; founderCapacity?: number; refundPaise: number; refundStatus?: string | null; createdAt: string; joinedAt?: string | null; convertedOrder?: { publicToken: string; orderNumber: string; status: string; totalPaise: number; remainingBalancePaise?: number | null; shippingAddress?: CustomerOrder['shippingAddress'] } | null; items: Array<{ productId: string; productName: string; productSlug: string; size: string; quantity: number }> }
 
 const customerCsrfHeaders = (): Record<string, string> => {
@@ -414,10 +414,11 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
               const tax = Math.max(0, numericPaise(order.taxPaise) ?? 0)
               const codFee = Math.max(0, numericPaise(order.codPaise) ?? 0)
               const summaryTotal = waitlistOrder ? balanceDue : Math.max(0, numericPaise(order.totalPaise) ?? 0)
-              // Calculate the displayed rate from the immutable order
-              // snapshot. This stays accurate even when an exact launch price
-              // was used and the saved admin percentage was only a hint.
-              const waitlistDiscountPercent = waitlistOrder ? formatDiscountPercent(mrpValue, orderDiscount) : null
+              // Prefer the immutable percentage saved on percentage-based
+              // orders. Legacy exact-price orders fall back to their actual
+              // effective rate so their historical totals remain accurate.
+              const storedPricingPercent = waitlistOrder && order.pricingMode === 'discount_off_mrp' && Number.isInteger(order.pricingPercent) && Number(order.pricingPercent) >= 1 && Number(order.pricingPercent) <= 99 ? `${Number(order.pricingPercent)}%` : null
+              const waitlistDiscountPercent = waitlistOrder ? (storedPricingPercent ?? formatDiscountPercent(mrpValue, orderDiscount)) : null
               const formulaBase = waitlistOrder && mrpValue !== null ? `MRP ${displayPaise(mrpValue)}` : `Products ${displayPaise(subtotal)}`
               const balanceFormula = [
                 formulaBase,
