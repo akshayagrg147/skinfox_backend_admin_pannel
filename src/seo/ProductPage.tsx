@@ -1,6 +1,5 @@
-import { ArrowRight, Check, ChevronRight, Crown, KeyRound, Mail, Minus, Plus, Sparkles } from 'lucide-react'
+import { ArrowRight, Check, ChevronRight, Mail, Minus, Plus, Sparkles } from 'lucide-react'
 import { useState } from 'react'
-import type { WaitlistConfig } from '../hooks/useStorefront'
 import type { Product } from '../types'
 import { products as catalog } from '../data/products'
 import { SiteSeo } from './SiteSeo'
@@ -14,16 +13,13 @@ type ProductPageProps = {
   loading?: boolean
   error?: string
   catalogProducts?: Product[]
-  waitlist?: WaitlistConfig
-  founderNumber?: number | null
   onAdd: (product: Product, quantity: number) => void
   onFindCare: () => void
 }
 
 const money = (paise: number) => `₹${(paise / 100).toLocaleString('en-IN')}`
 
-export function ProductPage({ product, productSlug, loading = false, error = '', catalogProducts = catalog, waitlist, founderNumber, onAdd, onFindCare }: ProductPageProps) {
-  const checkingPrice = loading || Boolean(import.meta.env.SSR && import.meta.env.MODE !== 'test')
+export function ProductPage({ product, productSlug, loading = false, error = '', catalogProducts = catalog, onAdd, onFindCare }: ProductPageProps) {
   const [quantity, setQuantity] = useState(1)
   const [activeImage, setActiveImage] = useState(0)
   const displayProduct = product ?? (loading || error ? catalog.find((item) => item.id === productSlug) : undefined)
@@ -36,17 +32,8 @@ export function ProductPage({ product, productSlug, loading = false, error = '',
   const images = displayProduct.media.filter((item) => item.type === 'image')
   const selectedImage = images[activeImage] ?? { src: displayProduct.image, alt: displayProduct.imageAlt }
   const related = catalogProducts.filter((item) => item.id !== displayProduct.id && item.concerns.some((concern) => displayProduct.concerns.includes(concern))).slice(0, 3)
-  const launch = waitlist ?? { enabled: displayProduct.price === null, stage: displayProduct.price === null ? 'waitlist' : 'regular', founderCapacity: 200, founderClaimed: 0, founderRemaining: 200, foundingClosed: false, founderPricePaise: 59900, launchPricePaise: 64900, regularPricePaise: (displayProduct.mrp ?? 700) * 100 } as WaitlistConfig
-  const founderEligible = Boolean(founderNumber && founderNumber <= launch.founderCapacity)
-  const foundingOpen = launch.enabled && launch.stage === 'waitlist' && !launch.foundingClosed
-  // The founding benefit is consumed by the converted waitlist order. Once the
-  // public launch opens, product pages must show the same price to every
-  // shopper instead of re-presenting the former member offer.
-  const founderReveal = founderEligible && launch.stage === 'founder_reveal'
-  const founderAccessLocked = launch.stage === 'founder_reveal' && !founderEligible
-  const shownPrice = founderReveal ? launch.founderPricePaise ?? 59900 : launch.stage === 'launch' ? launch.launchPricePaise : launch.stage === 'regular' ? launch.regularPricePaise : null
-  const primaryLabel = foundingOpen ? 'Join Waitlist @ ₹99/-' : founderReveal ? 'Claim My Launch Price' : founderAccessLocked ? 'Launch Access Reserved' : 'Add to bag'
-  const mrpPaise = (displayProduct.mrp ?? launch.regularPricePaise / 100) * 100
+  const hasPrice = displayProduct.price !== null
+  const primaryLabel = hasPrice ? 'Add to bag' : 'Notify me when available'
   return <section className="product-page shell">
     <SiteSeo page={productSeo(displayProduct)} />
     <nav className="product-page__breadcrumbs" aria-label="Breadcrumb"><ol><li><a href="/">Home</a></li><li aria-hidden="true"><ChevronRight size={13} /></li><li><a href="/#shop">Shop</a></li><li aria-hidden="true"><ChevronRight size={13} /></li><li aria-current="page">{displayProduct.name}</li></ol></nav>
@@ -60,24 +47,15 @@ export function ProductPage({ product, productSlug, loading = false, error = '',
         <h1>{displayProduct.name}</h1><p className="product-page__subtitle">{displayProduct.subtitle}</p>
         <div className="product-page__attributes"><span>{displayProduct.size}</span><span>{displayProduct.concern}</span></div>
         <p className="product-page__benefit">{displayProduct.benefit}</p>
-        <div className="product-page__pricing">{checkingPrice ? <p role="status">Checking current launch access…</p> : error ? <p role="alert">We couldn’t load current availability. Please <a href={productPath(displayProduct)}>try again</a>.</p> : foundingOpen ? <div className="founder-offer">
-          <span className="founder-offer__mrp">MRP {money(mrpPaise)}</span>
-          <span className="founder-offer__eyebrow"><Crown size={15} /> Priority access for the first {launch.founderCapacity} members</span>
-          <strong>Exclusive Launch Price <em>— Revealing Soon</em></strong>
-          <p>Join the waitlist and unlock an exclusive launch price before everyone else.</p>
-          <div className="founder-progress" aria-label={`${launch.founderClaimed} of ${launch.founderCapacity} priority spots claimed`}><span><b>{launch.founderClaimed} / {launch.founderCapacity}</b> Priority Spots Claimed</span><i><span style={{ width: `${Math.min(100, launch.founderClaimed / launch.founderCapacity * 100)}%` }} /></i><small>{launch.founderRemaining} priority {launch.founderRemaining === 1 ? 'place' : 'places'} remaining</small></div>
-        </div> : <div className="founder-offer founder-offer--revealed">
-          <span className="founder-offer__mrp">MRP {money(mrpPaise)}</span>
-          {founderReveal ? <><span className="founder-offer__eyebrow"><Crown size={15} /> Launch price reserved</span><strong><em>Launch Price</em> {money(shownPrice!)}</strong><p>Your early-access price is reserved for a limited time.</p></> : founderAccessLocked ? <><span className="founder-offer__eyebrow"><Crown size={15} /> Launch pricing in progress</span><strong><em>Launch Price</em> Reserved</strong><p>Sign in with the account used to join the priority waitlist. Public Launch Price {money(launch.launchPricePaise)} follows next.</p></> : <><span className="founder-offer__eyebrow"><Sparkles size={15} /> {launch.stage === 'regular' ? 'SkinFox collection' : 'Now available to everyone'}</span><strong><em>{launch.stage === 'regular' ? 'Regular Price' : 'Launch Price'}</em> {money(shownPrice ?? launch.regularPricePaise)}</strong><p>{launch.stage === 'regular' ? 'The SkinFox collection is now available to everyone.' : 'The public launch price is now available to everyone.'}</p></>}
+        <div className="product-page__pricing">{loading ? <p role="status">Loading product details…</p> : error ? <p role="alert">We couldn’t load current availability. Please <a href={productPath(displayProduct)}>try again</a>.</p> : <div className="product-offer">
+          {displayProduct.mrp !== null && <span className="product-offer__mrp">MRP {money(displayProduct.mrp * 100)}</span>}
+          {hasPrice ? <><strong>{money(displayProduct.price! * 100)}</strong><span className="product-offer__label">Current selling price</span></> : <><strong>Coming soon</strong><span className="product-offer__label">We’ll notify you when this product is available.</span></>}
         </div>}</div>
         <div className="product-page__purchase">
           <div className="quantity-control" role="group" aria-label="Product quantity"><button type="button" onClick={() => setQuantity((value) => Math.max(1, value - 1))} aria-label="Decrease quantity" disabled={quantity === 1}><Minus size={16} /></button><span aria-live="polite">{quantity}</span><button type="button" onClick={() => setQuantity((value) => Math.min(8, value + 1))} aria-label="Increase quantity" disabled={quantity === 8}><Plus size={16} /></button></div>
-          <button className="button button--dark" type="button" disabled={checkingPrice || Boolean(error) || !product || founderAccessLocked} onClick={() => product && onAdd(product, quantity)}>{primaryLabel} <ArrowRight size={18} /></button>
+          <button className="button button--dark" type="button" disabled={loading || Boolean(error) || !product || !hasPrice} onClick={() => product && onAdd(product, quantity)}>{primaryLabel} <ArrowRight size={18} /></button>
         </div>
-        {foundingOpen && <>
-          <div className="founder-trust" aria-label="Priority waitlist benefits"><span><KeyRound size={15} /> Limited to first {launch.founderCapacity} customers</span><span><Crown size={15} /> Exclusive launch pricing</span><span><Sparkles size={15} /> Early access before public launch</span><span><Check size={15} /> Premium SkinFox experience</span></div>
-          <div className="founder-journey" aria-label="SkinFox launch pricing journey"><span className={launch.stage === 'waitlist' ? 'is-current' : ''}><small>Waitlist</small><strong>Price reserved</strong></span><i /><span className={launch.stage === 'founder_reveal' ? 'is-current' : ''}><small>Early access</small><strong>Reveals soon</strong></span><i /><span><small>Launch</small><strong>{money(launch.launchPricePaise)}</strong></span><i /><span><small>Regular</small><strong>{money(launch.regularPricePaise)}</strong></span></div>
-        </>}
+        <div className="product-trust" aria-label="Shopping information"><span><Check size={15} /> Clear product pricing</span><span><Check size={15} /> Secure checkout</span><span><Check size={15} /> Delivery updates</span></div>
         <button className="product-page__finder" type="button" onClick={onFindCare}><Sparkles size={18} /><span>Not sure where to start?<strong>Find your care routine</strong></span><ArrowRight size={18} /></button>
         <a className="product-page__support" href="mailto:contact@skinfox.in"><Mail size={15} /> Ask us about this product</a>
       </div>

@@ -56,9 +56,9 @@ export async function openRazorpayCheckout(options: Omit<RazorpayOptions, 'handl
     const checkout = new window.Razorpay!({
       ...options,
       handler: (response) => { completed = true; resolve(response) },
-      modal: { confirm_close: true, ondismiss: () => { if (!completed) reject(new Error('Payment window closed. No waitlist place was activated.')) } },
+      modal: { confirm_close: true, ondismiss: () => { if (!completed) reject(new Error('Payment window closed. Your order was not placed.')) } },
     })
-    checkout.on('payment.failed', (response) => reject(new Error(response.error?.description || 'Payment failed. No waitlist place was activated.')))
+    checkout.on('payment.failed', (response) => reject(new Error(response.error?.description || 'Payment failed. Your order was not placed.')))
     checkout.open()
   })
 }

@@ -1,11 +1,11 @@
 export type ApiEnvelope<T> = { data: T; meta?: { requestId?: string; total?: number; page?: number; limit?: number; hasNextPage?: boolean; [key: string]: unknown } }
-const apiBase = import.meta.env.VITE_API_URL ?? ''
+export const apiBase = import.meta.env.VITE_API_URL ?? ''
 
 export class ApiRequestError extends Error {
   constructor(message: string, public status: number) { super(message) }
 }
 
-const csrfToken = () => document.cookie.split('; ').find((item) => item.startsWith('sf_csrf='))?.split('=').slice(1).join('=')
+export const csrfToken = () => document.cookie.split('; ').find((item) => item.startsWith('sf_csrf='))?.split('=').slice(1).join('=')
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<ApiEnvelope<T>> {
   const method = init.method ?? 'GET'

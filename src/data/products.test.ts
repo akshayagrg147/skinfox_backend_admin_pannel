@@ -24,7 +24,7 @@ describe('product catalogue', () => {
     expect(products.find((product) => product.id === 'onion-shampoo')?.media.some((item) => item.type === 'video')).toBe(true)
   })
 
-  it('distinguishes photographed MRP references from unconfirmed selling prices', () => {
+  it('distinguishes photographed MRP references from products still awaiting a catalogue price', () => {
     expect(formatPrice(1295)).toMatch(/₹1,295/)
     const expectedMrps = new Map([
       ['rayyvia-sun-protect', 700],
@@ -37,7 +37,7 @@ describe('product catalogue', () => {
         expect(product).toMatchObject({ price: null, mrp: expectedMrp })
         expect(formatProductPrice(product)).toBe(`MRP ${formatPrice(expectedMrp)}`)
       } else {
-        expect(formatProductPrice(product)).toBe('Price on launch')
+        expect(formatProductPrice(product)).toBe('Coming soon')
       }
     }
   })

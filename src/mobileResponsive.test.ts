@@ -6,7 +6,7 @@ const styles = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
 const polishStyles = readFileSync(resolve(process.cwd(), 'src/storefront-polish.css'), 'utf8')
 
 describe('mobile responsive stylesheet contracts', () => {
-  it('keeps the waitlist banner visible and the floating header below it while scrolling', () => {
+  it('keeps the launch banner visible and the floating header below it while scrolling', () => {
     expect(polishStyles).toMatch(/\.announcement \{[^}]*position: sticky;[^}]*top: 0;/)
     expect(polishStyles).toMatch(/\.announcement \{[^}]*z-index: 118;/)
     expect(polishStyles).toMatch(/\.site-header--scrolled \{ top: 46px; \}/)

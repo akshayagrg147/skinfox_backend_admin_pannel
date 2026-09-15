@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isProductImageAssetPath, makeProductSlug, splitAssetPaths } from './productAssets'
+import { isProductImageAssetPath, isProductImageSource, makeProductSlug, splitAssetPaths } from './productAssets'
 
 describe('admin product website assets', () => {
   it('accepts bundled product images and rejects uploads or external URLs', () => {
@@ -8,6 +8,11 @@ describe('admin product website assets', () => {
     expect(isProductImageAssetPath('https://example.com/new-product.webp')).toBe(false)
     expect(isProductImageAssetPath('/uploads/new-product.webp')).toBe(false)
     expect(isProductImageAssetPath('/products/../private/new-product.webp')).toBe(false)
+  })
+
+  it('accepts verified local media and HTTPS provider delivery URLs', () => {
+    expect(isProductImageSource('/api/v1/media/uploaded-product.webp')).toBe(true)
+    expect(isProductImageSource('https://ik.imagekit.io/skinfox/products/product.webp')).toBe(true)
   })
 
   it('normalizes comma-separated gallery paths', () => {

@@ -12,14 +12,11 @@ type CartDrawerProps = {
   onQuantity: (id: string, quantity: number) => void
   onRemove: (id: string) => void
   onCheckout: () => void
-  waitlistDepositPaise?: number
-  waitlistDiscountPercent?: number
 }
 
-export function CartDrawer({ open, lines, onClose, onQuantity, onRemove, onCheckout, waitlistDepositPaise = 9900, waitlistDiscountPercent = 25 }: CartDrawerProps) {
+export function CartDrawer({ open, lines, onClose, onQuantity, onRemove, onCheckout }: CartDrawerProps) {
   const hasPendingPrice = lines.some((line) => line.product.price === null)
   const totalQuantity = lines.reduce((sum, line) => sum + line.quantity, 0)
-  const waitlistTotalPaise = waitlistDepositPaise * totalQuantity
   const subtotal = lines.reduce((sum, line) => sum + (line.product.price ?? 0) * line.quantity, 0)
   const threshold = 999
   const progress = Math.min((subtotal / threshold) * 100, 100)
@@ -39,16 +36,12 @@ export function CartDrawer({ open, lines, onClose, onQuantity, onRemove, onCheck
         </div>
       ) : (
         <>
-          {hasPendingPrice ? (
-            <div className="shipping-meter shipping-meter--pending">
-              <p>Prices will be revealed later. Join the priority waitlist now for a {waitlistDiscountPercent}% launch discount.</p>
-            </div>
-          ) : (
+          {!hasPendingPrice ? (
             <div className="shipping-meter">
               <p>{subtotal >= threshold ? 'Complimentary shipping unlocked.' : `${formatPrice(threshold - subtotal)} away from complimentary shipping.`}</p>
               <span><i style={{ width: `${progress}%` }} /></span>
             </div>
-          )}
+          ) : null}
           <div className="cart-lines">
             {lines.map(({ product, quantity }) => (
               <article className="cart-line" key={product.id}>
@@ -64,15 +57,15 @@ export function CartDrawer({ open, lines, onClose, onQuantity, onRemove, onCheck
                     <ProductPrice product={product} quantity={quantity} compact className="cart-line__price" />
                     <button className="remove-line" onClick={() => onRemove(product.id)} aria-label={`Remove ${product.name}`}><Trash2 size={15} /></button>
                   </div>
-                </div>
-              </article>
+              </div>
+            </article>
             ))}
           </div>
           <div className="cart-summary">
-            <div><span>{hasPendingPrice ? `Reservation fee · ${formatPrice(waitlistDepositPaise / 100)} × ${totalQuantity}` : 'Subtotal'}</span><strong>{hasPendingPrice ? formatPrice(waitlistTotalPaise / 100) : formatPrice(subtotal)}</strong></div>
-            <p>{hasPendingPrice ? `The non-refundable waitlist reservation fee is charged per product unit. Final product prices will be revealed later.` : 'Taxes included. Shipping calculated at checkout.'}</p>
-            <button className="button button--copper" onClick={() => { onClose(); onCheckout() }}>
-              {hasPendingPrice ? `Continue to waitlist · ${formatPrice(waitlistTotalPaise / 100)}` : 'Secure checkout'} <ArrowRight size={17} />
+            <div><span>Subtotal</span><strong>{formatPrice(subtotal)}</strong></div>
+            <p>{hasPendingPrice ? 'Some items are not available for purchase yet. Remove them to continue.' : 'Taxes included. Shipping calculated at checkout.'}</p>
+            <button className="button button--copper" disabled={hasPendingPrice} onClick={() => { onClose(); onCheckout() }}>
+              Secure checkout <ArrowRight size={17} />
             </button>
           </div>
         </>

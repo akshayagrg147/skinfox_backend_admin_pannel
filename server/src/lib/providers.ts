@@ -1,3 +1,4 @@
+import { createHmac, randomBytes } from 'node:crypto'
 import { signHmac } from './crypto.js'
 
 export interface PaymentProvider {
@@ -59,5 +60,79 @@ export interface EmailProvider { send(input: { to: string; subject: string; html
 export class LocalEmailAdapter implements EmailProvider { async send() { return undefined } }
 export interface StorageProvider { presign(input: { key: string; mimeType: string }): Promise<{ uploadUrl: string; key: string }> }
 export class LocalStorageAdapter implements StorageProvider { async presign(input: { key: string; mimeType: string }) { return { uploadUrl: `/api/v1/admin/media/local-upload/${encodeURIComponent(input.key)}`, key: input.key } } }
+
+export type ImageKitUploadAuth = {
+  token: string
+  expire: number
+  signature: string
+  publicKey: string
+  uploadUrl: string
+  folder: string
+}
+
+type ImageKitFile = {
+  fileId?: string
+  filePath?: string
+  url?: string
+  name?: string
+  size?: number
+  width?: number
+  height?: number
+  fileType?: string
+}
+
+/**
+ * Small, dependency-free ImageKit integration. The private key never leaves
+ * the API process: the browser receives only a short-lived upload signature.
+ */
+export class ImageKitAdapter {
+  constructor(
+    private readonly privateKey = process.env.IMAGEKIT_PRIVATE_KEY ?? '',
+    private readonly publicKey = process.env.IMAGEKIT_PUBLIC_KEY ?? '',
+    private readonly urlEndpoint = process.env.IMAGEKIT_URL_ENDPOINT ?? '',
+    private readonly uploadFolder = process.env.IMAGEKIT_UPLOAD_FOLDER ?? '/products',
+  ) {}
+
+  configured() { return Boolean(this.privateKey && this.publicKey && this.urlEndpoint) }
+
+  uploadAuth(): ImageKitUploadAuth {
+    if (!this.configured()) throw new Error('IMAGEKIT_NOT_CONFIGURED')
+    const token = randomBytes(24).toString('hex')
+    const expire = Math.floor(Date.now() / 1000) + 10 * 60
+    const signature = createHmac('sha1', this.privateKey).update(`${token}${expire}`).digest('hex')
+    return { token, expire, signature, publicKey: this.publicKey, uploadUrl: 'https://upload.imagekit.io/api/v1/files/upload', folder: this.uploadFolder }
+  }
+
+  async inspectFile(fileId: string): Promise<ImageKitFile> {
+    if (!this.configured()) throw new Error('IMAGEKIT_NOT_CONFIGURED')
+    const response = await fetch(`https://api.imagekit.io/v1/files/${encodeURIComponent(fileId)}`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(15_000),
+      headers: { accept: 'application/json', authorization: `Basic ${Buffer.from(`${this.privateKey}:`).toString('base64')}` },
+    })
+    if (!response.ok) throw new Error(`IMAGEKIT_FILE_LOOKUP_FAILED_${response.status}`)
+    return response.json() as Promise<ImageKitFile>
+  }
+
+  async deleteFile(fileId: string) {
+    if (!this.configured()) throw new Error('IMAGEKIT_NOT_CONFIGURED')
+    const response = await fetch(`https://api.imagekit.io/v1/files/${encodeURIComponent(fileId)}`, {
+      method: 'DELETE',
+      signal: AbortSignal.timeout(15_000),
+      headers: { accept: 'application/json', authorization: `Basic ${Buffer.from(`${this.privateKey}:`).toString('base64')}` },
+    })
+    if (!response.ok) throw new Error(`IMAGEKIT_FILE_DELETE_FAILED_${response.status}`)
+  }
+
+  validDeliveryUrl(value: string) {
+    try {
+      const expected = new URL(this.urlEndpoint)
+      const actual = new URL(value)
+      return actual.protocol === 'https:' && actual.origin === expected.origin
+    } catch {
+      return false
+    }
+  }
+}
 export interface ShippingProvider { serviceable(pincode: string): Promise<boolean> }
 export class ManualShippingAdapter implements ShippingProvider { constructor(private readonly lookup: (pincode: string) => Promise<boolean>) {} serviceable(pincode: string) { return this.lookup(pincode) } }

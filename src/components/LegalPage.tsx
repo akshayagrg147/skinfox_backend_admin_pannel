@@ -20,7 +20,7 @@ const privacySections: LegalSection[] = [
   {
     id: 'data', title: '2. Information we collect', content: <>
       <p>We collect only information relevant to providing and improving the store. Depending on how you use SkinFox, this may include:</p>
-      <ul><li><strong>Contact and account information:</strong> your mobile number, name and email address if you provide them.</li><li><strong>Order and waitlist information:</strong> products selected, reservation-payment status, payment-provider references, delivery address, order status and customer-support correspondence.</li><li><strong>Technical information:</strong> essential cookies, cart/session identifiers, device and browser information, IP-address-derived security logs, and pages or links used to reach the store.</li><li><strong>Marketing preferences:</strong> your newsletter subscription or other communications preferences.</li></ul>
+      <ul><li><strong>Contact and account information:</strong> your mobile number, name and email address if you provide them.</li><li><strong>Order information:</strong> products selected, payment-provider references, delivery address, order status and customer-support correspondence.</li><li><strong>Technical information:</strong> essential cookies, cart/session identifiers, device and browser information, IP-address-derived security logs, and pages or links used to reach the store.</li><li><strong>Marketing preferences:</strong> your newsletter subscription or other communications preferences.</li></ul>
       <p>Please do not send us sensitive personal information unless we specifically ask for it and explain why it is needed.</p>
     </>,
   },
@@ -38,7 +38,7 @@ const privacySections: LegalSection[] = [
   },
   {
     id: 'sharing', title: '5. When we share information', content: <>
-      <p>We may share only the information necessary with service providers that help us host, secure and operate SkinFox. This includes Razorpay when you choose to pay a priority-waitlist reservation fee, and can include delivery and email providers. Razorpay processes the payment credentials in its secure checkout; SkinFox stores payment references and status, not your card or UPI credentials.</p>
+      <p>We may share only the information necessary with service providers that help us host, secure and operate SkinFox. This includes Razorpay when you choose online payment, and can include delivery and email providers. Razorpay processes the payment credentials in its secure checkout; SkinFox stores payment references and status, not your card or UPI credentials.</p>
       <p>We may also disclose information where required to comply with law, enforce our terms, protect the rights, safety or security of SkinFox, our customers or others, or in connection with a lawful business transition.</p>
     </>,
   },
@@ -83,47 +83,39 @@ const termsSections: LegalSection[] = [
   {
     id: 'orders', title: '3. Orders, availability and pricing', content: <>
       <p>Adding an item to a bag or submitting an order request does not guarantee acceptance, stock availability or a price. We may decline, cancel or limit an order where information is inaccurate, stock is unavailable, an order appears unauthorised or fraud prevention requires it. If an accepted order must be cancelled, we will communicate using the contact details provided with the order.</p>
-      <p>Where shown on packaging, an MRP is not necessarily the selling price. While the priority waitlist is open, SkinFox withholds final selling prices. The applicable selling price, taxes, delivery charges, payment method and offer terms will be shown before any product order is confirmed.</p>
+      <p>Where shown on packaging, an MRP is not necessarily the selling price. SkinFox shows the applicable selling price, taxes, delivery charges, payment method and any active promotion before an order is confirmed.</p>
     </>,
   },
   {
-    id: 'priority-waitlist', title: '3A. Priority waitlist reservation fee', content: <>
-      <p>Before product prices are revealed, you may reserve priority launch access for selected products by paying the per-product-unit reservation fee shown in the waitlist screen. The total fee is the displayed per-unit amount multiplied by the total quantity selected. A waitlist reservation is not a product purchase, does not reserve stock, and does not require you to buy when final prices are announced.</p>
-      <p>Priority waitlist membership is limited to the capacity displayed when you join. A waitlist number is assigned only after the payment provider confirms capture. Any early launch-price eligibility is linked to the signed-in customer account and eligible products in a confirmed reservation. The reservation fee is separate from the undisclosed product price.</p>
-      <p>The planned price journey may be shown for transparency: an early launch price for eligible waitlist members, a later public Launch Price, and the Regular Price/MRP. SkinFox will show the exact applicable selling price and any time limit before asking you to place a product order.</p>
-      <p>The waitlist reservation fee is non-refundable and cannot be cancelled for a change of mind. This does not limit any remedy that must be provided under applicable law, including where a payment is duplicated, processed incorrectly, or the service materially differs from what was represented. A pending or failed payment does not activate priority access if no amount was captured.</p>
-    </>,
-  },
-  {
-    id: 'delivery', title: '4. Delivery, cancellations, returns and refunds', content: <>
+    id: 'delivery', title: '3. Delivery, cancellations, returns and refunds', content: <>
       <p>Delivery coverage, estimated delivery windows, cancellation options and return/refund eligibility may vary by product, delivery location and the condition of an item. The applicable information will be presented at checkout or with your order confirmation. Nothing in these terms limits a right that cannot lawfully be excluded under applicable consumer-protection law.</p>
       <p>To request help with an order, return, refund or cancellation, email <a href="mailto:contact@skinfox.in">contact@skinfox.in</a> with your order number and the mobile number used for the order.</p>
     </>,
   },
   {
-    id: 'accounts', title: '5. Customer accounts and sign-in', content: <>
+    id: 'accounts', title: '4. Customer accounts and sign-in', content: <>
       <p>Some features require sign-in with Google or an email address and password. You are responsible for providing accurate information and keeping your password and sign-in links secure. Tell us promptly if you suspect unauthorised access. We may suspend an account or order flow where we reasonably believe it is being misused or presents a security risk.</p>
     </>,
   },
   {
-    id: 'affiliate', title: '6. Affiliate referrals', content: <>
+    id: 'affiliate', title: '5. Affiliate referrals', content: <>
       <p>Where SkinFox offers an affiliate referral programme, referral links and wallet credits are governed by the programme terms displayed in the affiliate dashboard. A referral or wallet entry may be reviewed, held, reversed or declined where an order is cancelled, refunded, fraudulent, self-referred, duplicated or otherwise ineligible under the programme rules.</p>
     </>,
   },
   {
-    id: 'use', title: '7. Acceptable use and intellectual property', content: <>
+    id: 'use', title: '6. Acceptable use and intellectual property', content: <>
       <p>You must not interfere with the store, bypass security controls, scrape data, misuse promotions or referral links, submit false orders, impersonate another person, or use the services in a way that violates law or another person’s rights.</p>
       <p>SkinFox names, logos, product content, photographs, designs and site content are owned by or licensed to SkinFox and may not be copied, distributed or used commercially without prior written permission, except where law permits.</p>
     </>,
   },
   {
-    id: 'liability', title: '8. Disclaimers and liability', content: <>
+    id: 'liability', title: '7. Disclaimers and liability', content: <>
       <p>To the extent permitted by applicable law, SkinFox provides the website on an “as available” basis. We do not guarantee uninterrupted, error-free or fully secure access. We do not exclude liability where it cannot lawfully be excluded, including for rights available to consumers under applicable law.</p>
       <p>Where permitted, SkinFox will not be liable for indirect, incidental, special or consequential loss arising from use of the website or services. This does not affect statutory consumer rights.</p>
     </>,
   },
   {
-    id: 'contact', title: '9. Contact, grievances and governing law', content: <>
+    id: 'contact', title: '8. Contact, grievances and governing law', content: <>
       <p>For customer support, an order concern, a legal notice or a grievance, contact <a href="mailto:contact@skinfox.in">contact@skinfox.in</a>. We will review and respond through the contact information provided with your request.</p>
       <p>These terms are governed by the laws applicable in India. Any dispute will be subject to the jurisdiction required by applicable law. Nothing in this section prevents you from using a consumer remedy available under applicable law.</p>
     </>,

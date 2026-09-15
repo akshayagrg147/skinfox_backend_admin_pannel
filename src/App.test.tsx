@@ -22,15 +22,14 @@ describe('SkinFox storefront', () => {
     expect(document.querySelector('.site-footer__wordmark')).toHaveAttribute('src', '/brand/skinfox-logo.png')
   })
 
-  it('shows a sliding waitlist banner using the live member capacity', () => {
+  it('shows a sliding launch promotion banner using the configured order capacity', () => {
     render(<App />)
 
-    const banner = screen.getByRole('link', { name: /join the waitlist for ₹99 per product/i })
+    const banner = screen.getByRole('link', { name: /exclusive launch access.*50% off.*first 500 orders/i })
     expect(banner).toHaveAttribute('href', '/#shop')
-    expect(banner).toHaveTextContent('Join Waitlist @ ₹99/-')
-    expect(banner).toHaveTextContent('Early access for the first 200 members')
-    expect(banner).toHaveTextContent('Priority reservation access')
-    expect(banner).not.toHaveTextContent(/refundable/i)
+    expect(banner).toHaveTextContent('Launch offer · 50% off')
+    expect(banner).toHaveTextContent('For the first 500 completed orders')
+    expect(banner).not.toHaveTextContent(/waitlist|priority|reservation|founder/i)
     expect(banner.querySelector('.announcement__track')).toBeInTheDocument()
   })
 
@@ -61,7 +60,7 @@ describe('SkinFox storefront', () => {
     )
   })
 
-  it('adds a product without opening checkout, then opens the bag only from the bag button', async () => {
+  it('keeps unavailable products out of checkout until a catalogue price is configured', async () => {
     render(<App />)
 
     const hydrelleCardTrigger = screen
@@ -69,18 +68,10 @@ describe('SkinFox storefront', () => {
       .find((link) => link.classList.contains('product-card__visual'))
     const hydrelleCard = hydrelleCardTrigger?.closest('article')
     expect(hydrelleCard).not.toBeNull()
-    fireEvent.click(within(hydrelleCard!).getByRole('button', { name: /join waitlist at ₹99 for hydrelle dry skin specialist/i }))
-
-    const bagButton = await screen.findByRole('button', { name: /open bag with 1 items/i })
+    const purchaseButton = within(hydrelleCard!).getByRole('button', { name: /coming soon hydrelle dry skin specialist/i })
+    expect(purchaseButton).toBeDisabled()
     expect(screen.queryByRole('dialog', { name: 'Shopping bag' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('dialog', { name: 'SkinFox priority waitlist' })).not.toBeInTheDocument()
-
-    fireEvent.click(bagButton)
-    await waitFor(() => expect(screen.getByRole('dialog', { name: 'Shopping bag' })).toBeInTheDocument())
-    expect(screen.getAllByText(/launch price/i).length).toBeGreaterThan(0)
-
-    fireEvent.click(screen.getByRole('button', { name: /increase hydrelle quantity/i }))
-    expect(screen.getByRole('button', { name: /open bag with 2 items/i })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: /waitlist/i })).not.toBeInTheDocument()
   })
 
   it('presents multiple real products in the hero and one Hydrelle tube in the motion story', () => {
@@ -110,7 +101,7 @@ describe('SkinFox storefront', () => {
     expect(campaignVideo).toHaveAttribute('src', '/media/rayyvia-campaign-slide-01-v2.mp4')
     expect(campaignVideo).toHaveAttribute('poster', '/media/rayyvia-campaign-slide-01-v2-poster.jpg')
     expect(slideshow).toHaveClass('campaign-slideshow--landscape', 'campaign-slideshow--video')
-    expect(campaignVideo).toHaveAttribute('autoplay')
+    expect(campaignVideo).not.toHaveAttribute('autoplay')
     expect(campaignVideo).not.toHaveAttribute('loop')
     expect(campaignVideo).toHaveProperty('muted', true)
 
@@ -219,6 +210,6 @@ describe('SkinFox storefront', () => {
     render(<App />)
 
     expect(screen.getAllByText(/MRP ₹750/).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/price on launch/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/coming soon/i).length).toBeGreaterThan(0)
   })
 })

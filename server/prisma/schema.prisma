@@ -1192,6 +1192,9 @@ model LegalPolicy {
 model MediaAsset {
   id               String         @id @default(cuid())
   key              String         @unique
+  provider         String         @default("local")
+  providerAssetId  String?
+  deliveryUrl      String?
   originalFilename String
   mimeType         String
   sizeBytes        Int
@@ -1207,6 +1210,8 @@ model MediaAsset {
   createdAt        DateTime       @default(now())
   renditions       Json?
   productMedia     ProductMedia[]
+
+  @@unique([provider, providerAssetId])
 }
 
 model Promotion {

@@ -48,13 +48,13 @@ export function filterInventory(rows: InventoryRecord[], query: string, location
       && (location === 'all' || row.locationId === location || (location === 'unassigned' && !row.locationId))
       && (status === 'all' || status === stock.state || (status === 'sales_blocked' && stock.salesBlocked) || (status === 'attention' && (stock.state !== 'in_stock' || stock.salesBlocked)))
   })
-  const priority: Record<StockState, number> = { mismatch: 0, out_of_stock: 1, low_stock: 2, untracked: 3, in_stock: 4 }
+  const severityOrder: Record<StockState, number> = { mismatch: 0, out_of_stock: 1, low_stock: 2, untracked: 3, in_stock: 4 }
   return filtered.sort((a, b) => {
     const left = stockFor(a), right = stockFor(b)
     const diff = sort === 'stock_asc' ? (left.free ?? Number.MAX_SAFE_INTEGER) - (right.free ?? Number.MAX_SAFE_INTEGER)
       : sort === 'stock_desc' ? (right.free ?? -1) - (left.free ?? -1)
         : sort === 'updated' ? (Date.parse(b.lastMovementAt ?? '') || 0) - (Date.parse(a.lastMovementAt ?? '') || 0)
-          : sort === 'attention' ? priority[left.state] - priority[right.state] || Number(right.salesBlocked) - Number(left.salesBlocked) : 0
+          : sort === 'attention' ? severityOrder[left.state] - severityOrder[right.state] || Number(right.salesBlocked) - Number(left.salesBlocked) : 0
     return diff || a.variant.product.name.localeCompare(b.variant.product.name) || (a.location?.name ?? '').localeCompare(b.location?.name ?? '') || a.id.localeCompare(b.id)
   })
 }

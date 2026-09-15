@@ -66,37 +66,36 @@ describe('CustomerAccount', () => {
     expect(onCustomerChange).toHaveBeenCalledWith(expect.objectContaining({ id: 'customer-1', email: 'asha@example.com' }))
   })
 
-  it('explains a waitlist order balance with a plain-language calculation', async () => {
+  it('explains a standard order total with a plain-language calculation', async () => {
     getMock.mockImplementation((path: string) => {
       if (path === '/customer/auth/me') return Promise.resolve({ customer: { id: 'customer-1', fullName: 'Asha Sharma', email: 'asha@example.com', emailVerified: true } }) as never
-      if (path === '/customer/orders') return Promise.resolve([{ publicToken: 'waitlist-order-token', orderNumber: 'SF-WL-2026-ABCD', source: 'waitlist', status: 'pending_payment', totalPaise: 650000, createdAt: '2026-09-08T00:00:00.000Z', mrpSubtotalPaise: 910000, subtotalPaise: 910000, waitlistDiscountPaise: 131300, reservationCreditPaise: 128700, remainingBalancePaise: 650000, items: [{ id: 'line-1', productName: 'Rayyvia Sun Protect', size: '60 g', quantity: 1, primaryImage: '/products/rayyvia-sun-protect-primary.webp', unitSellingPricePaise: 778700, mrpPaise: 910000, discountPaise: 131300, finalLineTotalPaise: 778700 }], shippingAddress: null }]) as never
-      if (path === '/customer/addresses' || path === '/customer/waitlist') return Promise.resolve([]) as never
+      if (path === '/customer/orders') return Promise.resolve([{ publicToken: 'order-token', orderNumber: 'SF-2026-ABCD', status: 'confirmed', totalPaise: 778700, createdAt: '2026-09-08T00:00:00.000Z', mrpSubtotalPaise: 910000, subtotalPaise: 910000, discountPaise: 131300, items: [{ id: 'line-1', productName: 'Rayyvia Sun Protect', size: '60 g', quantity: 1, primaryImage: '/products/rayyvia-sun-protect-primary.webp', unitSellingPricePaise: 778700, mrpPaise: 910000, discountPaise: 131300, finalLineTotalPaise: 778700 }], shippingAddress: null }]) as never
+      if (path === '/customer/addresses') return Promise.resolve([]) as never
       return Promise.resolve({}) as never
     })
     render(<CustomerAccount open onClose={() => undefined} apiAvailable onCustomerChange={() => undefined} />)
     const summary = await screen.findByText(/payment summary/i)
-    expect(summary.parentElement).toHaveTextContent('MRP ₹9,100 − (14.43% × ₹9,100 ≈ ₹1,313) − ₹1,287 reservation credit = ₹6,500 due')
-    expect(summary.closest('.order-card__breakdown')).toHaveTextContent('Waitlist discount (14.43% of MRP)')
+    expect(summary.parentElement).toHaveTextContent('Products ₹9,100 − ₹1,313 discount = ₹7,787 total')
+    expect(summary.closest('.order-card__breakdown')).toHaveTextContent('Order discount')
     expect(screen.getByText('MRP / unit')).toBeInTheDocument()
     expect(screen.getByText('Your price / unit')).toBeInTheDocument()
     expect(screen.getByText('Product total')).toBeInTheDocument()
     expect(screen.getAllByText('₹9,100')).toHaveLength(2)
-    expect(screen.getAllByText('₹7,787')).toHaveLength(3)
-    expect(screen.getByText(/reservation fee is credited once against this order total/i)).toBeInTheDocument()
-    expect(screen.getByText(/amount still due/i)).toBeInTheDocument()
+    expect(screen.getAllByText('₹7,787').length).toBeGreaterThan(1)
+    expect(screen.queryByText(/reservation|waitlist|founder/i)).not.toBeInTheDocument()
   })
 
   it('shows saved MRP, unit price, quantity, and total for each product line', async () => {
     getMock.mockImplementation((path: string) => {
       if (path === '/customer/auth/me') return Promise.resolve({ customer: { id: 'customer-1', fullName: 'Asha Sharma', email: 'asha@example.com', emailVerified: true } }) as never
       if (path === '/customer/orders') return Promise.resolve([{
-        publicToken: 'multi-line-order-token', orderNumber: 'SF-WL-2026-MULTI', source: 'waitlist', status: 'pending_payment', totalPaise: 164900, subtotalPaise: 220000, mrpSubtotalPaise: 220000, waitlistDiscountPaise: 35300, reservationCreditPaise: 19800, remainingBalancePaise: 164900, createdAt: '2026-09-08T00:00:00.000Z',
+        publicToken: 'multi-line-order-token', orderNumber: 'SF-2026-MULTI', status: 'confirmed', totalPaise: 184700, subtotalPaise: 184700, mrpSubtotalPaise: 220000, discountPaise: 35300, createdAt: '2026-09-08T00:00:00.000Z',
         items: [
           { id: 'line-rayyvia', productName: 'Rayyvia Sun Protect', size: '60 g', quantity: 2, primaryImage: '/products/rayyvia-sun-protect-primary.webp', unitSellingPricePaise: 59900, mrpPaise: 70000, discountPaise: 20200, finalLineTotalPaise: 119800 },
           { id: 'line-coco', productName: 'Coco Kiss', size: '100 ml', quantity: 1, primaryImage: '/products/coco-kiss-lotion-primary.webp', unitSellingPricePaise: 64900, mrpPaise: 80000, discountPaise: 15100, finalLineTotalPaise: 64900 },
         ], shippingAddress: null,
       }]) as never
-      if (path === '/customer/addresses' || path === '/customer/waitlist') return Promise.resolve([]) as never
+      if (path === '/customer/addresses') return Promise.resolve([]) as never
       return Promise.resolve({}) as never
     })
 
@@ -226,27 +225,16 @@ describe('CustomerAccount', () => {
     expect(screen.getByText(/address saved successfully/i)).toBeInTheDocument()
   })
 
-  it('shows the customer-facing waitlist ID in reservation history', async () => {
+  it('does not expose a retired reservation section in the account', async () => {
     getMock.mockImplementation((path: string) => {
       if (path === '/customer/auth/me') return Promise.resolve({ customer: { id: 'customer-1', fullName: 'Asha Sharma', email: 'asha@example.com', phone: '9876543210', emailVerified: true } }) as never
       if (path === '/customer/orders' || path === '/customer/addresses') return Promise.resolve([]) as never
-      if (path === '/customer/waitlist') return Promise.resolve([{
-        publicToken: 'private-reservation-token',
-        waitlistId: 'SFWL-2026-12AB34CD56',
-        status: 'joined',
-        depositPaise: 19800,
-        discountPercent: 25,
-        refundPaise: 0,
-        createdAt: '2026-09-10T00:00:00.000Z',
-        items: [{ productId: 'product-1', productName: 'Rayyvia Sun Protect', productSlug: 'rayyvia-sun-protect', size: '60 g', quantity: 2 }],
-      }]) as never
       return Promise.resolve({}) as never
     })
 
-    render(<CustomerAccount open onClose={() => undefined} apiAvailable onCustomerChange={() => undefined} initialSection="waitlist" />)
+    render(<CustomerAccount open onClose={() => undefined} apiAvailable onCustomerChange={() => undefined} initialSection="orders" />)
 
-    expect(await screen.findByText('SFWL-2026-12AB34CD56')).toBeInTheDocument()
-    expect(screen.getByText(/use your waitlist id whenever you contact skinfox/i)).toBeInTheDocument()
-    expect(screen.queryByText('private-reservation-token')).not.toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /your orders/i })).toBeInTheDocument()
+    expect(screen.queryByText(/waitlist|reservation|founder/i)).not.toBeInTheDocument()
   })
 })

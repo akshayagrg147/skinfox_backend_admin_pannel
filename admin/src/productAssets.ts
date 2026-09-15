@@ -1,6 +1,9 @@
 const productAssetPattern = /^\/products\/(?!.*\.\.)[a-zA-Z0-9/_-]+\.(?:avif|jpe?g|png|webp)$/
+const localUploadPattern = /^\/api\/v1\/media\/[a-zA-Z0-9._-]+$/
+const remoteAssetPattern = /^https:\/\/[^\s]+$/i
 
 export const isProductImageAssetPath = (path: string) => productAssetPattern.test(path)
+export const isProductImageSource = (path: string) => isProductImageAssetPath(path) || localUploadPattern.test(path) || remoteAssetPattern.test(path)
 
 export const splitAssetPaths = (value: string) => value
   .split(',')

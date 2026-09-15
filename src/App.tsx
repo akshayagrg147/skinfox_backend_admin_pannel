@@ -32,7 +32,6 @@ import { ProductCard } from './components/ProductCard'
 import { RoutineQuiz } from './components/RoutineQuiz'
 import { ScrollProductStory } from './components/ScrollProductStory'
 import { SearchOverlay } from './components/SearchOverlay'
-import { WaitlistModal } from './components/WaitlistModal'
 import { getProductById, products } from './data/products'
 import type { CartLine, Product } from './types'
 import { deleteStorefront, getStorefront, patchStorefront, postStorefront } from './lib/storefrontApi'
@@ -50,10 +49,18 @@ const careRangeDefinitions = [
 
 const legacyFaqQuestions = new Set(['Are these the actual SkinFox products?', 'Does the ritual finder diagnose skin conditions?', 'How are the product visuals presented?', 'When will orders open?'])
 
+function browserStorage(): Storage | null {
+  try {
+    return typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function' ? localStorage : null
+  } catch {
+    return null
+  }
+}
+
 function readInitialCart(): CartLine[] {
   if (import.meta.env.MODE !== 'test') return []
   try {
-    const stored = localStorage.getItem('skinfox-launch-cart-v2')
+    const stored = browserStorage()?.getItem('skinfox-launch-cart-v2')
     if (!stored) return []
     const parsed = JSON.parse(stored) as Array<{ id: string; quantity: number }>
     return parsed.flatMap((line) => {
@@ -82,12 +89,11 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
     .filter((range) => range.products.length > 0)
   const filters = ['All', ...Array.from(new Set(collectionProducts.flatMap((product) => product.concerns.filter((concern) => !['Skin', 'Hair'].includes(concern)))))]
   const [cart, setCart] = useState<CartLine[]>(readInitialCart)
-  const [cartToken, setCartToken] = useState(() => import.meta.env.MODE === 'test' || typeof localStorage === 'undefined' ? '' : localStorage.getItem('skinfox-cart-token') ?? '')
+  const [cartToken, setCartToken] = useState(() => import.meta.env.MODE === 'test' ? '' : browserStorage()?.getItem('skinfox-cart-token') ?? '')
   const [cartOpen, setCartOpen] = useState(false)
   const [quizOpen, setQuizOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
-  const [waitlistOpen, setWaitlistOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [accountSection, setAccountSection] = useState<AccountSection>('orders')
   const [customer, setCustomer] = useState<StorefrontCustomer | null>(null)
@@ -117,7 +123,6 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
       if (!active) return
       setCustomer(response.customer)
       if (pending.intent.destination === 'checkout') setCheckoutOpen(true)
-      else if (pending.intent.destination === 'waitlist') setWaitlistOpen(true)
       else setAccountOpen(true)
     }).catch(() => {
       if (active) setToast('Google sign-in could not be completed. Please try again.')
@@ -129,13 +134,13 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
     if (!storefront.apiMode) return
     const referralCode = new URL(window.location.href).searchParams.get('ref')?.trim().toUpperCase()
     if (!referralCode) return
-    localStorage.setItem('skinfox-affiliate-referral', referralCode)
+    browserStorage()?.setItem('skinfox-affiliate-referral', referralCode)
     void postStorefront('/affiliate/referrals/track', { code: referralCode, landingPath: `${window.location.pathname}${window.location.search}` }).catch(() => undefined)
   }, [storefront.apiMode])
 
   useEffect(() => {
     if (storefront.apiMode) return
-    localStorage.setItem(
+    browserStorage()?.setItem(
       'skinfox-launch-cart-v2',
       JSON.stringify(cart.map((line) => ({ id: line.product.id, quantity: line.quantity }))),
     )
@@ -166,10 +171,11 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
 
   const applyCartResponse = (response: any) => setCart((response.lines ?? []).map((line: any) => ({ product: mapProduct(line.product), quantity: line.quantity })))
   const trackAffiliateReferral = async (token: string) => {
-    const referralCode = localStorage.getItem('skinfox-affiliate-referral')
-    if (!referralCode || localStorage.getItem('skinfox-affiliate-referral-cart') === token) return
+    const storage = browserStorage()
+    const referralCode = storage?.getItem('skinfox-affiliate-referral')
+    if (!storage || !referralCode || storage.getItem('skinfox-affiliate-referral-cart') === token) return
     await postStorefront('/affiliate/referrals/track', { code: referralCode, landingPath: `${window.location.pathname}${window.location.search}` }, { 'x-cart-token': token })
-    localStorage.setItem('skinfox-affiliate-referral-cart', token)
+    storage.setItem('skinfox-affiliate-referral-cart', token)
   }
   useEffect(() => {
     if (!storefront.apiMode || !cartToken) return
@@ -180,7 +186,7 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
     const response = await postStorefront<any>('/carts', {})
     const token = response.token ?? response.cartId
     setCartToken(token)
-    localStorage.setItem('skinfox-cart-token', token)
+    browserStorage()?.setItem('skinfox-cart-token', token)
     return token
   }
   const addToCart = (product: Product, quantity = 1, openCart = false) => {
@@ -247,23 +253,17 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
       {!productSlug && <SiteSeo faqs={visibleFaqs.map(([question, answer]) => ({ question, answer }))} />}
       <a className="skip-link" href="#main-content">Skip to content</a>
       <motion.div className="scroll-progress" style={{ scaleX: progress }} />
-      <a
-        className="announcement"
-        href="/#shop"
-        aria-label={storefront.waitlist.foundingClosed
-          ? 'Waitlist access is closed. Explore the SkinFox collection.'
-          : `Join the waitlist for ₹99 per product. Early access is limited to the first ${storefront.waitlist.founderCapacity} members.`}
-      >
+      <a className="announcement" href="/#shop" aria-label={storefront.promotion.message}>
         <div className="announcement__viewport">
           <div className="announcement__track" aria-hidden="true">
             {[0, 1].map((copy) => <div className="announcement__group" key={copy}>
-              <strong>{storefront.waitlist.foundingClosed ? 'Waitlist access closed' : 'Join Waitlist @ ₹99/-'}</strong>
+              <strong>{storefront.promotion.status === 'completed' || storefront.promotion.status === 'ended' ? 'SkinFox launch offer ended' : `Launch offer · ${storefront.promotion.discountPercent}% off`}</strong>
               <i>•</i>
-              <b>{storefront.waitlist.foundingClosed ? 'Explore the launch collection' : `Early access for the first ${storefront.waitlist.founderCapacity} members`}</b>
+              <b>{storefront.promotion.status === 'completed' || storefront.promotion.status === 'ended' ? 'Explore the collection' : `For the first ${storefront.promotion.maximumOrders} completed orders`}</b>
               <i>•</i>
-              <em>{storefront.waitlist.foundingClosed ? 'Launch access available next' : 'Priority reservation access'}</em>
+              <em>{storefront.promotion.message}</em>
               <i>•</i>
-              <span>{storefront.waitlist.foundingClosed ? 'Explore now' : 'Join now'} <ArrowRight size={14} /></span>
+              <span>{storefront.promotion.status === 'completed' || storefront.promotion.status === 'ended' ? 'Explore now' : 'Shop now'} <ArrowRight size={14} /></span>
             </div>)}
           </div>
         </div>
@@ -277,7 +277,7 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
       <Header cartCount={cartCount} onCart={() => setCartOpen(true)} onQuiz={() => setQuizOpen(true)} onSearch={() => setSearchOpen(true)} onAccount={openAccount} onLogout={() => void logoutCustomer()} customerName={customer?.fullName} />
 
       <main id="main-content" tabIndex={-1}>
-        {productSlug ? <ProductPage product={collectionProducts.find((product) => product.id === productSlug)} productSlug={productSlug} catalogProducts={collectionProducts} loading={storefront.loading} error={storefront.error} waitlist={storefront.waitlist} founderNumber={customer?.founderNumber} onAdd={(product, quantity) => addToCart(product, quantity)} onFindCare={() => setQuizOpen(true)} /> : <>
+        {productSlug ? <ProductPage product={collectionProducts.find((product) => product.id === productSlug)} productSlug={productSlug} catalogProducts={collectionProducts} loading={storefront.loading} error={storefront.error} onAdd={(product, quantity) => addToCart(product, quantity)} onFindCare={() => setQuizOpen(true)} /> : <>
         <section className="hero" aria-labelledby="hero-title">
           <div className="hero__wash" aria-hidden="true" />
           <div className="hero__copy">
@@ -296,7 +296,7 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
         <section className="proof-strip" aria-label="SkinFox principles">
           <div className="shell proof-strip__inner">
             <p><TestTube2 size={22} /><span><strong>Care with a purpose</strong><small>Everyday essentials for skin, body, hair and scalp.</small></span></p>
-            <p><ShieldCheck size={22} /><span><strong>Clarity at every step</strong><small>Explore product details now and review the final price before purchase.</small></span></p>
+            <p><ShieldCheck size={22} /><span><strong>Clarity at every step</strong><small>See current product pricing before you add anything to your bag.</small></span></p>
             <p><HeartHandshake size={22} /><span><strong>A helping hand</strong><small>Find your routine with our guided care finder.</small></span></p>
           </div>
         </section>
@@ -449,7 +449,7 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
           <div className="site-footer__affiliate">
             <span>Become an affiliate</span>
             <strong>Grow with SkinFox.</strong>
-            <p>Share thoughtful care with your community and enjoy member rewards.</p>
+            <p>Share thoughtful care with your community and earn rewards on eligible orders.</p>
             <a href="https://affiliate.skinfox.in/" aria-label="Join the SkinFox affiliate programme">Join now <ArrowRight size={16} /></a>
           </div>
         </div>
@@ -457,11 +457,10 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
         <img className="site-footer__wordmark" src="/brand/skinfox-logo.png" alt="" aria-hidden="true" />
       </footer>
 
-      <CartDrawer open={cartOpen} lines={cart} onClose={() => setCartOpen(false)} onQuantity={updateQuantity} onRemove={(id) => updateQuantity(id, 0)} waitlistDepositPaise={storefront.waitlist.depositPaise} waitlistDiscountPercent={storefront.waitlist.discountPercent} onCheckout={() => { setCartOpen(false); const canClaimFounderPrice = ['founder_reveal', 'launch'].includes(storefront.waitlist.stage) && Boolean(customer?.founderNumber); if ((cart.some((line) => line.product.price === null) || storefront.waitlist.enabled) && !canClaimFounderPrice) setWaitlistOpen(true); else setCheckoutOpen(true) }} />
+      <CartDrawer open={cartOpen} lines={cart} onClose={() => setCartOpen(false)} onQuantity={updateQuantity} onRemove={(id) => updateQuantity(id, 0)} onCheckout={() => { setCartOpen(false); setCheckoutOpen(true) }} />
       <RoutineQuiz open={quizOpen} onClose={() => setQuizOpen(false)} onAdd={(product) => addToCart(product)} catalogue={collectionProducts} finder={storefront.careFinder ?? undefined} />
       <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} catalogue={collectionProducts} apiMode={storefront.apiMode} />
-      <CheckoutModal open={checkoutOpen} lines={cart} cartToken={cartToken} apiAvailable={storefront.apiMode} onCustomerChange={setCustomer} onClose={() => setCheckoutOpen(false)} onComplete={() => { setCart([]); if (cartToken) localStorage.removeItem('skinfox-cart-token'); setCartToken('') }} />
-      <WaitlistModal open={waitlistOpen} lines={cart} config={storefront.waitlist} apiAvailable={storefront.apiMode} onCustomerChange={setCustomer} onClose={() => setWaitlistOpen(false)} onComplete={() => { setCart([]); if (cartToken) localStorage.removeItem('skinfox-cart-token'); setCartToken('') }} />
+      <CheckoutModal open={checkoutOpen} lines={cart} cartToken={cartToken} apiAvailable={storefront.apiMode} enabledPaymentMethods={storefront.enabledPaymentMethods} onCustomerChange={setCustomer} onClose={() => setCheckoutOpen(false)} onComplete={() => { setCart([]); if (cartToken) browserStorage()?.removeItem('skinfox-cart-token'); setCartToken('') }} />
       <CustomerAccount open={accountOpen} onClose={() => setAccountOpen(false)} apiAvailable={storefront.apiMode} onCustomerChange={setCustomer} initialSection={accountSection} />
 
       <AnimatePresence>

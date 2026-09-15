@@ -67,12 +67,16 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
   const campaignSlides = slides?.length ? slides : defaultCampaignSlides
   const [activeIndex, setActiveIndex] = useState(0)
   const prefersReducedMotion = useReducedMotion()
-  const [isPlaying, setIsPlaying] = useState(() => !prefersCalmPlayback())
+  // Keep campaign media paused until the section is reached. This avoids
+  // starting a video while the storefront is still loading above the fold.
+  const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(true)
-  const [isVisible, setIsVisible] = useState(true)
+  const [isVisible, setIsVisible] = useState(false)
   const [isPageVisible, setIsPageVisible] = useState(() => !isBrowser || document.visibilityState !== 'hidden')
   const sectionRef = useRef<HTMLElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const isVisibleRef = useRef(false)
+  const hasUserInteractedRef = useRef(false)
   const safeIndex = Math.min(activeIndex, campaignSlides.length - 1)
   const slide = campaignSlides[safeIndex]
   const hasMultipleSlides = campaignSlides.length > 1
@@ -81,12 +85,60 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
   useEffect(() => {
     const section = sectionRef.current
     if (!section) return
-    if (typeof IntersectionObserver === 'undefined') return
+
+    // IntersectionObserver is supported by all current browsers. The
+    // fallback keeps the controls usable in older browsers while still
+    // waiting for an explicit browsing gesture before attempting autoplay.
+    if (typeof IntersectionObserver === 'undefined') {
+      isVisibleRef.current = true
+      setIsVisible(true)
+      return
+    }
+
     const visibilityObserver = new IntersectionObserver(([entry]) => {
-      setIsVisible(Boolean(entry?.isIntersecting))
-    }, { threshold: 0.1 })
+      const visible = Boolean(entry?.isIntersecting)
+      isVisibleRef.current = visible
+      setIsVisible(visible)
+
+      if (!visible) {
+        // Leaving the section pauses the reel and lets it start cleanly when
+        // the customer comes back to it.
+        setIsPlaying(false)
+      } else if (hasUserInteractedRef.current && !prefersCalmPlayback()) {
+        setIsPlaying(true)
+      }
+    }, { threshold: 0.35, rootMargin: '0px 0px -8% 0px' })
     visibilityObserver.observe(section)
     return () => visibilityObserver.disconnect()
+  }, [])
+
+  useEffect(() => {
+    const markUserInteraction = () => {
+      if (hasUserInteractedRef.current) return
+      hasUserInteractedRef.current = true
+
+      // A wheel, touch, pointer or keyboard gesture is an explicit signal
+      // that the customer is browsing. Browser scroll restoration on refresh
+      // does not emit these events, so it cannot unexpectedly start playback.
+      if (isVisibleRef.current && !prefersCalmPlayback()) setIsPlaying(true)
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(event.key)) {
+        markUserInteraction()
+      }
+    }
+
+    window.addEventListener('wheel', markUserInteraction, { passive: true })
+    window.addEventListener('touchmove', markUserInteraction, { passive: true })
+    window.addEventListener('pointerdown', markUserInteraction, { passive: true })
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('wheel', markUserInteraction)
+      window.removeEventListener('touchmove', markUserInteraction)
+      window.removeEventListener('pointerdown', markUserInteraction)
+      window.removeEventListener('keydown', onKeyDown)
+    }
   }, [])
 
   useEffect(() => {
@@ -119,9 +171,16 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
       // play() resolves to a promise in browsers, but to undefined in some environments.
       const started = video.play() as Promise<void> | undefined
       started?.catch(() => { if (active) setIsPlaying(false) })
-    } else if (!video.paused) video.pause()
+    } else {
+      if (!video.paused) video.pause()
+      // Reset only when the section is no longer visible. A hidden tab should
+      // resume from its current position when the customer returns.
+      if (!isVisible) {
+        try { video.currentTime = 0 } catch { /* Some media streams are not seekable. */ }
+      }
+    }
     return () => { active = false }
-  }, [playbackActive, slide.id, slide.kind])
+  }, [isPageVisible, isVisible, playbackActive, slide.id, slide.kind])
 
   const move = (direction: -1 | 1) => {
     setActiveIndex((current) => (current + direction + campaignSlides.length) % campaignSlides.length)
@@ -200,7 +259,6 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
                     src={slide.src}
                     poster={slide.poster}
                     aria-label={slide.alt}
-                    autoPlay={playbackActive}
                     muted={isMuted}
                     loop={!hasMultipleSlides}
                     playsInline

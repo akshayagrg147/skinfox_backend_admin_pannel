@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import Fastify, { FastifyInstance } from 'fastify'
 import { createHash } from 'node:crypto'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, unlink, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
@@ -22,21 +22,24 @@ import { affiliateCommissionPaise, affiliateReferralCode, isValidPan } from './l
 import { productMrpPaise, productPricePaise, scoreCareFinderProducts, type CareFinderAnswer } from './lib/careFinder.js'
 import { analysePhoto, photoAnalysisConfigured, photoNote } from './lib/photoAnalysis.js'
 import { PHOTO_DAILY_LIMIT, PHOTO_DEVICE_COOKIE, checkPhotoQuota, newDeviceId, recordPhotoUse } from './lib/photoQuota.js'
-import { LocalEmailAdapter, LocalStorageAdapter, ManualShippingAdapter, RazorpayAdapter } from './lib/providers.js'
+import { ImageKitAdapter, LocalEmailAdapter, LocalStorageAdapter, ManualShippingAdapter, RazorpayAdapter } from './lib/providers.js'
 import { ShiprocketAdapter, shippingEnvironment, type ShippingPackage } from './lib/shiprocket.js'
-import { productImageAssetSchema, productMediaInputSchema } from './lib/productAssets.js'
+import { productImageSourceSchema, productMediaInputSchema } from './lib/productAssets.js'
 import { calculateWaitlistDepositPaise, createWaitlistId, parseStoredWaitlistSettings, waitlistDefaultsFromEnv, waitlistResetConfirmationSchema, waitlistSettingsSchema, type WaitlistSettings } from './lib/waitlistConfig.js'
 import { calculateWaitlistOrderPricing, type WaitlistPricingMode } from './lib/waitlistOrders.js'
 import { adjustInventory, inventoryHistory, inventoryWorkspace } from './lib/inventoryWorkspace.js'
+import { defaultLaunchPromotion, launchPromotionDiscount, launchPromotionStatus, parseLaunchPromotion, launchPromotionSchema, type LaunchPromotion } from './lib/launchPromotion.js'
 
 const secureCookies = () => process.env.COOKIE_SECURE === undefined ? process.env.NODE_ENV === 'production' : process.env.COOKIE_SECURE === 'true'
 const defaultWaitlistSettings = waitlistDefaultsFromEnv()
 let activeWaitlistSettings: WaitlistSettings = defaultWaitlistSettings
+const defaultLaunchPromotionSettings = defaultLaunchPromotion()
+let activeLaunchPromotion: LaunchPromotion = defaultLaunchPromotionSettings
 
 const productCreateSchema = z.object({
-  name: z.string().min(2), slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/), subtitle: z.string().min(2), type: z.string().min(1), packaging: z.string().min(1), category: z.string().min(1), concern: z.string().min(1), concerns: z.array(z.string()).default([]), benefit: z.string().min(2), description: z.string().min(2), pricePaise: z.number().int().positive().nullable().default(null), mrpPaise: z.number().int().positive().nullable().default(null), size: z.string().min(1), usage: z.string().min(1), routineStep: z.string().min(1), highlights: z.array(z.string()).default([]), color: z.string().default('#f5f0eb'), accent: z.string().default('#18243b'), tint: z.string().default('#eee3d4'), image: productImageAssetSchema, storyImage: productImageAssetSchema.nullable().optional(), imageAlt: z.string().min(12), imagePosition: z.string().default('50% 50%'), imageScale: z.number().positive().max(2).default(1), badge: z.string().nullable().optional(), purchaseState: z.nativeEnum(PurchaseState).default(PurchaseState.coming_soon), status: z.nativeEnum(PublicationStatus).default(PublicationStatus.draft), media: z.array(productMediaInputSchema).default([]), sku: z.string().optional() }).superRefine((value, ctx) => { if (value.pricePaise !== null && value.mrpPaise !== null && value.mrpPaise < value.pricePaise) ctx.addIssue({ code: 'custom', path: ['mrpPaise'], message: 'MRP cannot be lower than selling price' }); if (value.purchaseState === PurchaseState.available && value.pricePaise === null) ctx.addIssue({ code: 'custom', path: ['pricePaise'], message: 'Available products require a selling price' }) })
+  name: z.string().min(2), slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/), subtitle: z.string().min(2), type: z.string().min(1), packaging: z.string().min(1), category: z.string().min(1), concern: z.string().min(1), concerns: z.array(z.string()).default([]), benefit: z.string().min(2), description: z.string().min(2), pricePaise: z.number().int().positive().nullable().default(null), mrpPaise: z.number().int().positive().nullable().default(null), size: z.string().min(1), usage: z.string().min(1), routineStep: z.string().min(1), highlights: z.array(z.string()).default([]), color: z.string().default('#f5f0eb'), accent: z.string().default('#18243b'), tint: z.string().default('#eee3d4'), image: productImageSourceSchema, storyImage: productImageSourceSchema.nullable().optional(), imageAlt: z.string().min(12), imagePosition: z.string().default('50% 50%'), imageScale: z.number().positive().max(2).default(1), badge: z.string().nullable().optional(), purchaseState: z.nativeEnum(PurchaseState).default(PurchaseState.coming_soon), status: z.nativeEnum(PublicationStatus).default(PublicationStatus.draft), media: z.array(productMediaInputSchema).max(10).default([]), sku: z.string().optional() }).superRefine((value, ctx) => { if (value.pricePaise !== null && value.mrpPaise !== null && value.mrpPaise < value.pricePaise) ctx.addIssue({ code: 'custom', path: ['mrpPaise'], message: 'MRP cannot be lower than selling price' }); if (value.purchaseState === PurchaseState.available && value.pricePaise === null) ctx.addIssue({ code: 'custom', path: ['pricePaise'], message: 'Available products require a selling price' }) })
 const productPatchSchema = z.object({
-  name: z.string().min(2).optional(), slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(), subtitle: z.string().min(2).optional(), type: z.string().min(1).optional(), packaging: z.string().min(1).optional(), category: z.string().min(1).optional(), concern: z.string().min(1).optional(), concerns: z.array(z.string()).optional(), benefit: z.string().min(2).optional(), description: z.string().min(2).optional(), pricePaise: z.number().int().positive().nullable().optional(), mrpPaise: z.number().int().positive().nullable().optional(), size: z.string().min(1).optional(), usage: z.string().min(1).optional(), routineStep: z.string().min(1).optional(), highlights: z.array(z.string()).optional(), color: z.string().optional(), accent: z.string().optional(), tint: z.string().optional(), image: productImageAssetSchema.optional(), storyImage: productImageAssetSchema.nullable().optional(), imageAlt: z.string().min(12).optional(), imagePosition: z.string().optional(), imageScale: z.number().positive().max(2).optional(), badge: z.string().nullable().optional(), purchaseState: z.nativeEnum(PurchaseState).optional(), status: z.nativeEnum(PublicationStatus).optional(), media: z.array(productMediaInputSchema).optional(), sku: z.string().optional(),
+  name: z.string().min(2).optional(), slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(), subtitle: z.string().min(2).optional(), type: z.string().min(1).optional(), packaging: z.string().min(1).optional(), category: z.string().min(1).optional(), concern: z.string().min(1).optional(), concerns: z.array(z.string()).optional(), benefit: z.string().min(2).optional(), description: z.string().min(2).optional(), pricePaise: z.number().int().positive().nullable().optional(), mrpPaise: z.number().int().positive().nullable().optional(), size: z.string().min(1).optional(), usage: z.string().min(1).optional(), routineStep: z.string().min(1).optional(), highlights: z.array(z.string()).optional(), color: z.string().optional(), accent: z.string().optional(), tint: z.string().optional(), image: productImageSourceSchema.optional(), storyImage: productImageSourceSchema.nullable().optional(), imageAlt: z.string().min(12).optional(), imagePosition: z.string().optional(), imageScale: z.number().positive().max(2).optional(), badge: z.string().nullable().optional(), purchaseState: z.nativeEnum(PurchaseState).optional(), status: z.nativeEnum(PublicationStatus).optional(), media: z.array(productMediaInputSchema).max(10).optional(), sku: z.string().optional(),
 }).superRefine((value, ctx) => { if (value.pricePaise !== undefined && value.mrpPaise !== undefined && value.pricePaise !== null && value.mrpPaise !== null && value.mrpPaise < value.pricePaise) ctx.addIssue({ code: 'custom', path: ['mrpPaise'], message: 'MRP cannot be lower than selling price' }); if (value.purchaseState === PurchaseState.available && value.pricePaise === null) ctx.addIssue({ code: 'custom', path: ['pricePaise'], message: 'Available products require a selling price' }) })
 const cartItemSchema = z.object({ productId: z.string().min(1), variantId: z.string().optional(), quantity: z.number().int().min(1).max(50) })
 const variantInputSchema = z.object({ sku: z.string().min(2), name: z.string().min(1), size: z.string().min(1), pricePaise: z.number().int().positive().nullable(), mrpPaise: z.number().int().positive().nullable(), purchaseState: z.nativeEnum(PurchaseState) })
@@ -45,12 +48,12 @@ const productSnapshotFields = ['slug', 'name', 'subtitle', 'type', 'packaging', 
 const mediaSnapshotFields = ['type', 'src', 'mobileSrc', 'poster', 'alt', 'sortOrder', 'width', 'height', 'aspectRatio', 'fitMode', 'objectPosition', 'imageScale', 'focalPointX', 'focalPointY', 'mediaAssetId'] as const
 const productSnapshot = (product: any) => ({ ...Object.fromEntries(productSnapshotFields.filter((key) => product[key] !== undefined).map((key) => [key, product[key]])), media: Array.isArray(product.media) ? product.media.map((media: any) => Object.fromEntries(mediaSnapshotFields.filter((key) => media[key] !== undefined).map((key) => [key, media[key]]))) : [] })
 const deliveryPhoneSchema = z.string().trim().regex(/^[6-9]\d{9}$/)
-const checkoutSchema = z.object({ fullName: z.string().min(2), email: z.union([z.string().email(), z.literal('')]).optional().transform((value) => value || undefined), phone: deliveryPhoneSchema, addressId: z.string().optional(), addressLine1: z.string().min(5), addressLine2: z.string().optional(), landmark: z.string().optional(), city: z.string().min(2), state: z.string().min(2), pincode: z.string().regex(/^[1-9]\d{5}$/), saveAddress: z.boolean().default(true), saveAsDefault: z.boolean().default(false), billingSameAsShipping: z.boolean().default(true), marketingConsent: z.boolean().default(false), paymentMethod: z.literal('cod').default('cod'), couponCode: z.string().optional() })
+const checkoutSchema = z.object({ fullName: z.string().min(2), email: z.union([z.string().email(), z.literal('')]).optional().transform((value) => value || undefined), phone: deliveryPhoneSchema, addressId: z.string().optional(), addressLine1: z.string().min(5), addressLine2: z.string().optional(), landmark: z.string().optional(), city: z.string().min(2), state: z.string().min(2), pincode: z.string().regex(/^[1-9]\d{5}$/), saveAddress: z.boolean().default(true), saveAsDefault: z.boolean().default(false), billingSameAsShipping: z.boolean().default(true), marketingConsent: z.boolean().default(false), paymentMethod: z.enum(['cod', 'razorpay']).default('cod'), couponCode: z.string().optional() })
 const shippingPackageSchema = z.object({ weightGrams: z.number().int().min(1).max(30_000), lengthCm: z.number().positive().max(200).optional(), breadthCm: z.number().positive().max(200).optional(), heightCm: z.number().positive().max(200).optional(), declaredValuePaise: z.number().int().nonnegative().optional() })
 const addressSchema = z.object({ label: z.string().trim().min(2).max(30).default('Home'), fullName: z.string().trim().min(2).max(120), phone: deliveryPhoneSchema, addressLine1: z.string().trim().min(5).max(200), addressLine2: z.string().trim().max(200).optional(), landmark: z.string().trim().max(120).optional(), city: z.string().trim().min(2).max(80), state: z.string().trim().min(2).max(80), pincode: z.string().regex(/^[1-9]\d{5}$/), isDefault: z.boolean().default(false) })
 const customerProfileSchema = z.object({ fullName: z.string().trim().min(2).max(120), phone: deliveryPhoneSchema.nullable().optional() })
 const rolePermissions: Record<AdminRole, string[]> = {
-  SUPER_ADMIN: ['*'], CATALOG_MANAGER: ['catalog:read', 'catalog:write', 'inventory:read', 'inventory:write', 'content:read'], CONTENT_EDITOR: ['content:read', 'content:write', 'catalog:read'], ORDER_MANAGER: ['orders:read', 'orders:write', 'customers:read', 'catalog:read'], SUPPORT_AGENT: ['orders:read', 'customers:read', 'customers:write', 'leads:read'], ANALYST: ['analytics:read', 'dashboard:read'],
+  SUPER_ADMIN: ['*'], CATALOG_MANAGER: ['catalog:read', 'catalog:write', 'inventory:read', 'inventory:write', 'content:read'], CONTENT_EDITOR: ['content:read', 'content:write', 'catalog:read'], ORDER_MANAGER: ['orders:read', 'orders:write', 'customers:read', 'catalog:read'], SUPPORT_AGENT: ['orders:read', 'customers:read', 'customers:write'], ANALYST: ['analytics:read', 'dashboard:read'],
 }
 const canonicalJson = (value: unknown): string => {
   if (value === null || typeof value !== 'object') return JSON.stringify(value)
@@ -60,18 +63,19 @@ const canonicalJson = (value: unknown): string => {
 const sha256Json = (value: unknown) => createHash('sha256').update(canonicalJson(value)).digest('hex')
 const hidePriceReferences = (value: string) => value.replace(/MRP\s*₹\s*[\d,.]+/gi, 'MRP detail')
 const humaniseOrderStatus = (value: string) => value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
-const waitlistPricesHidden = () => activeWaitlistSettings.enabled && ['waitlist', 'founder_reveal'].includes(activeWaitlistSettings.stage)
-const publicProduct = (product: any, revealCommercials = false) => ({
+  const waitlistPricesHidden = () => false
+  const waitlistDisabledError = () => new ApiError(410, 'WAITLIST_DISABLED', 'This legacy reservation flow is no longer available. Add products to your bag to place a normal order.')
+const publicProduct = (product: any, _revealCommercials = false) => ({
   ...product,
-  pricePaise: revealCommercials || !waitlistPricesHidden() ? product.pricePaise ?? null : null,
-  mrpPaise: revealCommercials || !waitlistPricesHidden() ? product.mrpPaise ?? null : product.mrpPaise ?? activeWaitlistSettings.regularPricePaise,
-  purchaseState: revealCommercials || !waitlistPricesHidden() ? product.purchaseState : PurchaseState.coming_soon,
-  highlights: revealCommercials || !waitlistPricesHidden() ? product.highlights : product.highlights?.map((item: string) => hidePriceReferences(item)),
+  pricePaise: product.pricePaise ?? null,
+  mrpPaise: product.mrpPaise ?? null,
+  purchaseState: product.purchaseState,
+  highlights: product.highlights,
   variants: product.variants?.map((variant: any) => {
     const { inventory: _inventory, ...safeVariant } = variant
-    return revealCommercials || !waitlistPricesHidden() ? safeVariant : { ...safeVariant, pricePaise: null, mrpPaise: safeVariant.mrpPaise ?? activeWaitlistSettings.regularPricePaise, purchaseState: PurchaseState.coming_soon }
+    return safeVariant
   }),
-  media: [...(product.media ?? [])].sort((a: any, b: any) => a.sortOrder - b.sortOrder).map((media: any) => ({ ...media, alt: revealCommercials || !waitlistPricesHidden() ? media.alt : hidePriceReferences(media.alt), src: media.src, mobileSrc: media.mobileSrc ?? undefined })),
+  media: [...(product.media ?? [])].sort((a: any, b: any) => a.sortOrder - b.sortOrder).map((media: any) => ({ ...media, alt: media.alt, src: media.src, mobileSrc: media.mobileSrc ?? undefined })),
 })
 const publicCollection = (collection: any) => ({
   ...collection,
@@ -89,6 +93,20 @@ const redactSensitiveSettings = (value: unknown): unknown => {
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, sensitiveSettingPattern.test(key) ? '[configured in server environment]' : redactSensitiveSettings(item)]))
 }
 const maskCustomer = (customer: any) => customer ? { ...customer, email: typeof customer.email === 'string' ? customer.email.replace(/(^.).*(@.*$)/, '$1***$2') : customer.email, phone: typeof customer.phone === 'string' ? `${customer.phone.slice(0, 2)}******${customer.phone.slice(-2)}` : customer.phone } : customer
+
+const MAX_PRODUCT_IMAGE_BYTES = 10_000_000
+const imageMimeFromBytes = (payload: Uint8Array): string | null => {
+  if (payload.length >= 3 && payload[0] === 0xff && payload[1] === 0xd8 && payload[2] === 0xff) return 'image/jpeg'
+  if (payload.length >= 8 && payload[0] === 0x89 && payload[1] === 0x50 && payload[2] === 0x4e && payload[3] === 0x47 && payload[4] === 0x0d && payload[5] === 0x0a && payload[6] === 0x1a && payload[7] === 0x0a) return 'image/png'
+  if (payload.length >= 12 && String.fromCharCode(...payload.slice(0, 4)) === 'RIFF' && String.fromCharCode(...payload.slice(8, 12)) === 'WEBP') return 'image/webp'
+  if (payload.length >= 12 && String.fromCharCode(...payload.slice(4, 8)) === 'ftyp' && ['avif', 'avis'].includes(String.fromCharCode(...payload.slice(8, 12)))) return 'image/avif'
+  return null
+}
+const uploadedMediaKey = (value: unknown) => {
+  const key = String(value ?? '')
+  if (!/^[a-zA-Z0-9._-]+$/.test(key)) throw validationError('Invalid uploaded media key.')
+  return key
+}
 
 // Fastify can infer OpenAPI routes when handlers carry JSON schemas. The
 // application intentionally uses Zod at the boundary instead, so we publish a
@@ -119,9 +137,9 @@ const documentPath = (path: string, methods: string[], summary: string) => {
   ['/affiliate/applications', ['post'], 'Submit affiliate application'], ['/affiliate/auth/request-otp', ['post'], 'Request affiliate OTP'], ['/affiliate/auth/verify-otp', ['post'], 'Verify affiliate OTP'], ['/affiliate/auth/me', ['get'], 'Get current affiliate'], ['/affiliate/auth/logout', ['post'], 'Log out affiliate'], ['/affiliate/referrals/track', ['post'], 'Track affiliate referral'], ['/affiliate/dashboard', ['get'], 'Get affiliate dashboard'], ['/affiliate/wallet/redemptions', ['post'], 'Request affiliate wallet redemption'],
   ['/shipping/serviceability', ['get'], 'Check shipping serviceability'], ['/shipping/webhook', ['post'], 'Receive Shiprocket shipment webhook'], ['/checkout/quote', ['post'], 'Calculate checkout quote'], ['/checkout/sessions', ['post'], 'Create checkout session'], ['/checkout/sessions/{id}', ['get'], 'Get checkout session'], ['/checkout/sessions/{id}/payment-order', ['post'], 'Create payment order'], ['/checkout/sessions/{id}/confirm-cod', ['post'], 'Confirm cash on delivery'],
   ['/payments/razorpay/verify', ['post'], 'Verify Razorpay payment'], ['/webhooks/payments/razorpay', ['post'], 'Receive Razorpay webhook'], ['/payments/{publicToken}/status', ['get'], 'Get payment status'], ['/orders/{publicToken}', ['get'], 'Get public order'], ['/orders/{publicToken}/tracking', ['get'], 'Get order tracking'], ['/orders/{publicToken}/cancel-request', ['post'], 'Request order cancellation'], ['/orders/{publicToken}/return-request', ['post'], 'Request return'],
-  ['/launch-interest', ['post'], 'Capture launch interest'], ['/waitlist/config', ['get'], 'Get priority waitlist configuration'], ['/waitlist/reservations', ['post'], 'Create waitlist reservation'], ['/waitlist/reservations/{publicToken}/verify', ['post'], 'Verify waitlist payment'], ['/waitlist/reservations/{publicToken}/cancel', ['post'], 'Explain non-refundable waitlist policy'], ['/customer/waitlist', ['get'], 'List customer waitlist reservations'], ['/customer/orders/{publicToken}/address', ['post'], 'Assign address to converted waitlist order'], ['/customer/orders/{publicToken}/balance-quote', ['get'], 'Quote converted waitlist balance'], ['/customer/orders/{publicToken}/payment-status', ['get'], 'Poll converted waitlist payment status'], ['/customer/orders/{publicToken}/balance-order', ['post'], 'Create converted waitlist balance payment'], ['/customer/orders/{publicToken}/balance-verify', ['post'], 'Verify converted waitlist balance payment'], ['/newsletter/subscriptions', ['post'], 'Subscribe to newsletter'], ['/newsletter/confirm', ['post'], 'Confirm newsletter subscription'], ['/newsletter/subscriptions/{token}', ['delete'], 'Unsubscribe from newsletter'], ['/contact', ['post'], 'Submit contact form'], ['/events', ['post'], 'Record analytics event'], ['/events/batch', ['post'], 'Record analytics events'],
+  ['/newsletter/subscriptions', ['post'], 'Subscribe to newsletter'], ['/newsletter/confirm', ['post'], 'Confirm newsletter subscription'], ['/newsletter/subscriptions/{token}', ['delete'], 'Unsubscribe from newsletter'], ['/contact', ['post'], 'Submit contact form'], ['/events', ['post'], 'Record analytics event'], ['/events/batch', ['post'], 'Record analytics events'],
   ['/admin/auth/login', ['post'], 'Admin login'], ['/admin/auth/logout', ['post'], 'Admin logout'], ['/admin/auth/refresh', ['post'], 'Refresh admin session'], ['/admin/auth/me', ['get'], 'Get current admin'], ['/admin/auth/forgot-password', ['post'], 'Start password reset'], ['/admin/auth/reset-password', ['post'], 'Reset password'], ['/admin/auth/accept-invitation', ['post'], 'Accept admin invitation'], ['/admin/auth/mfa/setup', ['post'], 'Set up MFA'], ['/admin/auth/mfa/verify', ['post'], 'Verify MFA'], ['/admin/auth/logout-all-sessions', ['post'], 'Revoke all admin sessions'], ['/admin/auth/sessions', ['get'], 'List admin sessions'], ['/admin/auth/sessions/{sessionId}', ['delete'], 'Revoke admin session'],
-  ['/admin/dashboard/{metric}', ['get'], 'Admin dashboard metric'], ['/admin/waitlist-settings', ['get', 'patch'], 'Admin priority waitlist settings'], ['/admin/waitlist-reservations', ['get'], 'Admin priority waitlist'], ['/admin/waitlist/conversion-preview', ['get'], 'Preview waitlist order conversion'], ['/admin/waitlist/reveal', ['post'], 'Reveal waitlist pricing and prepare orders'], ['/admin/waitlist/conversion-progress', ['get'], 'Get waitlist conversion progress'], ['/admin/waitlist/reset', ['post'], 'Reset priority waitlist data'], ['/admin/products', ['get', 'post'], 'Admin product list or create'], ['/admin/products/{id}', ['get', 'patch', 'delete'], 'Admin product detail'], ['/admin/products/{id}/publish', ['post'], 'Publish product'], ['/admin/products/{id}/unpublish', ['post'], 'Unpublish product'], ['/admin/products/{id}/revisions', ['get'], 'List product revisions'], ['/admin/products/{id}/restore', ['post'], 'Restore product revision'], ['/admin/products/bulk', ['post'], 'Bulk update products'], ['/admin/products/import', ['post'], 'Import products'], ['/admin/products/export', ['get'], 'Export products'],
+  ['/admin/dashboard/{metric}', ['get'], 'Admin dashboard metric'], ['/admin/products', ['get', 'post'], 'Admin product list or create'], ['/admin/products/{id}', ['get', 'patch', 'delete'], 'Admin product detail'], ['/admin/products/{id}/publish', ['post'], 'Publish product'], ['/admin/products/{id}/unpublish', ['post'], 'Unpublish product'], ['/admin/products/{id}/revisions', ['get'], 'List product revisions'], ['/admin/products/{id}/restore', ['post'], 'Restore product revision'], ['/admin/products/bulk', ['post'], 'Bulk update products'], ['/admin/products/import', ['post'], 'Import products'], ['/admin/products/export', ['get'], 'Export products'],
   ...['submit-review', 'approve', 'schedule', 'archive'].map((action) => [`/admin/products/{id}/${action}`, ['post'], `Product ${action}`]), ['/admin/products/{id}/revisions/{revisionId}/restore', ['post'], 'Restore product revision snapshot'],
   ['/admin/products/{productId}/variants', ['get', 'post'], 'Manage product variants'], ['/admin/products/{productId}/variants/{variantId}', ['patch', 'delete'], 'Update or delete variant'], ['/admin/products/{productId}/media', ['get', 'post'], 'Manage product media'], ['/admin/products/{productId}/media/{mediaId}', ['patch', 'delete'], 'Update or delete product media'], ['/admin/products/{productId}/media/reorder', ['post'], 'Reorder product media'],
   ['/admin/inventory', ['get'], 'List inventory'], ['/admin/inventory/low-stock', ['get'], 'List low stock inventory'], ['/admin/inventory/{variantId}', ['get'], 'Get variant inventory'], ['/admin/inventory/adjustments', ['post'], 'Adjust inventory'], ['/admin/inventory/bulk-adjustments', ['post'], 'Bulk adjust inventory'], ['/admin/inventory/history', ['get'], 'Inventory movement history'], ['/admin/inventory/import', ['post'], 'Import inventory'], ['/admin/inventory/export', ['get'], 'Export inventory'],
@@ -129,14 +147,15 @@ const documentPath = (path: string, methods: string[], summary: string) => {
   ['/admin/customers', ['get'], 'List customers'], ['/admin/customers/{id}', ['get', 'patch'], 'Customer detail'], ['/admin/customers/{id}/orders', ['get'], 'Customer orders'], ['/admin/customers/{id}/notes', ['post'], 'Add customer note'], ['/admin/customers/{id}/anonymize', ['post'], 'Anonymize customer'], ['/admin/customers/{id}/export-data', ['post'], 'Export customer data'], ['/admin/customers/{id}/consent', ['patch'], 'Update customer consent'],
   ['/admin/care-finder', ['get'], 'Get care finder configuration'], ['/admin/care-finder/{id}', ['patch'], 'Update care finder configuration'],
   ['/admin/affiliates', ['get'], 'List affiliate applications'], ['/admin/affiliates/{id}/status', ['post'], 'Review affiliate application'], ['/admin/affiliate-redemptions', ['get'], 'List affiliate redemptions'], ['/admin/affiliate-redemptions/{id}/review', ['post'], 'Review affiliate redemption'],
-  ['/admin/media', ['get'], 'List media assets'], ['/admin/media/presign', ['post'], 'Presign media upload'], ['/admin/media/complete', ['post'], 'Complete media upload'], ['/admin/media/{id}', ['patch', 'delete'], 'Update or delete media asset'], ['/admin/media/{id}/archive', ['post'], 'Archive media asset'], ['/admin/media/{id}/references', ['get'], 'List media references'],
+  ['/media/{key}', ['get'], 'Serve uploaded media'], ['/admin/media', ['get'], 'List media assets'], ['/admin/media/presign', ['post'], 'Presign media upload'], ['/admin/media/complete', ['post'], 'Complete media upload'], ['/admin/media/{id}', ['patch', 'delete'], 'Update or delete media asset'], ['/admin/media/{id}/archive', ['post'], 'Archive media asset'], ['/admin/media/{id}/references', ['get'], 'List media references'],
   ['/admin/care-finder/preview', ['post'], 'Preview care finder'], ['/admin/care-finder/coverage', ['get'], 'Check care finder coverage'], ['/admin/users', ['get'], 'List admin users'], ['/admin/users/invite', ['post'], 'Invite admin user'], ['/admin/users/{id}', ['get', 'patch'], 'Admin user detail'], ['/admin/users/{id}/suspend', ['post'], 'Suspend admin user'], ['/admin/users/{id}/activate', ['post'], 'Activate admin user'], ['/admin/users/{id}/{action}', ['post'], 'Activate or suspend admin user'], ['/admin/users/{id}/revoke-sessions', ['post'], 'Revoke user sessions'], ['/admin/roles', ['get', 'post'], 'List or create roles'], ['/admin/roles/{id}', ['patch', 'delete'], 'Update or delete role'], ['/admin/permissions', ['get'], 'List permissions'], ['/admin/audit-logs', ['get'], 'List audit logs'], ['/admin/audit-logs/{id}', ['get'], 'Get audit log'], ['/admin/audit-logs/export', ['get'], 'Export audit logs'],
   ['/admin/serviceable-pincodes/import', ['post'], 'Import serviceable pincodes'], ['/admin/serviceable-pincodes/export', ['get'], 'Export serviceable pincodes'],
-  ...['categories', 'concerns', 'collections', 'tags', 'ingredients', 'product-claims', 'related-products', 'promotions', 'coupons', 'shipping-zones', 'shipping-rates', 'serviceable-pincodes', 'tax-rules', 'pages', 'home-sections', 'campaign-slides', 'faqs', 'navigation', 'footer', 'care-moments', 'scroll-stories', 'before-after-stories', 'announcement-bars', 'legal-policies', 'seo-settings', 'care-finder/questions', 'care-finder/options', 'care-finder/rules', 'launch-interests', 'newsletter-subscribers', 'contact-submissions'].map((resource) => [`/admin/${resource}`, ['get', 'post'], `Admin ${resource}`]),
+  ...['categories', 'concerns', 'collections', 'tags', 'ingredients', 'product-claims', 'related-products', 'promotions', 'coupons', 'shipping-zones', 'shipping-rates', 'serviceable-pincodes', 'tax-rules', 'pages', 'home-sections', 'campaign-slides', 'faqs', 'navigation', 'footer', 'care-moments', 'scroll-stories', 'before-after-stories', 'announcement-bars', 'legal-policies', 'seo-settings', 'care-finder/questions', 'care-finder/options', 'care-finder/rules', 'newsletter-subscribers', 'contact-submissions'].map((resource) => [`/admin/${resource}`, ['get', 'post'], `Admin ${resource}`]),
   ...['categories', 'concerns', 'collections', 'tags', 'ingredients', 'product-claims', 'related-products', 'promotions', 'coupons', 'shipping-zones', 'shipping-rates', 'serviceable-pincodes', 'tax-rules', 'pages', 'home-sections', 'campaign-slides', 'faqs', 'navigation', 'footer', 'care-moments', 'scroll-stories', 'before-after-stories', 'announcement-bars', 'legal-policies', 'seo-settings', 'care-finder/questions', 'care-finder/options', 'care-finder/rules'].map((resource) => [`/admin/${resource}/{id}`, ['get', 'patch', 'delete'], `Admin ${resource} record`]),
-  ...['launch-interests', 'newsletter-subscribers', 'contact-submissions'].map((resource) => [`/admin/${resource}/{id}`, ['get', 'patch', 'delete'], `Admin ${resource} record`]),
+  ...['newsletter-subscribers', 'contact-submissions'].map((resource) => [`/admin/${resource}/{id}`, ['get', 'patch', 'delete'], `Admin ${resource} record`]),
   ...['store', 'payments', 'shipping', 'notifications', 'integrations', 'features'].flatMap((setting) => [[`/admin/settings/${setting}`, ['get', 'patch'], `Admin ${setting} settings`]]),
 ].forEach(([path, methods, summary]) => documentPath(path as string, methods as string[], summary as string))
+documentPath('/admin/launch-promotion', ['get', 'patch'], 'Admin launch promotion settings')
 
 export function buildApp(): FastifyInstance {
   activeWaitlistSettings = { ...defaultWaitlistSettings }
@@ -153,6 +172,7 @@ export function buildApp(): FastifyInstance {
   const payment = new RazorpayAdapter()
   const email = new LocalEmailAdapter()
   const storage = new LocalStorageAdapter()
+  const imageKit = new ImageKitAdapter()
   const manualShipping = new ManualShippingAdapter(async (pincode) => Boolean(await prisma.serviceablePincode.findUnique({ where: { pincode, active: true } })))
   const shiprocket = new ShiprocketAdapter()
   // Manual serviceability remains the safe default. Shiprocket becomes active
@@ -170,6 +190,9 @@ export function buildApp(): FastifyInstance {
     const stored = await prisma.storeSetting.findUnique({ where: { key: 'waitlist-config' } })
     activeWaitlistSettings = parseStoredWaitlistSettings(stored?.value, defaultWaitlistSettings)
     if (stored && activeWaitlistSettings === defaultWaitlistSettings) app.log.warn('Invalid persisted waitlist settings; environment defaults are active.')
+    const launchPromotion = await prisma.storeSetting.findUnique({ where: { key: 'launch-promotion' } })
+    activeLaunchPromotion = parseLaunchPromotion(launchPromotion?.value, defaultLaunchPromotionSettings)
+    if (!launchPromotion) await prisma.storeSetting.create({ data: { key: 'launch-promotion', value: activeLaunchPromotion as any } }).catch(() => undefined)
   })
   app.addHook('onRequest', async (request, reply) => { reply.header('x-request-id', request.id); request.log.info({ requestId: request.id, method: request.method, url: request.url }, 'request started') })
   app.setErrorHandler((error, request, reply) => {
@@ -189,6 +212,43 @@ export function buildApp(): FastifyInstance {
   const data = (reply: any, value: unknown, meta: Record<string, unknown> = {}) => reply.send({ data: value, meta: { requestId: reply.request.id, ...meta } })
   const body = <T>(request: any, schema: z.ZodType<T>) => schema.parse(request.body)
   const pageParams = (request: any) => { const page = Number(request.query?.page ?? 1); const limit = Number(request.query?.limit ?? 24); if (!Number.isInteger(page) || page < 1 || !Number.isInteger(limit) || limit < 1) throw validationError('Page and limit must be positive integers.'); return { page, limit: Math.min(100, limit), q: String(request.query?.q ?? '').trim() } }
+  const launchPromotionOrderCount = async (client: any = prisma) => {
+    try {
+      const rows = await client.$queryRaw<Array<{ count: bigint | number }>>`SELECT COUNT(*)::bigint AS count FROM "Order" WHERE "conversionSnapshot"->'promotion'->>'id' = ${activeLaunchPromotion.id} AND "status" IN ('confirmed', 'processing', 'packed', 'shipped', 'delivered')`
+      return Number(rows[0]?.count ?? 0)
+    } catch {
+      const orders = await client.order.findMany({ where: { status: { in: [OrderStatus.confirmed, OrderStatus.processing, OrderStatus.packed, OrderStatus.shipped, OrderStatus.delivered] } }, select: { conversionSnapshot: true } })
+      return orders.filter((order: any) => order.conversionSnapshot?.promotion?.id === activeLaunchPromotion.id).length
+    }
+  }
+  const customerHasLaunchPromotionOrder = async (customerId: string, client: any = prisma) => {
+    try {
+      const rows = await client.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "Order" WHERE "customerId" = ${customerId} AND "conversionSnapshot"->'promotion'->>'id' = ${activeLaunchPromotion.id} AND "status" IN ('confirmed', 'processing', 'packed', 'shipped', 'delivered') LIMIT 1`
+      return rows.length > 0
+    } catch {
+      const orders = await client.order.findMany({ where: { customerId, status: { in: [OrderStatus.confirmed, OrderStatus.processing, OrderStatus.packed, OrderStatus.shipped, OrderStatus.delivered] } }, select: { conversionSnapshot: true } })
+      return orders.some((order: any) => order.conversionSnapshot?.promotion?.id === activeLaunchPromotion.id)
+    }
+  }
+  const launchPromotionResponse = async (client: any = prisma) => {
+    const successfulOrders = await launchPromotionOrderCount(client)
+    const status = launchPromotionStatus(activeLaunchPromotion, successfulOrders)
+    return { ...activeLaunchPromotion, successfulOrders, remainingOrders: Math.max(0, activeLaunchPromotion.maximumOrders - successfulOrders), status, message: status === 'completed' || status === 'ended' ? 'The SkinFox launch offer has ended.' : `Exclusive launch access — enjoy ${activeLaunchPromotion.discountPercent}% off for the first ${activeLaunchPromotion.maximumOrders} orders.` }
+  }
+  const assertMediaAssets = async (media: Array<{ mediaAssetId?: string; src?: string }>) => {
+    const ids = [...new Set(media.map((item) => item.mediaAssetId).filter((id): id is string => Boolean(id)))]
+    if (!ids.length) return
+    const assets = await prisma.mediaAsset.findMany({ where: { id: { in: ids }, archivedAt: null }, select: { id: true, provider: true, key: true, deliveryUrl: true } })
+    if (assets.length !== ids.length) throw validationError('One or more selected images are no longer available.')
+    const byId = new Map(assets.map((asset) => [asset.id, asset]))
+    for (const item of media) {
+      if (!item.mediaAssetId || !item.src) continue
+      const asset = byId.get(item.mediaAssetId)
+      if (!asset) throw validationError('One or more selected images are no longer available.')
+      const localSource = asset.provider === 'local' ? `/api/v1/media/${encodeURIComponent(asset.key)}` : null
+      if (asset.deliveryUrl && item.src !== asset.deliveryUrl && item.src !== localSource) throw validationError('A selected image does not match its verified media asset.')
+    }
+  }
 
   const currentAdmin = async (request: any) => {
     const token = request.cookies.sf_admin_session
@@ -209,7 +269,7 @@ export function buildApp(): FastifyInstance {
     }
     return user
   }
-  const publicCustomer = (customer: any) => ({ id: customer.id, fullName: customer.fullName, email: customer.email, phone: customer.phone, phoneVerified: Boolean(customer.phoneVerifiedAt), emailVerified: Boolean(customer.emailVerifiedAt), founderNumber: customer.founderNumber ?? null, founderJoinedAt: customer.founderJoinedAt ?? null, createdAt: customer.createdAt })
+  const publicCustomer = (customer: any) => ({ id: customer.id, fullName: customer.fullName, email: customer.email, phone: customer.phone, phoneVerified: Boolean(customer.phoneVerifiedAt), emailVerified: Boolean(customer.emailVerifiedAt), createdAt: customer.createdAt })
   const currentCustomer = async (request: any, required = true) => {
     const token = request.cookies.sf_customer_session
     if (!token) {
@@ -296,10 +356,6 @@ export function buildApp(): FastifyInstance {
     return cart
   }
   const cartResponse = async (cart: any, cod = false, serviceable = true, customer?: any) => {
-    // Founder pricing is snapshotted into the converted waitlist order. Once
-    // the public launch opens, new cart items must use the public launch price
-    // for every shopper, including former waitlist members.
-    const founderEligible = activeWaitlistSettings.stage === 'founder_reveal' && customer?.founderNumber && customer.founderNumber <= activeWaitlistSettings.founderCapacity && Boolean(await prisma.waitlistReservation.findFirst({ where: { customerId: customer.id, status: { in: [WaitlistStatus.joined, WaitlistStatus.converted] } }, select: { id: true } }))
     const lines = cart.items.map((item: any) => {
       // Prefer the fully hydrated product variant (with inventory) over the
       // lightweight CartItem relation so availability is never reported as zero
@@ -307,11 +363,21 @@ export function buildApp(): FastifyInstance {
       const variant = item.product.variants.find((candidate: any) => candidate.id === item.variantId) ?? item.product.variants[0] ?? item.variant
       const inv = variant?.inventory?.reduce((sum: number, row: any) => sum + row.availableQty - row.reservedQty, 0) ?? 0
       const publicItem = publicProduct(item.product)
-      return { id: item.id, productId: item.product.id, variantId: variant?.id, quantity: item.quantity, product: founderEligible ? { ...publicItem, pricePaise: activeWaitlistSettings.founderPricePaise, mrpPaise: item.product.mrpPaise ?? activeWaitlistSettings.regularPricePaise, purchaseState: PurchaseState.available } : publicItem, unitPricePaise: founderEligible ? activeWaitlistSettings.founderPricePaise : variant?.pricePaise ?? item.product.pricePaise, availableQuantity: inv, purchaseState: founderEligible ? PurchaseState.available : variant?.purchaseState ?? item.product.purchaseState }
+      return { id: item.id, productId: item.product.id, variantId: variant?.id, quantity: item.quantity, product: publicItem, unitPricePaise: variant?.pricePaise ?? item.product.pricePaise, availableQuantity: inv, purchaseState: variant?.purchaseState ?? item.product.purchaseState }
     })
     const quote = calculateCart(lines, cart.coupon?.promotion as any, serviceable, cod)
-    if (waitlistPricesHidden() && !founderEligible) return { cartId: cart.publicToken ?? cart.id, lines: lines.map((line: any) => ({ ...line, product: publicProduct(line.product), unitPricePaise: null, purchaseState: PurchaseState.coming_soon })), ...quote, subtotalPaise: 0, discountPaise: 0, taxPaise: 0, shippingPaise: 0, codPaise: 0, totalPaise: 0, purchaseEligible: false, priceHidden: true, validationMessages: [], appliedCoupon: null, currency: cart.currency, expiresAt: cart.expiresAt }
-    return { cartId: cart.publicToken ?? cart.id, lines, ...quote, appliedCoupon: cart.coupon ? { code: cart.coupon.code, promotion: cart.coupon.promotion } : null, currency: cart.currency, expiresAt: cart.expiresAt }
+    const subtotalPaise = quote.subtotalPaise
+    const eligibleByProduct = (!activeLaunchPromotion.eligibleProductIds.length && !activeLaunchPromotion.eligibleCategories.length) || lines.every((line: any) => (!activeLaunchPromotion.eligibleProductIds.length || activeLaunchPromotion.eligibleProductIds.includes(line.productId)) && (!activeLaunchPromotion.eligibleCategories.length || activeLaunchPromotion.eligibleCategories.includes(line.product.category)))
+    const customerEligible = !customer || !(await customerHasLaunchPromotionOrder(customer.id))
+    const successfulOrders = !cart.coupon && eligibleByProduct && customerEligible ? await launchPromotionOrderCount() : activeLaunchPromotion.maximumOrders
+    const promotionDiscountPaise = !cart.coupon && eligibleByProduct && customerEligible ? launchPromotionDiscount(subtotalPaise, activeLaunchPromotion, successfulOrders) : 0
+    const combinedDiscount = Math.min(subtotalPaise, quote.discountPaise + promotionDiscountPaise)
+    const taxablePaise = Math.max(0, subtotalPaise - combinedDiscount)
+    const taxPaise = Math.floor(taxablePaise * 18 / 118)
+    const shippingPaise = !serviceable ? 0 : taxablePaise >= 99900 ? 0 : (taxablePaise > 0 ? 9900 : 0)
+    const codPaise = cod && taxablePaise > 0 ? 4900 : 0
+    const totalPaise = taxablePaise + taxPaise + shippingPaise + codPaise
+    return { cartId: cart.publicToken ?? cart.id, lines, ...quote, discountPaise: combinedDiscount, taxPaise, shippingPaise, codPaise, totalPaise, promotion: promotionDiscountPaise > 0 ? { id: activeLaunchPromotion.id, discountPercent: activeLaunchPromotion.discountPercent, discountPaise: promotionDiscountPaise, successfulOrders, remainingOrders: Math.max(0, activeLaunchPromotion.maximumOrders - successfulOrders) } : null, appliedCoupon: cart.coupon ? { code: cart.coupon.code, promotion: cart.coupon.promotion } : null, currency: cart.currency, expiresAt: cart.expiresAt, priceHidden: false }
   }
   const idemReplay = async (request: any, scope: string) => { const key = request.headers['idempotency-key']; if (!key) return null; const record = await prisma.idempotencyRecord.findUnique({ where: { key_scope: { key: String(key), scope } } }); if (!record?.responseBody) return null; if (record.requestHash !== sha256Json(request.body ?? {})) throw new ApiError(409, 'IDEMPOTENCY_KEY_REUSED', 'This idempotency key was already used with a different request.'); return { status: record.responseStatus ?? 200, body: record.responseBody } }
   const idemStore = async (request: any, scope: string, status: number, responseBody: unknown) => { const key = request.headers['idempotency-key']; if (!key) return; await prisma.idempotencyRecord.create({ data: { key: String(key), scope, requestHash: sha256Json(request.body ?? {}), responseStatus: status, responseBody: responseBody as Prisma.InputJsonValue, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) } }).catch(() => undefined) }
@@ -321,15 +387,13 @@ export function buildApp(): FastifyInstance {
   routes.get('/api/v1/storefront/bootstrap', async (_, reply) => {
     const settings = await prisma.storeSetting.findMany({ where: { key: { in: ['storefront', 'seo'] } } })
     const values = Object.fromEntries(settings.map((setting) => [setting.key, setting.value])) as any
-    const waitlist = waitlistConfig(await founderClaimedCount())
-    return data(reply, { storeName: 'SkinFox', logo: '/brand/skinfox-logo.png', currency: 'INR', announcement: values.storefront?.announcement ?? (waitlist.enabled ? 'Priority launch waitlist is open' : 'The SkinFox collection is now available'), navigation: [{ label: 'Shop', href: '#shop' }, { label: 'Care finder', href: '#care-finder' }], footerLinks: [{ label: 'FAQ', href: '#faq' }], socialLinks: [{ label: 'Instagram', href: '#story' }], freeShippingThresholdPaise: values.storefront?.freeShippingThresholdPaise ?? 99900, featureFlags: { customerOtp: false, firebaseAuth: firebaseAdminIsConfigured(), customerEmailAuth: firebaseAdminIsConfigured(), paymentMode: waitlist.enabled ? 'waitlist' : 'cod' }, supportContact: { email: values.storefront?.supportEmail ?? 'contact@skinfox.in' }, enabledPaymentMethods: waitlist.enabled ? ['razorpay_waitlist'] : ['cod'], waitlist, seo: values.seo ?? {} })
+    return data(reply, { storeName: 'SkinFox', logo: '/brand/skinfox-logo.png', currency: 'INR', announcement: values.storefront?.announcement ?? 'The SkinFox collection is now available', navigation: [{ label: 'Shop', href: '#shop' }, { label: 'Care finder', href: '#care-finder' }], footerLinks: [{ label: 'FAQ', href: '#faq' }], socialLinks: [{ label: 'Instagram', href: '#story' }], freeShippingThresholdPaise: values.storefront?.freeShippingThresholdPaise ?? 99900, featureFlags: { customerOtp: false, firebaseAuth: firebaseAdminIsConfigured(), customerEmailAuth: firebaseAdminIsConfigured(), paymentMode: payment.configured() ? 'online' : 'cod' }, supportContact: { email: values.storefront?.supportEmail ?? 'contact@skinfox.in' }, enabledPaymentMethods: payment.configured() ? ['cod', 'razorpay'] : ['cod'], promotion: await launchPromotionResponse(), seo: values.seo ?? {} })
   })
   routes.get('/api/v1/products', async (request, reply) => {
     const params = pageParams(request)
     const minPrice = request.query?.minPrice === undefined || request.query?.minPrice === '' ? undefined : Number(request.query.minPrice)
     const maxPrice = request.query?.maxPrice === undefined || request.query?.maxPrice === '' ? undefined : Number(request.query.maxPrice)
     if ((minPrice !== undefined && !Number.isInteger(minPrice)) || (maxPrice !== undefined && !Number.isInteger(maxPrice))) throw validationError('Price filters must be integer paise values.', { minPrice: 'Use integer paise.', maxPrice: 'Use integer paise.' })
-    if (activeWaitlistSettings.enabled && (minPrice !== undefined || maxPrice !== undefined || ['price_asc', 'price_desc'].includes(String(request.query?.sort ?? '')))) throw validationError('Price filtering and sorting will be available after prices are revealed.')
     const collection = request.query?.collection ? String(request.query.collection) : undefined
     const where: any = {
       status: PublicationStatus.published,
@@ -344,7 +408,7 @@ export function buildApp(): FastifyInstance {
     const [items, total] = await prisma.$transaction([prisma.product.findMany({ where, include: { media: true, variants: true }, orderBy, skip: (params.page - 1) * params.limit, take: params.limit }), prisma.product.count({ where })])
     return data(reply, items.map((item) => publicProduct(item)), { page: params.page, limit: params.limit, total, hasNextPage: params.page * params.limit < total })
   })
-  routes.get('/api/v1/products/:id/availability', async (request, reply) => { const pincode = String(request.query?.pincode ?? ''); if (!isValidPincode(pincode)) throw validationError('Enter a valid six-digit pincode.', { pincode: 'Pincode must contain six digits.' }); const serviceable = await shipping.serviceable(pincode); const product = await prisma.product.findFirst({ where: { OR: [{ id: request.params.id }, { slug: request.params.id }] }, include: { variants: { include: { inventory: true } } } }); if (!product) throw notFound('Product not found.'); return data(reply, { serviceable, purchaseState: activeWaitlistSettings.enabled ? PurchaseState.coming_soon : product.purchaseState, availableQuantity: activeWaitlistSettings.enabled ? null : product.variants.reduce((sum, variant) => sum + variant.inventory.reduce((inner, row) => inner + row.availableQty - row.reservedQty, 0), 0), waitlistEligible: activeWaitlistSettings.enabled }) })
+  routes.get('/api/v1/products/:id/availability', async (request, reply) => { const pincode = String(request.query?.pincode ?? ''); if (!isValidPincode(pincode)) throw validationError('Enter a valid six-digit pincode.', { pincode: 'Pincode must contain six digits.' }); const serviceable = await shipping.serviceable(pincode); const product = await prisma.product.findFirst({ where: { OR: [{ id: request.params.id }, { slug: request.params.id }] }, include: { variants: { include: { inventory: true } } } }); if (!product) throw notFound('Product not found.'); return data(reply, { serviceable, purchaseState: product.purchaseState, availableQuantity: product.variants.reduce((sum, variant) => sum + variant.inventory.reduce((inner, row) => inner + row.availableQty - row.reservedQty, 0), 0) }) })
   routes.get('/api/v1/products/:id', async (request, reply) => { const product = await prisma.product.findFirst({ where: { OR: [{ id: request.params.id }, { slug: request.params.id }], status: PublicationStatus.published }, include: { media: true, variants: true, collections: { include: { collection: true } } } }); if (!product) throw notFound('Product not found.'); return data(reply, publicProduct(product)) })
   routes.get('/api/v1/categories', async (_, reply) => data(reply, await prisma.category.findMany({ orderBy: { sortOrder: 'asc' } })))
   routes.get('/api/v1/concerns', async (_, reply) => data(reply, await prisma.concern.findMany({ orderBy: { sortOrder: 'asc' } })))
@@ -375,7 +439,7 @@ export function buildApp(): FastifyInstance {
     const config = (finder.config && typeof finder.config === 'object' && !Array.isArray(finder.config) ? finder.config : {}) as Record<string, any>
     const area = typeof answers.careArea === 'string' ? answers.careArea : 'skin'
     const packageName = config.packageNames?.[area] ?? 'Your SkinFox care edit'
-    const items = selected.map((item) => ({ product: publicProduct(item.product), role: item.metadata.role ?? 'essential', reason: item.metadata.reason ?? item.product.benefit, frequency: item.metadata.frequency ?? 'Follow the final pack directions', days: item.metadata.days ?? ['As directed'], timeOfDay: item.metadata.timeOfDay ?? 'As directed', instructions: item.metadata.instructions ?? 'Follow the final product pack directions.', stepOrder: item.metadata.stepOrder ?? null, guidanceStatus: item.metadata.guidanceStatus ?? 'needs_review', matchedRules: item.matchedRules, pricePaise: activeWaitlistSettings.enabled ? null : productPricePaise(item.product), mrpPaise: productMrpPaise(item.product) ?? activeWaitlistSettings.regularPricePaise }))
+    const items = selected.map((item) => ({ product: publicProduct(item.product), role: item.metadata.role ?? 'essential', reason: item.metadata.reason ?? item.product.benefit, frequency: item.metadata.frequency ?? 'Follow the final pack directions', days: item.metadata.days ?? ['As directed'], timeOfDay: item.metadata.timeOfDay ?? 'As directed', instructions: item.metadata.instructions ?? 'Follow the final product pack directions.', stepOrder: item.metadata.stepOrder ?? null, guidanceStatus: item.metadata.guidanceStatus ?? 'needs_review', matchedRules: item.matchedRules, pricePaise: productPricePaise(item.product), mrpPaise: productMrpPaise(item.product) }))
     const totalPaise = items.reduce((sum, item) => sum + (item.pricePaise ?? 0), 0)
     const mrpTotalPaise = items.reduce((sum, item) => sum + (item.mrpPaise ?? item.pricePaise ?? 0), 0)
     const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -652,6 +716,7 @@ export function buildApp(): FastifyInstance {
     return { addressRequired, balanceDuePaise: balanceDue, paymentConfirmationPending, deadlineExpired, requiredAction: deadlineExpired ? 'expired' : addressRequired ? 'address_required' : paymentConfirmationPending ? 'payment_confirmation_pending' : balanceDue > 0 && !order.balancePaidAt ? 'payment_due' : humaniseOrderStatus(order.status) }
   }
   routes.post('/api/v1/customer/orders/:publicToken/address', async (request, reply) => {
+    throw waitlistDisabledError()
     const { customer, order } = await convertedOrderForCustomer(request, true)
     if (convertedOrderState(order).deadlineExpired) throw new ApiError(410, 'ORDER_DEADLINE_EXPIRED', 'This waitlist order has passed its completion deadline. Please contact SkinFox support for help.')
     const address = addressSchema.parse(request.body)
@@ -673,16 +738,19 @@ export function buildApp(): FastifyInstance {
     return data(reply, { order: updated, serviceable: true, ...convertedOrderState(updated) })
   })
   routes.get('/api/v1/customer/orders/:publicToken/balance-quote', async (request, reply) => {
+    throw waitlistDisabledError()
     const { order } = await convertedOrderForCustomer(request)
     return data(reply, { orderNumber: order.orderNumber, waitlistId: order.waitlistReservationId, currency: order.currency, mrpSubtotalPaise: order.mrpSubtotalPaise ?? order.subtotalPaise, memberProductSubtotalPaise: Math.max(0, Number(order.subtotalPaise) - Number(order.discountPaise)), waitlistDiscountPaise: order.waitlistDiscountPaise ?? order.discountPaise, reservationCreditPaise: order.reservationCreditPaise, remainingBalancePaise: order.remainingBalancePaise ?? order.totalPaise, shippingPaise: order.shippingPaise, taxPaise: order.taxPaise, totalDuePaise: order.totalPaise, ...convertedOrderState(order) })
   })
   routes.get('/api/v1/customer/orders/:publicToken/payment-status', async (request, reply) => {
+    throw waitlistDisabledError()
     const { order } = await convertedOrderForCustomer(request)
     const state = convertedOrderState(order)
     const balancePayment = order.payments.find((payment: any) => payment.provider === 'razorpay_waitlist_balance')
     return data(reply, { orderNumber: order.orderNumber, orderStatus: order.status, confirmed: Boolean(order.balancePaidAt || (state.balanceDuePaise === 0 && !state.addressRequired)), pending: state.paymentConfirmationPending, failed: balancePayment?.status === PaymentStatus.failed, amountPaise: balancePayment?.amountPaise ?? state.balanceDuePaise, paymentStatus: balancePayment?.status ?? null, ...state })
   })
   routes.post('/api/v1/customer/orders/:publicToken/balance-order', async (request, reply) => {
+    throw waitlistDisabledError()
     const { order } = await convertedOrderForCustomer(request, true)
     const idempotencyScope = `waitlist-balance-order:${order.id}`
     const replay = await idemReplay(request, idempotencyScope)
@@ -709,6 +777,7 @@ export function buildApp(): FastifyInstance {
     return data(reply, response)
   })
   routes.post('/api/v1/customer/orders/:publicToken/balance-verify', async (request, reply) => {
+    throw waitlistDisabledError()
     const { order } = await convertedOrderForCustomer(request, true)
     const idempotencyScope = `waitlist-balance-verify:${order.id}`
     const replay = await idemReplay(request, idempotencyScope)
@@ -918,13 +987,15 @@ export function buildApp(): FastifyInstance {
     return { order, converted: true, reason: 'converted' }
   }
 
-  routes.get('/api/v1/waitlist/config', async (_, reply) => data(reply, waitlistConfig(await founderClaimedCount())))
+  routes.get('/api/v1/waitlist/config', async () => { throw waitlistDisabledError() })
   routes.get('/api/v1/customer/waitlist', async (request, reply) => {
+    throw waitlistDisabledError()
     const customer = await requireCustomer(request)
     const reservations = await prisma.waitlistReservation.findMany({ where: { customerId: customer.id }, include: { items: true, customer: { select: { founderNumber: true } }, convertedOrder: { select: { publicToken: true, orderNumber: true, status: true, totalPaise: true, remainingBalancePaise: true, shippingAddress: true } } }, orderBy: { createdAt: 'desc' } })
     return data(reply, reservations.map(waitlistResponse))
   })
   routes.post('/api/v1/waitlist/reservations', { config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } }, async (request, reply) => {
+    throw waitlistDisabledError()
     const currentWaitlist = { ...activeWaitlistSettings }
     if (!currentWaitlist.enabled) throw new ApiError(409, 'WAITLIST_CLOSED', 'The priority waitlist is not open right now.')
     if (currentWaitlist.stage !== 'waitlist') throw new ApiError(409, 'WAITLIST_STAGE_CLOSED', 'New priority waitlist reservations are not available in the current launch stage.')
@@ -983,6 +1054,8 @@ export function buildApp(): FastifyInstance {
     }
   })
   routes.post('/api/v1/waitlist/reservations/:publicToken/verify', async (request, reply) => {
+    throw waitlistDisabledError()
+    throw new ApiError(410, 'WAITLIST_DISABLED', 'This legacy reservation endpoint is no longer available. Add products to your bag to place a normal order.')
     const customer = await requireCustomer(request, true)
     const input = z.object({ razorpayOrderId: z.string().min(6), razorpayPaymentId: z.string().min(6), razorpaySignature: z.string().min(16) }).parse(request.body)
     const reservation = await prisma.waitlistReservation.findFirst({ where: { publicToken: request.params.publicToken, customerId: customer.id }, include: { items: true, customer: { select: { founderNumber: true } } } })
@@ -999,6 +1072,8 @@ export function buildApp(): FastifyInstance {
     return data(reply, { reservation: waitlistResponse(updated), confirmed: captured })
   })
   routes.post('/api/v1/waitlist/reservations/:publicToken/cancel', { config: { rateLimit: { max: 6, timeWindow: '15 minutes' } } }, async (request, reply) => {
+    throw waitlistDisabledError()
+    throw new ApiError(410, 'WAITLIST_DISABLED', 'This legacy reservation endpoint is no longer available. Add products to your bag to place a normal order.')
     const customer = await requireCustomer(request, true)
     const reservation = await prisma.waitlistReservation.findFirst({ where: { publicToken: request.params.publicToken, customerId: customer.id }, include: { items: true } })
     if (!reservation) throw notFound('Waitlist reservation not found.')
@@ -1028,7 +1103,6 @@ export function buildApp(): FastifyInstance {
     return data(reply, { pincode, provider: 'manual', serviceable, codAvailable: Boolean(await prisma.serviceablePincode.findUnique({ where: { pincode, active: true } })) })
   })
   const makeQuote = async (request: any, sessionInput?: any, customer?: any) => {
-    if (activeWaitlistSettings.enabled && activeWaitlistSettings.stage === 'waitlist') throw new ApiError(409, 'WAITLIST_ONLY', 'Product prices are not revealed yet. Join the priority waitlist instead.')
     const cart = await getCart(request)
     const bodyValue = sessionInput ?? request.body
     const parsed = checkoutSchema.parse(bodyValue)
@@ -1041,8 +1115,7 @@ export function buildApp(): FastifyInstance {
       providerQuote = await shiprocket.serviceability({ pickupPincode, deliveryPincode: parsed.pincode, paymentMethod: parsed.paymentMethod === 'cod' ? 'cod' : 'prepaid', weightKg: Number(process.env.SHIPPING_DEFAULT_WEIGHT_KG ?? 0.5) })
       serviceable = providerQuote.serviceable
     } else serviceable = await shipping.serviceable(parsed.pincode)
-    const base = await cartResponse(cart, true, serviceable, customer)
-    if (activeWaitlistSettings.stage === 'founder_reveal' && base.priceHidden) throw new ApiError(403, 'FOUNDER_ACCESS_REQUIRED', 'This launch price is reserved for confirmed priority waitlist members.')
+    const base = await cartResponse(cart, parsed.paymentMethod === 'cod', serviceable, customer)
     const providerCharge = providerQuote?.couriers?.[0]?.ratePaise
     const response = providerCharge === null || providerCharge === undefined ? base : { ...base, shippingPaise: providerCharge, totalPaise: Math.max(0, Number(base.subtotalPaise) - Number(base.discountPaise) + Number(base.taxPaise) + Number(providerCharge) + Number(base.codPaise)) }
     const estimate = providerQuote?.couriers?.[0]?.estimatedDays
@@ -1055,7 +1128,7 @@ export function buildApp(): FastifyInstance {
     const replay = await idemReplay(request, idempotencyScope)
     if (replay) return reply.status(replay.status).send(replay.body)
     const quote = await makeQuote(request, undefined, customer)
-    if (!quote.purchaseEligible) throw validationError('Your cart is not eligible for COD.', { cart: quote.validationMessages.join(' ') })
+    if (!quote.purchaseEligible) throw validationError('Your cart is not eligible for checkout.', { cart: quote.validationMessages.join(' ') })
     const cart = await getCart(request)
     if (cart.customerId && cart.customerId !== customer.id) throw forbidden('This cart belongs to a different customer session.')
     const token = randomToken(24)
@@ -1074,13 +1147,14 @@ export function buildApp(): FastifyInstance {
       }
       await tx.cart.update({ where: { id: cart.id }, data: { customerId: customer.id } })
       const storedQuote = { ...quote, checkout: shippingAddress }
-      const session = await tx.checkoutSession.create({ data: { publicToken: token, cartId: cart.id, customerId: customer.id, paymentMethod: 'cod', quote: storedQuote as any, expiresAt: new Date(Date.now() + 15 * 60 * 1000) } })
+      const session = await tx.checkoutSession.create({ data: { publicToken: token, cartId: cart.id, customerId: customer.id, paymentMethod: quote.checkout.paymentMethod, quote: storedQuote as any, expiresAt: new Date(Date.now() + 15 * 60 * 1000) } })
       await tx.checkoutQuote.create({ data: { checkoutSessionId: session.id, subtotalPaise: quote.subtotalPaise, discountPaise: quote.discountPaise, taxPaise: quote.taxPaise, shippingPaise: quote.shippingPaise, codPaise: quote.codPaise, totalPaise: quote.totalPaise, serviceable: quote.serviceability, payload: storedQuote as any, expiresAt: new Date(Date.now() + 15 * 60 * 1000) } })
       if (quote.shippingProvider) {
         const firstCourier = Array.isArray(quote.courierOptions) ? quote.courierOptions[0] : null
         await tx.shippingQuote.create({ data: { checkoutSessionId: session.id, pincode: String(shippingAddress.pincode), serviceable: Boolean(quote.serviceability), chargePaise: Number(quote.shippingPaise ?? 0), provider: String(quote.shippingProvider), courierId: firstCourier?.id ? String(firstCourier.id) : undefined, courierName: firstCourier?.name ? String(firstCourier.name) : undefined, metadata: { couriers: quote.courierOptions ?? [], expiresAt: quote.quoteExpiresAt } as any, expiresAt: new Date(String(quote.quoteExpiresAt)) } })
       }
-      const order = await tx.order.create({ data: { publicToken: randomToken(24), orderNumber: `SF-${new Date().getFullYear()}-${randomToken(4).toUpperCase()}`, checkoutSessionId: session.id, customerId: customer.id, status: OrderStatus.pending_payment, subtotalPaise: quote.subtotalPaise, discountPaise: quote.discountPaise, taxPaise: quote.taxPaise, shippingPaise: quote.shippingPaise, codPaise: quote.codPaise, totalPaise: quote.totalPaise, shippingAddress: shippingAddress as any, items: { create: quote.lines.map((line: any) => ({ productId: line.productId, variantId: line.variantId, productName: line.product.name, variantName: line.product.size, sku: line.variantId ?? line.product.slug, size: line.product.size, primaryImage: line.product.image, unitSellingPricePaise: line.unitPricePaise ?? 0, mrpPaise: line.product.mrpPaise, discountPaise: 0, taxRateBps: 1800, taxPaise: Math.floor((line.unitPricePaise ?? 0) * line.quantity * 18 / 118), finalLineTotalPaise: (line.unitPricePaise ?? 0) * line.quantity, quantity: line.quantity })) } } })
+      const promotionSnapshot = quote.promotion ? { ...quote.promotion, originalSubtotalPaise: quote.subtotalPaise, finalSubtotalPaise: Math.max(0, quote.subtotalPaise - quote.promotion.discountPaise), appliedDiscountPaise: quote.promotion.discountPaise, appliedAt: new Date().toISOString() } : null
+      const order = await tx.order.create({ data: { publicToken: randomToken(24), orderNumber: `SF-${new Date().getFullYear()}-${randomToken(4).toUpperCase()}`, checkoutSessionId: session.id, customerId: customer.id, status: OrderStatus.pending_payment, subtotalPaise: quote.subtotalPaise, discountPaise: quote.discountPaise, taxPaise: quote.taxPaise, shippingPaise: quote.shippingPaise, codPaise: quote.codPaise, totalPaise: quote.totalPaise, shippingAddress: shippingAddress as any, conversionSnapshot: promotionSnapshot ? { promotion: promotionSnapshot } as any : undefined, items: { create: quote.lines.map((line: any) => ({ productId: line.productId, variantId: line.variantId, productName: line.product.name, variantName: line.product.size, sku: line.variantId ?? line.product.slug, size: line.product.size, primaryImage: line.product.image, unitSellingPricePaise: line.unitPricePaise ?? 0, mrpPaise: line.product.mrpPaise, discountPaise: 0, taxRateBps: 1800, taxPaise: Math.floor((line.unitPricePaise ?? 0) * line.quantity * 18 / 118), finalLineTotalPaise: (line.unitPricePaise ?? 0) * line.quantity, quantity: line.quantity })) } } })
       for (const line of quote.lines) {
         if (!line.variantId) continue
         const inventory = await tx.inventoryItem.findFirst({ where: { variantId: line.variantId }, orderBy: { availableQty: 'desc' } })
@@ -1096,7 +1170,29 @@ export function buildApp(): FastifyInstance {
     return reply.status(201).send({ data: response, meta: { requestId: request.id } })
   })
   routes.get('/api/v1/checkout/sessions/:id', async (request, reply) => { const customer = await requireCustomer(request); const session = await prisma.checkoutSession.findUnique({ where: { publicToken: request.params.id }, include: { order: true, quotes: { orderBy: { createdAt: 'desc' }, take: 1 } } }); if (!session || session.customerId !== customer.id) throw notFound('Checkout session not found.'); return data(reply, session) })
-  routes.post('/api/v1/checkout/sessions/:id/payment-order', async (request) => { await requireCustomer(request, true); throw new ApiError(410, 'PAYMENT_METHOD_DISABLED', 'Online payment is not enabled. Use cash on delivery for this test release.') })
+  routes.post('/api/v1/checkout/sessions/:id/payment-order', async (request, reply) => {
+    const customer = await requireCustomer(request, true)
+    const idempotencyScope = `payment-order:${request.params.id}`
+    const replay = await idemReplay(request, idempotencyScope)
+    if (replay) return reply.status(replay.status).send(replay.body)
+    if (!payment.configured()) throw new ApiError(503, 'RAZORPAY_NOT_CONFIGURED', 'Online payment is temporarily unavailable. Please choose another payment method.')
+    const session = await prisma.checkoutSession.findUnique({ where: { publicToken: request.params.id }, include: { order: true } })
+    if (!session?.order || session.customerId !== customer.id) throw notFound('Checkout session not found.')
+    if (session.paymentMethod !== 'razorpay' || session.status !== 'open') throw validationError('This checkout session cannot be paid online.')
+    const promotionSnapshot = (session.order.conversionSnapshot as any)?.promotion
+    if (promotionSnapshot?.id === activeLaunchPromotion.id && await launchPromotionOrderCount() >= activeLaunchPromotion.maximumOrders) throw new ApiError(409, 'PROMOTION_COMPLETED', 'The SkinFox launch offer has ended. Please restart checkout to continue at the current price.')
+    const existing = await prisma.payment.findFirst({ where: { orderId: session.order.id, provider: 'razorpay', status: PaymentStatus.pending, providerOrderId: { not: null } } })
+    if (existing?.providerOrderId) {
+      const response = { orderNumber: session.order.orderNumber, amountPaise: existing.amountPaise, currency: session.order.currency, keyId: process.env.RAZORPAY_KEY_ID, orderId: existing.providerOrderId, name: 'SkinFox', description: 'SkinFox order', prefill: { name: customer.fullName, email: customer.email ?? undefined, contact: customer.phone ? `+91${customer.phone}` : undefined } }
+      await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
+      return data(reply, response)
+    }
+    const providerOrder = await payment.createOrder({ amountPaise: session.order.totalPaise, receipt: session.order.orderNumber, notes: { order: session.order.publicToken, purpose: 'storefront_purchase', promotion: promotionSnapshot?.id ?? '' } })
+    const paymentRecord = await prisma.payment.create({ data: { orderId: session.order.id, provider: 'razorpay', providerOrderId: providerOrder.providerOrderId, amountPaise: session.order.totalPaise, status: PaymentStatus.pending } })
+    const response = { orderNumber: session.order.orderNumber, amountPaise: paymentRecord.amountPaise, currency: session.order.currency, keyId: process.env.RAZORPAY_KEY_ID, orderId: providerOrder.providerOrderId, name: 'SkinFox', description: 'SkinFox order', prefill: { name: customer.fullName, email: customer.email ?? undefined, contact: customer.phone ? `+91${customer.phone}` : undefined } }
+    await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
+    return data(reply, response)
+  })
   routes.post('/api/v1/checkout/sessions/:id/confirm-cod', async (request, reply) => {
     const customer = await requireCustomer(request, true)
     const idempotencyScope = `confirm-cod:${request.params.id}`
@@ -1106,6 +1202,14 @@ export function buildApp(): FastifyInstance {
     if (!session?.order || session.customerId !== customer.id) throw notFound('Checkout session not found.')
     if (session.paymentMethod !== 'cod' || session.status !== 'open') throw validationError('This checkout session cannot be confirmed as COD.')
     const order = await prisma.$transaction(async (tx) => {
+      const promotionSnapshot = (session.order?.conversionSnapshot as any)?.promotion
+      if (promotionSnapshot?.id === activeLaunchPromotion.id) {
+        // Serialize confirmations for this promotion so the final available
+        // order cannot be oversold when several customers confirm together.
+        await tx.$queryRaw`SELECT "id" FROM "StoreSetting" WHERE "key" = 'launch-promotion' FOR UPDATE`
+        const successfulOrders = await launchPromotionOrderCount(tx)
+        if (successfulOrders >= activeLaunchPromotion.maximumOrders) throw new ApiError(409, 'PROMOTION_COMPLETED', 'The SkinFox launch offer has ended. Please restart checkout to continue at the current price.')
+      }
       const updated = await tx.order.update({ where: { id: session.order!.id }, data: { status: OrderStatus.confirmed, payments: { create: { provider: 'cod', amountPaise: session.order!.totalPaise, status: PaymentStatus.authorised } }, statusEvents: { create: { fromStatus: OrderStatus.pending_payment, toStatus: OrderStatus.confirmed, reason: 'COD confirmed' } } } })
       const cart = await tx.cart.findUnique({ where: { id: session.cartId }, include: { affiliate: true } })
       // A cart keeps its first approved referral. Self-referrals never generate a wallet credit.
@@ -1124,7 +1228,71 @@ export function buildApp(): FastifyInstance {
     await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
     return data(reply, response)
   })
-  routes.post('/api/v1/payments/razorpay/verify', async (request) => { await requireCustomer(request, true); throw new ApiError(410, 'PAYMENT_ROUTE_REPLACED', 'Use the reservation-specific waitlist verification endpoint for Razorpay deposits.') })
+  routes.post('/api/v1/payments/razorpay/verify', async (request, reply) => {
+    const customer = await requireCustomer(request, true)
+    const input = z.object({ razorpayOrderId: z.string().min(6), razorpayPaymentId: z.string().min(6), razorpaySignature: z.string().min(16) }).parse(request.body)
+    const idempotencyScope = `razorpay-verify:${input.razorpayOrderId}`
+    const replay = await idemReplay(request, idempotencyScope)
+    if (replay) return reply.status(replay.status).send(replay.body)
+    const paymentRecord = await prisma.payment.findFirst({ where: { provider: 'razorpay', providerOrderId: input.razorpayOrderId }, include: { order: { include: { checkoutSession: true } } } })
+    if (!paymentRecord?.order || paymentRecord.order.customerId !== customer.id) throw notFound('Payment session not found.')
+    if (paymentRecord.status === PaymentStatus.captured && paymentRecord.providerPaymentId === input.razorpayPaymentId) return data(reply, { confirmed: true, orderPublicToken: paymentRecord.order.publicToken, orderNumber: paymentRecord.order.orderNumber, status: paymentRecord.order.status })
+    if (!payment.verifyPayment({ orderId: input.razorpayOrderId, paymentId: input.razorpayPaymentId, signature: input.razorpaySignature })) throw new ApiError(400, 'PAYMENT_SIGNATURE_INVALID', 'Payment verification failed. Your order has not been confirmed.')
+    let providerPayment
+    try { providerPayment = await payment.fetchPayment(input.razorpayPaymentId) } catch (cause) { request.log.error({ err: cause, orderId: paymentRecord.order.id, paymentId: input.razorpayPaymentId }, 'razorpay payment status fetch failed'); return data(reply, { confirmed: false, pending: true, message: 'Payment received; confirmation is still pending. Please do not pay again.' }) }
+    if (providerPayment.providerOrderId !== paymentRecord.providerOrderId || providerPayment.amountPaise !== paymentRecord.amountPaise || providerPayment.currency !== paymentRecord.order.currency) throw new ApiError(400, 'PAYMENT_DETAILS_MISMATCH', 'The payment details do not match this order.')
+    const captured = providerPayment.status === 'captured'
+    const failed = providerPayment.status === 'failed'
+    if (!captured) {
+      const nextStatus = failed ? PaymentStatus.failed : PaymentStatus.authorised
+      const response = { confirmed: false, pending: !failed, message: failed ? 'Payment failed. Your order has not been confirmed.' : 'Payment is still being authorised. We will update your order shortly.' }
+      await prisma.$transaction([
+        prisma.payment.update({ where: { id: paymentRecord.id }, data: { providerPaymentId: providerPayment.providerPaymentId, status: nextStatus } }),
+        prisma.paymentEvent.upsert({ where: { paymentId_externalId: { paymentId: paymentRecord.id, externalId: providerPayment.providerPaymentId } }, update: { type: providerPayment.status, payload: providerPayment as any }, create: { paymentId: paymentRecord.id, externalId: providerPayment.providerPaymentId, type: providerPayment.status, payload: providerPayment as any } }),
+        ...(failed ? [prisma.order.update({ where: { id: paymentRecord.order.id }, data: { status: OrderStatus.payment_failed } })] : []),
+      ])
+      await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
+      return data(reply, response)
+    }
+    const promotionSnapshot = (paymentRecord.order.conversionSnapshot as any)?.promotion
+    const result = await prisma.$transaction(async (tx) => {
+      if (promotionSnapshot?.id === activeLaunchPromotion.id) {
+        await tx.$queryRaw`SELECT "id" FROM "StoreSetting" WHERE "key" = 'launch-promotion' FOR UPDATE`
+        if (await launchPromotionOrderCount(tx) >= activeLaunchPromotion.maximumOrders) return { limited: true as const }
+      }
+      const updatedPayment = await tx.payment.update({ where: { id: paymentRecord.id }, data: { providerPaymentId: providerPayment.providerPaymentId, status: PaymentStatus.captured, capturedPaise: providerPayment.amountPaise } })
+      await tx.paymentEvent.upsert({ where: { paymentId_externalId: { paymentId: paymentRecord.id, externalId: providerPayment.providerPaymentId } }, update: { type: 'payment.captured', payload: providerPayment as any }, create: { paymentId: paymentRecord.id, externalId: providerPayment.providerPaymentId, type: 'payment.captured', payload: providerPayment as any } })
+      const order = await tx.order.update({ where: { id: paymentRecord.order.id }, data: { status: OrderStatus.confirmed, statusEvents: { create: { fromStatus: OrderStatus.pending_payment, toStatus: OrderStatus.confirmed, reason: 'Razorpay payment confirmed' } } } })
+      if (paymentRecord.order.checkoutSessionId) await tx.checkoutSession.update({ where: { id: paymentRecord.order.checkoutSessionId }, data: { status: 'confirmed' } })
+      const session = paymentRecord.order.checkoutSession
+      if (session) {
+        const cart = await tx.cart.findUnique({ where: { id: session.cartId }, include: { affiliate: true } })
+        await tx.cartItem.deleteMany({ where: { cartId: session.cartId } })
+        if (cart?.affiliate && cart.affiliate.status === AffiliateStatus.approved && cart.affiliate.phone !== customer.phone) {
+          const commissionPaise = affiliateCommissionPaise(order.subtotalPaise, order.discountPaise)
+          if (commissionPaise > 0) {
+            const attribution = await tx.affiliateAttribution.upsert({ where: { orderId: order.id }, update: {}, create: { affiliateId: cart.affiliate.id, orderId: order.id, referralCode: cart.affiliate.referralCode, commissionPaise } })
+            await tx.affiliateWalletEntry.upsert({ where: { attributionId: attribution.id }, update: {}, create: { affiliateId: cart.affiliate.id, type: AffiliateWalletEntryType.commission, amountPaise: commissionPaise, description: `10% commission for ${order.orderNumber}`, attributionId: attribution.id } })
+          }
+        }
+      }
+      return { limited: false as const, order, updatedPayment }
+    })
+    if (result.limited) {
+      let refund
+      try { refund = await payment.refund({ paymentId: providerPayment.providerPaymentId, amountPaise: providerPayment.amountPaise, idempotencyKey: `promotion-capacity-${paymentRecord.id}` }) } catch (cause) { request.log.error({ err: cause, orderId: paymentRecord.order.id, paymentId: providerPayment.providerPaymentId }, 'promotion capacity refund failed'); throw new ApiError(502, 'PAYMENT_REFUND_PENDING', 'Payment was received, but this promotion has ended. Please contact SkinFox support before trying again.') }
+      await prisma.$transaction([
+        prisma.payment.update({ where: { id: paymentRecord.id }, data: { providerPaymentId: providerPayment.providerPaymentId, status: PaymentStatus.refunded, capturedPaise: providerPayment.amountPaise } }),
+        prisma.paymentEvent.upsert({ where: { paymentId_externalId: { paymentId: paymentRecord.id, externalId: `refund:${refund.providerRefundId}` } }, update: { type: 'refund.processed', payload: refund as any }, create: { paymentId: paymentRecord.id, externalId: `refund:${refund.providerRefundId}`, type: 'refund.processed', payload: refund as any } }),
+        prisma.order.update({ where: { id: paymentRecord.order.id }, data: { status: OrderStatus.cancelled, statusEvents: { create: { fromStatus: OrderStatus.pending_payment, toStatus: OrderStatus.cancelled, reason: 'Launch promotion capacity reached; payment refunded' } } } }),
+        ...(paymentRecord.order.checkoutSessionId ? [prisma.checkoutSession.update({ where: { id: paymentRecord.order.checkoutSessionId }, data: { status: 'cancelled' } })] : []),
+      ])
+      throw new ApiError(409, 'PROMOTION_COMPLETED', 'The SkinFox launch offer ended before this payment was confirmed. Your payment has been refunded.')
+    }
+    const response = { confirmed: true, orderPublicToken: result.order.publicToken, orderNumber: result.order.orderNumber, status: result.order.status }
+    await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
+    return data(reply, response)
+  })
   routes.post('/api/v1/shipping/webhook', async (request, reply) => {
     if (shipping !== shiprocket) return data(reply, { accepted: false, ignored: true, provider: 'manual' })
     const configuredToken = process.env.SHIPROCKET_WEBHOOK_TOKEN
@@ -1205,7 +1373,7 @@ export function buildApp(): FastifyInstance {
   routes.get('/api/v1/orders/:publicToken/tracking', async (request, reply) => { const order = await prisma.order.findUnique({ where: { publicToken: request.params.publicToken }, include: { shipments: { include: { events: { orderBy: { createdAt: 'asc' } } } } } }); if (!order) throw notFound('Order not found.'); return data(reply, { status: order.status, shipments: order.shipments }) })
   routes.post('/api/v1/orders/:publicToken/cancel-request', async (request, reply) => { const order = await prisma.order.findUnique({ where: { publicToken: request.params.publicToken } }); if (!order) throw notFound('Order not found.'); if (![OrderStatus.pending_payment, OrderStatus.confirmed].includes(order.status)) throw validationError('This order can no longer be cancelled.'); return data(reply, await prisma.$transaction(async (tx) => { const updated = await tx.order.update({ where: { id: order.id }, data: { status: OrderStatus.cancelled, statusEvents: { create: { fromStatus: order.status, toStatus: OrderStatus.cancelled, reason: String(request.body?.reason ?? 'Customer request') } } } }); if (order.checkoutSessionId) { const holds = await tx.inventoryReservation.findMany({ where: { checkoutSessionId: order.checkoutSessionId, releasedAt: null } }); for (const hold of holds) { const claimed = await tx.inventoryReservation.updateMany({ where: { id: hold.id, releasedAt: null }, data: { releasedAt: new Date() } }); if (!claimed.count) continue; await tx.inventoryItem.update({ where: { variantId_locationId: { variantId: hold.variantId, locationId: hold.locationId } }, data: { reservedQty: { decrement: hold.quantity } } }); await tx.inventoryMovement.create({ data: { variantId: hold.variantId, locationId: hold.locationId, type: 'reservation_release', quantity: hold.quantity, orderId: order.id, reason: 'Customer cancellation' } }) } } return updated })) })
   routes.post('/api/v1/orders/:publicToken/return-request', async (request, reply) => { const order = await prisma.order.findUnique({ where: { publicToken: request.params.publicToken } }); if (!order) throw notFound('Order not found.'); if (order.status !== OrderStatus.delivered) throw validationError('Returns are available after delivery.'); return data(reply, await prisma.returnRequest.create({ data: { orderId: order.id, reason: String(request.body?.reason ?? 'Customer request') } })) })
-  routes.post('/api/v1/launch-interest', async (request, reply) => { const input = z.object({ productIds: z.array(z.string()).default([]), cartSnapshot: z.unknown().optional(), name: z.string().min(2), email: z.string().email(), phone: z.string().regex(/^[6-9]\d{9}$/).optional(), pincode: z.string().regex(/^[1-9]\d{5}$/), consent: z.literal(true), privacyPolicyVersion: z.string().min(1), source: z.string().optional() }).parse(request.body); const result = await prisma.launchInterest.create({ data: { ...input, consentAt: new Date(), cartSnapshot: input.cartSnapshot as Prisma.InputJsonValue } }); await email.send({ to: input.email, subject: 'SkinFox launch interest received', html: '<p>Thank you for your interest in SkinFox.</p>' }); return reply.status(201).send({ data: { accepted: true, id: result.id }, meta: { requestId: request.id } }) })
+  routes.post('/api/v1/launch-interest', async () => { throw waitlistDisabledError() })
   routes.post('/api/v1/newsletter/subscriptions', async (request, reply) => { const emailValue = z.string().email().parse(request.body?.email); const token = randomToken(24); const result = await prisma.newsletterSubscription.upsert({ where: { email: emailValue.toLowerCase() }, update: { tokenHash: hashToken(token), consentAt: new Date(), unsubscribedAt: null }, create: { email: emailValue.toLowerCase(), tokenHash: hashToken(token), consentAt: new Date() } }); await email.send({ to: result.email, subject: 'Confirm your SkinFox subscription', html: `<p>Confirm with token ${token}</p>` }); return reply.status(201).send({ data: { accepted: true, confirmationToken: process.env.NODE_ENV === 'production' ? undefined : token }, meta: { requestId: request.id } }) })
   routes.post('/api/v1/newsletter/confirm', async (request, reply) => { const token = z.string().min(10).parse(request.body?.token); const subscription = await prisma.newsletterSubscription.findUnique({ where: { tokenHash: hashToken(token) } }); if (!subscription) throw notFound('Subscription token not found.'); return data(reply, await prisma.newsletterSubscription.update({ where: { id: subscription.id }, data: { confirmedAt: new Date() }, select: { id: true, confirmedAt: true } })) })
   routes.delete('/api/v1/newsletter/subscriptions/:token', async (request, reply) => { const subscription = await prisma.newsletterSubscription.findUnique({ where: { tokenHash: hashToken(request.params.token) } }); if (!subscription) throw notFound('Subscription not found.'); await prisma.newsletterSubscription.update({ where: { id: subscription.id }, data: { unsubscribedAt: new Date() } }); return data(reply, { unsubscribed: true }) })
@@ -1305,13 +1473,14 @@ export function buildApp(): FastifyInstance {
     const requestedPeriod = Number(request.query?.periodDays ?? 30)
     const periodDays = [7, 30, 90].includes(requestedPeriod) ? requestedPeriod : 30
     const categoryFilter = String(request.query?.category ?? '').trim().toLowerCase()
+    const concernFilter = String(request.query?.concern ?? '').trim().toLowerCase()
+    const statusFilter = String(request.query?.status ?? '').trim().toLowerCase()
     const inventoryFilter = String(request.query?.inventory ?? '').trim().toLowerCase()
     const performanceFilter = String(request.query?.performance ?? '').trim().toLowerCase()
     const requestedSort = String(request.query?.sort ?? 'updated')
     const sortKey = ['name', 'stock', 'unitsSold', 'updated'].includes(requestedSort) ? requestedSort : 'updated'
     const direction = String(request.query?.direction ?? 'desc') === 'asc' ? 1 : -1
     const where: any = {
-      ...(request.query?.status ? { status: request.query.status } : {}),
       ...(params.q ? {
         OR: [
           { name: { contains: params.q, mode: 'insensitive' } },
@@ -1396,7 +1565,10 @@ export function buildApp(): FastifyInstance {
     const filtered = rows.filter((row) => {
       const metrics = row.productMetrics
       const rowCategory = String(row.category ?? '').toLowerCase()
+      const rowConcern = String(row.concern ?? '').toLowerCase()
+      if (statusFilter && String(row.status ?? '').toLowerCase() !== statusFilter) return false
       if (categoryFilter && rowCategory !== categoryFilter) return false
+      if (concernFilter && rowConcern !== concernFilter && !(Array.isArray(row.concerns) && row.concerns.some((item: unknown) => String(item).toLowerCase() === concernFilter))) return false
       if (inventoryFilter && String(metrics.stockState) !== inventoryFilter) return false
       if (performanceFilter && String(metrics.performance) !== performanceFilter) return false
       return true
@@ -1410,27 +1582,41 @@ export function buildApp(): FastifyInstance {
     })
     const total = filtered.length
     const start = (params.page - 1) * params.limit
-    return data(reply, filtered.slice(start, start + params.limit), { page: params.page, limit: params.limit, total, hasNextPage: start + params.limit < total, periodDays, categories: [...new Set(rows.map((row) => String(row.category ?? '').trim()).filter(Boolean))].sort() })
+    const summary = rows.reduce((result, row) => {
+      const metrics = row.productMetrics
+      const publication = String(row.status ?? '')
+      const available = String(row.purchaseState ?? '') === PurchaseState.available
+      const hasSellableStock = metrics.stockState !== 'out_of_stock'
+      if (publication === PublicationStatus.published) result.live += 1
+      if (publication === PublicationStatus.published && available && hasSellableStock) result.liveBuyable += 1
+      if (publication === PublicationStatus.draft) result.draft += 1
+      if (publication === PublicationStatus.published && metrics.stockState === 'out_of_stock') result.outOfStock += 1
+      if (metrics.performance === 'no_sales') result.noSales += 1
+      if (publication === PublicationStatus.archived) result.archived += 1
+      return result
+    }, { total: rows.length, live: 0, liveBuyable: 0, draft: 0, outOfStock: 0, noSales: 0, archived: 0 })
+    const concerns = [...new Set(rows.flatMap((row) => [row.concern, ...(Array.isArray(row.concerns) ? row.concerns : [])]).map((value) => String(value ?? '').trim()).filter(Boolean))].sort()
+    return data(reply, filtered.slice(start, start + params.limit), { page: params.page, limit: params.limit, total, hasNextPage: start + params.limit < total, periodDays, categories: [...new Set(rows.map((row) => String(row.category ?? '').trim()).filter(Boolean))].sort(), concerns, summary })
   })
-  routes.post('/api/v1/admin/products', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const input = productCreateSchema.parse(request.body); const { media, sku, ...productData } = input; const created = await prisma.$transaction(async (tx) => { const product = await tx.product.create({ data: productData as any }); await tx.productVariant.create({ data: { productId: product.id, sku: sku ?? `${product.slug.toUpperCase()}-DEFAULT`, name: product.size, size: product.size, pricePaise: product.pricePaise, mrpPaise: product.mrpPaise, purchaseState: product.purchaseState } }); if (media.length) await tx.productMedia.createMany({ data: media.map((item, index) => ({ ...item, productId: product.id, sortOrder: item.sortOrder ?? index, type: item.type as any })) }); await tx.productRevision.create({ data: { productId: product.id, version: 1, snapshot: input as any, status: product.status, createdById: user.id } }); return tx.product.findUniqueOrThrow({ where: { id: product.id }, include: { media: true, variants: true } }) }); await audit(user, request, 'create', 'Product', created.id, null, created); return reply.status(201).send({ data: publicProduct(created, true), meta: { requestId: request.id } }) })
+  routes.post('/api/v1/admin/products', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const input = productCreateSchema.parse(request.body); const { media, sku, ...productData } = input; await assertMediaAssets(media); const created = await prisma.$transaction(async (tx) => { const product = await tx.product.create({ data: productData as any }); await tx.productVariant.create({ data: { productId: product.id, sku: sku ?? `${product.slug.toUpperCase()}-DEFAULT`, name: product.size, size: product.size, pricePaise: product.pricePaise, mrpPaise: product.mrpPaise, purchaseState: product.purchaseState } }); if (media.length) await tx.productMedia.createMany({ data: media.map((item, index) => ({ ...item, productId: product.id, sortOrder: item.sortOrder ?? index, type: item.type as any })) }); await tx.productRevision.create({ data: { productId: product.id, version: 1, snapshot: input as any, status: product.status, createdById: user.id } }); return tx.product.findUniqueOrThrow({ where: { id: product.id }, include: { media: true, variants: true } }) }); await audit(user, request, 'create', 'Product', created.id, null, created); return reply.status(201).send({ data: publicProduct(created, true), meta: { requestId: request.id } }) })
   routes.get('/api/v1/admin/products/:id', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const product = await prisma.product.findUnique({ where: { id: request.params.id }, include: { media: true, variants: { include: { inventory: true } }, revisions: { orderBy: { version: 'desc' } }, claims: true, collections: { include: { collection: true } } } }); if (!product) throw notFound('Product not found.'); return data(reply, publicProduct(product, true)) })
-  routes.patch('/api/v1/admin/products/:id', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const before = await prisma.product.findUnique({ where: { id: request.params.id }, include: { media: true, variants: true } }); if (!before) throw notFound('Product not found.'); const input = productPatchSchema.parse(request.body); const { media, sku: _sku, ...changes } = input; const effectivePrice = changes.pricePaise !== undefined ? changes.pricePaise : before.pricePaise; const effectiveMrp = changes.mrpPaise !== undefined ? changes.mrpPaise : before.mrpPaise; const effectivePurchaseState = changes.purchaseState !== undefined ? changes.purchaseState : before.purchaseState; if (effectivePrice !== null && effectiveMrp !== null && effectiveMrp < effectivePrice) throw validationError('MRP cannot be lower than selling price.'); if (effectivePurchaseState === PurchaseState.available && effectivePrice === null) throw validationError('Available products require a selling price.'); const updated = await prisma.$transaction(async (tx) => { const item = await tx.product.update({ where: { id: request.params.id }, data: changes as any, include: { media: true, variants: true } }); if (changes.pricePaise !== undefined || changes.mrpPaise !== undefined || changes.purchaseState !== undefined || changes.size !== undefined) await tx.productVariant.updateMany({ where: { productId: item.id }, data: { ...(changes.pricePaise !== undefined ? { pricePaise: changes.pricePaise } : {}), ...(changes.mrpPaise !== undefined ? { mrpPaise: changes.mrpPaise } : {}), ...(changes.purchaseState !== undefined ? { purchaseState: changes.purchaseState } : {}), ...(changes.size !== undefined ? { size: changes.size, name: changes.size } : {}) } }); if (media) { await tx.productMedia.deleteMany({ where: { productId: item.id } }); await tx.productMedia.createMany({ data: media.map((entry: any, index: number) => ({ ...entry, productId: item.id, sortOrder: entry.sortOrder ?? index, type: entry.type })) }); } const latest = await tx.productRevision.findFirst({ where: { productId: item.id }, orderBy: { version: 'desc' } }); const snapshot = await tx.product.findUniqueOrThrow({ where: { id: item.id }, include: { media: true } }); await tx.productRevision.create({ data: { productId: item.id, version: (latest?.version ?? 0) + 1, snapshot: productSnapshot(snapshot) as any, status: snapshot.status, createdById: user.id } }); return tx.product.findUniqueOrThrow({ where: { id: item.id }, include: { media: true, variants: true } }) }); await audit(user, request, 'update', 'Product', before.id, before, updated); return data(reply, publicProduct(updated, true)) })
+  routes.patch('/api/v1/admin/products/:id', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const before = await prisma.product.findUnique({ where: { id: request.params.id }, include: { media: true, variants: true } }); if (!before) throw notFound('Product not found.'); const input = productPatchSchema.parse(request.body); const { media, sku: _sku, ...changes } = input; if (media) await assertMediaAssets(media); const effectivePrice = changes.pricePaise !== undefined ? changes.pricePaise : before.pricePaise; const effectiveMrp = changes.mrpPaise !== undefined ? changes.mrpPaise : before.mrpPaise; const effectivePurchaseState = changes.purchaseState !== undefined ? changes.purchaseState : before.purchaseState; if (effectivePrice !== null && effectiveMrp !== null && effectiveMrp < effectivePrice) throw validationError('MRP cannot be lower than selling price.'); if (effectivePurchaseState === PurchaseState.available && effectivePrice === null) throw validationError('Available products require a selling price.'); const updated = await prisma.$transaction(async (tx) => { const item = await tx.product.update({ where: { id: request.params.id }, data: changes as any, include: { media: true, variants: true } }); if (changes.pricePaise !== undefined || changes.mrpPaise !== undefined || changes.purchaseState !== undefined || changes.size !== undefined) await tx.productVariant.updateMany({ where: { productId: item.id }, data: { ...(changes.pricePaise !== undefined ? { pricePaise: changes.pricePaise } : {}), ...(changes.mrpPaise !== undefined ? { mrpPaise: changes.mrpPaise } : {}), ...(changes.purchaseState !== undefined ? { purchaseState: changes.purchaseState } : {}), ...(changes.size !== undefined ? { size: changes.size, name: changes.size } : {}) } }); if (media) { await tx.productMedia.deleteMany({ where: { productId: item.id } }); await tx.productMedia.createMany({ data: media.map((entry: any, index: number) => ({ ...entry, productId: item.id, sortOrder: entry.sortOrder ?? index, type: entry.type })) }); } const latest = await tx.productRevision.findFirst({ where: { productId: item.id }, orderBy: { version: 'desc' } }); const snapshot = await tx.product.findUniqueOrThrow({ where: { id: item.id }, include: { media: true } }); await tx.productRevision.create({ data: { productId: item.id, version: (latest?.version ?? 0) + 1, snapshot: productSnapshot(snapshot) as any, status: snapshot.status, createdById: user.id } }); return tx.product.findUniqueOrThrow({ where: { id: item.id }, include: { media: true, variants: true } }) }); await audit(user, request, 'update', 'Product', before.id, before, updated); return data(reply, publicProduct(updated, true)) })
   routes.delete('/api/v1/admin/products/:id', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const before = await prisma.product.findUnique({ where: { id: request.params.id } }); if (!before) throw notFound('Product not found.'); const updated = await prisma.product.update({ where: { id: before.id }, data: { status: PublicationStatus.archived, archivedAt: new Date() } }); await audit(user, request, 'archive', 'Product', before.id, before, updated, String(request.body?.reason ?? 'Archive product')); return data(reply, publicProduct(updated, true)) })
   for (const [action, status] of [['submit-review', PublicationStatus.in_review], ['approve', PublicationStatus.approved], ['publish', PublicationStatus.published], ['unpublish', PublicationStatus.draft], ['schedule', PublicationStatus.scheduled], ['archive', PublicationStatus.archived], ['restore', PublicationStatus.draft]] as const) app.post(`/api/v1/admin/products/:id/${action}`, async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const product = await prisma.product.findUnique({ where: { id: request.params.id }, include: { media: true } }); if (!product) throw notFound('Product not found.'); if (status === PublicationStatus.published && (!product.imageAlt || !product.media.every((item) => item.alt))) throw validationError('Published products require alt text on every image.'); const updated = await prisma.product.update({ where: { id: product.id }, data: { status, publishedAt: status === PublicationStatus.published ? new Date() : product.publishedAt, archivedAt: status === PublicationStatus.archived ? new Date() : null } }); await audit(user, request, action, 'Product', product.id, product, updated, String(request.body?.reason ?? 'Publication workflow')); return data(reply, publicProduct(updated, true)) })
   routes.get('/api/v1/admin/products/:id/revisions', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); return data(reply, await prisma.productRevision.findMany({ where: { productId: request.params.id }, orderBy: { version: 'desc' } })) })
   routes.post('/api/v1/admin/products/:id/revisions/:revisionId/restore', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const revision = await prisma.productRevision.findUnique({ where: { id: request.params.revisionId } }); if (!revision || revision.productId !== request.params.id) throw notFound('Revision not found.'); const snapshot: any = revision.snapshot; const restored = await prisma.$transaction(async (tx) => { const updated = await tx.product.update({ where: { id: revision.productId }, data: Object.fromEntries(productSnapshotFields.filter((key) => snapshot[key] !== undefined).map((key) => [key, snapshot[key]])) as any }); if (snapshot.pricePaise !== undefined || snapshot.mrpPaise !== undefined || snapshot.purchaseState !== undefined || snapshot.size !== undefined) await tx.productVariant.updateMany({ where: { productId: revision.productId }, data: { ...(snapshot.pricePaise !== undefined ? { pricePaise: snapshot.pricePaise } : {}), ...(snapshot.mrpPaise !== undefined ? { mrpPaise: snapshot.mrpPaise } : {}), ...(snapshot.purchaseState !== undefined ? { purchaseState: snapshot.purchaseState } : {}), ...(snapshot.size !== undefined ? { size: snapshot.size, name: snapshot.size } : {}) } }); if (Array.isArray(snapshot.media)) { await tx.productMedia.deleteMany({ where: { productId: revision.productId } }); await tx.productMedia.createMany({ data: snapshot.media.map((media: any, index: number) => ({ ...Object.fromEntries(mediaSnapshotFields.filter((key) => media[key] !== undefined).map((key) => [key, media[key]])), productId: revision.productId, sortOrder: media.sortOrder ?? index, type: media.type })) }); } return tx.product.findUniqueOrThrow({ where: { id: revision.productId }, include: { media: true, variants: true } }) }); await audit(user, request, 'restore_revision', 'Product', revision.productId, null, restored); return data(reply, publicProduct(restored, true)) })
   routes.post('/api/v1/admin/products/bulk', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const input = z.object({ ids: z.array(z.string()).min(1), action: z.enum(['publish', 'unpublish', 'archive']), reason: z.string().min(3) }).parse(request.body); const status = input.action === 'publish' ? PublicationStatus.published : input.action === 'unpublish' ? PublicationStatus.draft : PublicationStatus.archived; const result = await prisma.product.updateMany({ where: { id: { in: input.ids } }, data: { status } }); await audit(user, request, `bulk_${input.action}`, 'Product', null, { ids: input.ids }, result, input.reason); return data(reply, { updated: result.count }) })
-  routes.post('/api/v1/admin/products/import', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const raw = Array.isArray(request.body) ? request.body : request.body?.products; const inputs = z.array(productCreateSchema).max(500).parse(raw); const imported = await prisma.$transaction(async (tx) => { let count = 0; for (const input of inputs) { const { media, sku, ...productData } = input; const product = await tx.product.upsert({ where: { slug: input.slug }, update: productData as any, create: productData as any }); const variantSku = sku ?? `${input.slug.toUpperCase()}-DEFAULT`; const variant = await tx.productVariant.findUnique({ where: { sku: variantSku } }); if (variant) await tx.productVariant.update({ where: { id: variant.id }, data: { productId: product.id, name: product.size, size: product.size, pricePaise: product.pricePaise, mrpPaise: product.mrpPaise, purchaseState: product.purchaseState } }); else await tx.productVariant.create({ data: { productId: product.id, sku: variantSku, name: product.size, size: product.size, pricePaise: product.pricePaise, mrpPaise: product.mrpPaise, purchaseState: product.purchaseState } }); await tx.productMedia.deleteMany({ where: { productId: product.id } }); if (media.length) await tx.productMedia.createMany({ data: media.map((entry, index) => ({ ...entry, productId: product.id, sortOrder: entry.sortOrder ?? index, type: entry.type as any })) }); const latest = await tx.productRevision.findFirst({ where: { productId: product.id }, orderBy: { version: 'desc' } }); await tx.productRevision.create({ data: { productId: product.id, version: (latest?.version ?? 0) + 1, snapshot: input as any, status: product.status, createdById: user.id } }); count += 1 } return count }); await audit(user, request, 'product_import', 'Product', null, null, { count: imported }); return data(reply, { imported }) })
+  routes.post('/api/v1/admin/products/import', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const raw = Array.isArray(request.body) ? request.body : request.body?.products; const inputs = z.array(productCreateSchema).max(500).parse(raw); await Promise.all(inputs.map((input) => assertMediaAssets(input.media))); const imported = await prisma.$transaction(async (tx) => { let count = 0; for (const input of inputs) { const { media, sku, ...productData } = input; const product = await tx.product.upsert({ where: { slug: input.slug }, update: productData as any, create: productData as any }); const variantSku = sku ?? `${input.slug.toUpperCase()}-DEFAULT`; const variant = await tx.productVariant.findUnique({ where: { sku: variantSku } }); if (variant) await tx.productVariant.update({ where: { id: variant.id }, data: { productId: product.id, name: product.size, size: product.size, pricePaise: product.pricePaise, mrpPaise: product.mrpPaise, purchaseState: product.purchaseState } }); else await tx.productVariant.create({ data: { productId: product.id, sku: variantSku, name: product.size, size: product.size, pricePaise: product.pricePaise, mrpPaise: product.mrpPaise, purchaseState: product.purchaseState } }); await tx.productMedia.deleteMany({ where: { productId: product.id } }); if (media.length) await tx.productMedia.createMany({ data: media.map((entry, index) => ({ ...entry, productId: product.id, sortOrder: entry.sortOrder ?? index, type: entry.type as any })) }); const latest = await tx.productRevision.findFirst({ where: { productId: product.id }, orderBy: { version: 'desc' } }); await tx.productRevision.create({ data: { productId: product.id, version: (latest?.version ?? 0) + 1, snapshot: input as any, status: product.status, createdById: user.id } }); count += 1 } return count }); await audit(user, request, 'product_import', 'Product', null, null, { count: imported }); return data(reply, { imported }) })
   routes.get('/api/v1/admin/products/export', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const products = await prisma.product.findMany({ include: { media: true, variants: true } }); reply.header('content-type', 'application/json; charset=utf-8'); return data(reply, products.map(publicProduct)) })
   routes.get('/api/v1/admin/products/:productId/variants', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); return data(reply, await prisma.productVariant.findMany({ where: { productId: request.params.productId }, include: { inventory: true } })) })
   routes.post('/api/v1/admin/products/:productId/variants', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const input = variantInputSchema.parse(request.body); if (input.pricePaise !== null && input.mrpPaise !== null && input.mrpPaise < input.pricePaise) throw validationError('MRP cannot be lower than selling price.'); if (input.purchaseState === PurchaseState.available && input.pricePaise === null) throw validationError('Available variants require a selling price.'); const created = await prisma.productVariant.create({ data: { ...input, productId: request.params.productId } }); await audit(user, request, 'create', 'ProductVariant', created.id, null, created); return reply.status(201).send({ data: created, meta: { requestId: request.id } }) })
   routes.patch('/api/v1/admin/products/:productId/variants/:variantId', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const before = await prisma.productVariant.findUnique({ where: { id: request.params.variantId } }); if (!before || before.productId !== request.params.productId) throw notFound('Product variant not found.'); const input = variantPatchSchema.parse(request.body); const effectivePrice = input.pricePaise !== undefined ? input.pricePaise : before.pricePaise; const effectiveMrp = input.mrpPaise !== undefined ? input.mrpPaise : before.mrpPaise; const effectivePurchaseState = input.purchaseState !== undefined ? input.purchaseState : before.purchaseState; if (effectivePrice !== null && effectiveMrp !== null && effectiveMrp < effectivePrice) throw validationError('MRP cannot be lower than selling price.'); if (effectivePurchaseState === PurchaseState.available && effectivePrice === null) throw validationError('Available variants require a selling price.'); const updated = await prisma.productVariant.update({ where: { id: before.id }, data: input }); await audit(user, request, 'update', 'ProductVariant', updated.id, before, updated); return data(reply, updated) })
   routes.delete('/api/v1/admin/products/:productId/variants/:variantId', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); await prisma.productVariant.delete({ where: { id: request.params.variantId } }); await audit(user, request, 'delete', 'ProductVariant', request.params.variantId, null, null); return data(reply, { deleted: true }) })
   routes.get('/api/v1/admin/products/:productId/media', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); return data(reply, await prisma.productMedia.findMany({ where: { productId: request.params.productId }, orderBy: { sortOrder: 'asc' } })) })
-  routes.post('/api/v1/admin/products/:productId/media', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const input = productMediaInputSchema.parse(request.body); const created = await prisma.productMedia.create({ data: { ...input, productId: request.params.productId, type: input.type as any } }); await audit(user, request, 'create', 'ProductMedia', created.id, null, created); return reply.status(201).send({ data: created, meta: { requestId: request.id } }) })
-  routes.patch('/api/v1/admin/products/:productId/media/:mediaId', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const before = await prisma.productMedia.findUnique({ where: { id: request.params.mediaId } }); if (!before || before.productId !== request.params.productId) throw notFound('Product media not found.'); const input = productMediaInputSchema.partial().parse(request.body); const updated = await prisma.productMedia.update({ where: { id: before.id }, data: input as any }); await audit(user, request, 'update', 'ProductMedia', updated.id, before, updated); return data(reply, updated) })
+  routes.post('/api/v1/admin/products/:productId/media', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const input = productMediaInputSchema.parse(request.body); await assertMediaAssets([input]); const product = await prisma.product.findUnique({ where: { id: request.params.productId }, select: { id: true } }); if (!product) throw notFound('Product not found.'); const mediaCount = await prisma.productMedia.count({ where: { productId: product.id } }); if (mediaCount >= 10) throw validationError('A product can have at most 10 images.'); const created = await prisma.productMedia.create({ data: { ...input, productId: request.params.productId, type: input.type as any } }); await audit(user, request, 'create', 'ProductMedia', created.id, null, created); return reply.status(201).send({ data: created, meta: { requestId: request.id } }) })
+  routes.patch('/api/v1/admin/products/:productId/media/:mediaId', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const before = await prisma.productMedia.findUnique({ where: { id: request.params.mediaId } }); if (!before || before.productId !== request.params.productId) throw notFound('Product media not found.'); const input = productMediaInputSchema.partial().parse(request.body); const mediaAssetId = input.mediaAssetId ?? before.mediaAssetId ?? undefined; const src = input.src ?? before.src; if (mediaAssetId) await assertMediaAssets([{ mediaAssetId, src }]); const updated = await prisma.productMedia.update({ where: { id: before.id }, data: input as any }); await audit(user, request, 'update', 'ProductMedia', updated.id, before, updated); return data(reply, updated) })
   routes.delete('/api/v1/admin/products/:productId/media/:mediaId', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); await prisma.productMedia.delete({ where: { id: request.params.mediaId } }); await audit(user, request, 'delete', 'ProductMedia', request.params.mediaId, null, null); return data(reply, { deleted: true }) })
-  routes.post('/api/v1/admin/products/:productId/media/reorder', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const ids = z.array(z.string()).parse(request.body?.ids); await prisma.$transaction(ids.map((id, index) => prisma.productMedia.update({ where: { id }, data: { sortOrder: index } }))); await audit(user, request, 'reorder', 'ProductMedia', request.params.productId, null, { ids }); return data(reply, { reordered: ids.length }) })
+  routes.post('/api/v1/admin/products/:productId/media/reorder', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); const ids = z.array(z.string()).max(10).parse(request.body?.ids); const existing = await prisma.productMedia.findMany({ where: { productId: request.params.productId }, select: { id: true } }); const validIds = new Set(existing.map((item) => item.id)); if (ids.length !== existing.length || ids.some((id) => !validIds.has(id))) throw validationError('The image order does not match this product.'); await prisma.$transaction(ids.map((id, index) => prisma.productMedia.update({ where: { id }, data: { sortOrder: index } }))); await audit(user, request, 'reorder', 'ProductMedia', request.params.productId, null, { ids }); return data(reply, { reordered: ids.length }) })
 
   routes.get('/api/v1/admin/inventory', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER, AdminRole.ORDER_MANAGER])(request); const params = pageParams(request); const [items, total] = await Promise.all([prisma.inventoryItem.findMany({ include: { variant: { include: { product: true } }, location: true }, orderBy: { availableQty: 'asc' }, skip: (params.page - 1) * params.limit, take: params.limit }), prisma.inventoryItem.count()]); return data(reply, items, { page: params.page, limit: params.limit, total }) })
   routes.get('/api/v1/admin/inventory/low-stock', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])(request); return data(reply, await prisma.inventoryItem.findMany({ where: { availableQty: { lte: 5 } }, include: { variant: { include: { product: true } } } })) })
@@ -1501,12 +1687,28 @@ export function buildApp(): FastifyInstance {
     const paymentMethods = [...new Set((await prisma.payment.findMany({ where: { order: baseWhere }, select: { provider: true }, distinct: ['provider'] })).map((entry) => entry.provider))]
     return data(reply, items.map((order) => ({ ...order, customer: maskCustomer(order.customer) })), { page: params.page, limit: params.limit, total, hasNextPage: params.page * params.limit < total, counts, sources, paymentMethods })
   })
+  routes.get('/api/v1/admin/launch-promotion', async (request, reply) => {
+    await requireAdmin([AdminRole.SUPER_ADMIN])(request)
+    return data(reply, await launchPromotionResponse())
+  })
+  routes.patch('/api/v1/admin/launch-promotion', async (request, reply) => {
+    const user = await requireAdmin([AdminRole.SUPER_ADMIN])(request)
+    const before = activeLaunchPromotion
+    const input = launchPromotionSchema.partial().parse(request.body)
+    const next = launchPromotionSchema.parse({ ...before, ...input })
+    await prisma.storeSetting.upsert({ where: { key: 'launch-promotion' }, update: { value: next as any }, create: { key: 'launch-promotion', value: next as any } })
+    activeLaunchPromotion = next
+    await audit(user, request, 'update', 'LaunchPromotion', next.id, before, next, 'Launch promotion settings updated')
+    return data(reply, await launchPromotionResponse())
+  })
   const adminWaitlistSettings = async () => waitlistConfig(await founderClaimedCount(), true)
   routes.get('/api/v1/admin/waitlist-settings', async (request, reply) => {
+    throw waitlistDisabledError()
     await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT, AdminRole.ANALYST])(request)
     return data(reply, await adminWaitlistSettings())
   })
   routes.patch('/api/v1/admin/waitlist-settings', async (request, reply) => {
+    throw waitlistDisabledError()
     const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER])(request)
     const before = { ...activeWaitlistSettings }
     const requested = waitlistSettingsSchema.parse(request.body)
@@ -1529,6 +1731,7 @@ export function buildApp(): FastifyInstance {
     return data(reply, await adminWaitlistSettings())
   })
   routes.get('/api/v1/admin/waitlist-reservations', async (request, reply) => {
+    throw waitlistDisabledError()
     await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT, AdminRole.ANALYST])(request)
     const params = pageParams(request)
     const founderSearch = /^#?\d+$/.test(params.q) ? Number(params.q.replace('#', '')) : null
@@ -1540,6 +1743,7 @@ export function buildApp(): FastifyInstance {
     return data(reply, items.map((item) => ({ ...waitlistResponse(item), customer: maskCustomer(item.customer), products: item.items.map((entry) => `${entry.productName} × ${entry.quantity}`).join(', ') })), { page: params.page, limit: params.limit, total, hasNextPage: params.page * params.limit < total })
   })
   routes.post('/api/v1/admin/waitlist/reset', async (request, reply) => {
+    throw waitlistDisabledError()
     const replay = await idemReplay(request, 'waitlist-reset')
     if (replay) return reply.status(replay.status).send(replay.body)
     const user = await requireAdmin([AdminRole.SUPER_ADMIN])(request)
@@ -1627,10 +1831,12 @@ export function buildApp(): FastifyInstance {
     return reply.send(envelope)
   })
   routes.get('/api/v1/admin/waitlist/conversion-preview', async (request, reply) => {
+    throw waitlistDisabledError()
     await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT, AdminRole.ANALYST])(request)
     return data(reply, await loadWaitlistConversionPreview())
   })
   routes.get('/api/v1/admin/waitlist/conversion-progress', async (request, reply) => {
+    throw waitlistDisabledError()
     await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT, AdminRole.ANALYST])(request)
     const [joined, converted, pendingOrders, due, waitlistOrders] = await Promise.all([
       prisma.waitlistReservation.count({ where: { status: WaitlistStatus.joined, paymentCapturedPaise: { gt: 0 } } }),
@@ -1648,6 +1854,7 @@ export function buildApp(): FastifyInstance {
     return data(reply, { joined, converted, pendingOrders, addressRequired, paymentDue, paymentConfirmationPending, fullyPaid, expired, remainingBalancePaise: due._sum.remainingBalancePaise ?? 0 })
   })
   routes.post('/api/v1/admin/waitlist/reveal', async (request, reply) => {
+    throw waitlistDisabledError()
     const replay = await idemReplay(request, 'waitlist-reveal')
     if (replay) return reply.status(replay.status).send(replay.body)
     const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER])(request)
@@ -1811,13 +2018,87 @@ export function buildApp(): FastifyInstance {
   routes.post('/api/v1/admin/care-finder/preview', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CONTENT_EDITOR])(request); return data(reply, { preview: true, answers: request.body?.answers ?? {}, recommendation: 'Preview uses the same weighted rules as the storefront.' }) })
   routes.get('/api/v1/admin/care-finder/coverage', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CONTENT_EDITOR])(request); return data(reply, { covered: true, uncoveredCombinations: [] }) })
 
-  routes.get('/api/v1/admin/media', async (request, reply) => adminList(request, reply, 'mediaAsset', [AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER, AdminRole.CONTENT_EDITOR], {}, { id: true, key: true, originalFilename: true, mimeType: true, sizeBytes: true, alt: true, createdAt: true, archivedAt: true }))
-  routes.put('/api/v1/admin/media/local-upload/:key', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER, AdminRole.CONTENT_EDITOR])(request); const key = String(request.params.key); if (!/^[a-zA-Z0-9._-]+$/.test(key)) throw validationError('Invalid media key.'); const payload = Buffer.isBuffer(request.body) ? request.body : Buffer.from(String(request.body ?? '')); if (!payload.length || payload.length > 50_000_000) throw validationError('Media payload must be between 1 byte and 50 MB.'); const directory = resolve(process.cwd(), 'uploads'); await mkdir(directory, { recursive: true }); await writeFile(resolve(directory, key), payload); return data(reply, { uploaded: true, key, sizeBytes: payload.length }) })
-  routes.post('/api/v1/admin/media/presign', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER, AdminRole.CONTENT_EDITOR])(request); const input = z.object({ filename: z.string().min(1), mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'video/mp4']), sizeBytes: z.number().int().positive().max(50_000_000), checksum: z.string().min(8), alt: z.string().min(12) }).parse(request.body); const existing = await prisma.mediaAsset.findUnique({ where: { checksum: input.checksum } }); if (existing) return data(reply, { duplicate: true, asset: existing }); const key = `${randomToken(8)}-${input.filename.toLowerCase().replace(/[^a-z0-9.-]/g, '-')}`; const presigned = await storage.presign({ key, mimeType: input.mimeType }); await audit(user, request, 'presign_upload', 'MediaAsset', null, null, { key, mimeType: input.mimeType }); return data(reply, { duplicate: false, ...presigned, expiresInSeconds: 900 }) })
-  routes.post('/api/v1/admin/media/complete', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER, AdminRole.CONTENT_EDITOR])(request); const input = z.object({ key: z.string(), originalFilename: z.string(), mimeType: z.string(), sizeBytes: z.number().int(), checksum: z.string(), alt: z.string().min(12), width: z.number().int().optional(), height: z.number().int().optional() }).parse(request.body); const asset = await prisma.mediaAsset.create({ data: input }); await audit(user, request, 'complete_upload', 'MediaAsset', asset.id, null, asset); return data(reply, asset) })
+  routes.get('/api/v1/admin/media', async (request, reply) => adminList(request, reply, 'mediaAsset', [AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER, AdminRole.CONTENT_EDITOR], {}, { id: true, key: true, provider: true, providerAssetId: true, deliveryUrl: true, originalFilename: true, mimeType: true, sizeBytes: true, alt: true, createdAt: true, archivedAt: true }))
+  routes.get('/api/v1/media/:key', async (request, reply) => {
+    const key = uploadedMediaKey(request.params.key)
+    const asset = await prisma.mediaAsset.findUnique({ where: { key }, select: { provider: true, archivedAt: true } })
+    if (!asset || asset.provider !== 'local' || asset.archivedAt) throw notFound('Uploaded media not found.')
+    const path = resolve(process.cwd(), 'uploads', key)
+    try {
+      const details = await stat(path)
+      if (!details.isFile()) throw new Error('not a file')
+      const payload = await readFile(path)
+      const mime = imageMimeFromBytes(payload) ?? (key.toLowerCase().endsWith('.mp4') ? 'video/mp4' : 'application/octet-stream')
+      return reply.header('cache-control', 'public, max-age=31536000, immutable').type(mime).send(payload)
+    } catch {
+      throw notFound('Uploaded media not found.')
+    }
+  })
+  routes.put('/api/v1/admin/media/local-upload/:key', async (request, reply) => {
+    await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER, AdminRole.CONTENT_EDITOR])(request)
+    const key = uploadedMediaKey(request.params.key)
+    const payload = Buffer.isBuffer(request.body) ? request.body : Buffer.from(String(request.body ?? ''))
+    if (!payload.length || payload.length > 50_000_000) throw validationError('Media payload must be between 1 byte and 50 MB.')
+    const directory = resolve(process.cwd(), 'uploads')
+    await mkdir(directory, { recursive: true })
+    await writeFile(resolve(directory, key), payload)
+    return data(reply, { uploaded: true, key, sizeBytes: payload.length, src: `/api/v1/media/${encodeURIComponent(key)}` })
+  })
+  routes.post('/api/v1/admin/media/presign', async (request, reply) => {
+    const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER, AdminRole.CONTENT_EDITOR])(request)
+    const input = z.object({ filename: z.string().min(1).max(180), mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'video/mp4']), sizeBytes: z.number().int().positive().max(50_000_000), checksum: z.string().min(8), alt: z.string().min(12) }).parse(request.body)
+    if (input.mimeType.startsWith('image/') && input.sizeBytes > MAX_PRODUCT_IMAGE_BYTES) throw validationError('Product images must be 10 MB or smaller.')
+    const existing = await prisma.mediaAsset.findUnique({ where: { checksum: input.checksum } })
+    if (existing) return data(reply, { duplicate: true, asset: existing })
+    const key = `${randomToken(8)}-${input.filename.toLowerCase().replace(/[^a-z0-9.-]/g, '-')}`
+    if (imageKit.configured()) {
+      const auth = imageKit.uploadAuth()
+      await audit(user, request, 'presign_upload', 'MediaAsset', null, null, { provider: 'imagekit', key, mimeType: input.mimeType })
+      return data(reply, { duplicate: false, provider: 'imagekit', key, fileName: key, ...auth, expiresInSeconds: 600 })
+    }
+    const presigned = await storage.presign({ key, mimeType: input.mimeType })
+    await audit(user, request, 'presign_upload', 'MediaAsset', null, null, { provider: 'local', key, mimeType: input.mimeType })
+    return data(reply, { duplicate: false, provider: 'local', ...presigned, expiresInSeconds: 900 })
+  })
+  routes.post('/api/v1/admin/media/complete', async (request, reply) => {
+    const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER, AdminRole.CONTENT_EDITOR])(request)
+    const input = z.object({ key: z.string(), provider: z.enum(['local', 'imagekit']).default('local'), providerAssetId: z.string().min(1).optional(), src: z.string().url().optional(), originalFilename: z.string().min(1).max(180), mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'video/mp4']), sizeBytes: z.number().int().positive().max(50_000_000), checksum: z.string().min(8), alt: z.string().min(12), width: z.number().int().positive().optional(), height: z.number().int().positive().optional() }).parse(request.body)
+    const duplicate = await prisma.mediaAsset.findUnique({ where: { checksum: input.checksum } })
+    if (duplicate) return data(reply, duplicate)
+    let sizeBytes = input.sizeBytes
+    let src = input.src
+    let width = input.width
+    let height = input.height
+    const providerAssetId = input.providerAssetId
+    if (input.provider === 'imagekit') {
+      if (!imageKit.configured() || !providerAssetId || !src || !imageKit.validDeliveryUrl(src)) throw validationError('The ImageKit upload could not be verified.')
+      const remote = await imageKit.inspectFile(providerAssetId)
+      if (remote.fileId !== providerAssetId || remote.fileType !== 'image' || !remote.url || !imageKit.validDeliveryUrl(remote.url)) throw validationError('The ImageKit upload could not be verified.')
+      if (typeof remote.size === 'number') sizeBytes = remote.size
+      if (sizeBytes > MAX_PRODUCT_IMAGE_BYTES) throw validationError('Product images must be 10 MB or smaller.')
+      if (typeof remote.width === 'number') width = remote.width
+      if (typeof remote.height === 'number') height = remote.height
+      src = remote.url
+    } else {
+      const key = uploadedMediaKey(input.key)
+      const path = resolve(process.cwd(), 'uploads', key)
+      let details
+      try { details = await stat(path) } catch { throw validationError('Upload was not found on the server.') }
+      if (!details.isFile() || details.size !== input.sizeBytes) throw validationError('Uploaded media size could not be verified.')
+      const payload = await readFile(path)
+      if (input.mimeType.startsWith('image/') && (payload.length > MAX_PRODUCT_IMAGE_BYTES || imageMimeFromBytes(payload) !== input.mimeType)) throw validationError('Uploaded image content does not match its declared type.')
+      sizeBytes = payload.length
+      src = `/api/v1/media/${encodeURIComponent(key)}`
+    }
+    const asset = await prisma.mediaAsset.create({ data: { key: input.key, provider: input.provider, providerAssetId, deliveryUrl: src, originalFilename: input.originalFilename, mimeType: input.mimeType, sizeBytes, checksum: input.checksum, alt: input.alt, width, height } as any })
+    // `src` belongs to ProductMedia; retain the verified URL in the audit
+    // record while keeping MediaAsset focused on provider metadata.
+    await audit(user, request, 'complete_upload', 'MediaAsset', asset.id, null, { ...asset, src })
+    return data(reply, { ...asset, src })
+  })
   routes.patch('/api/v1/admin/media/:id', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER, AdminRole.CONTENT_EDITOR])(request); const updated = await prisma.mediaAsset.update({ where: { id: request.params.id }, data: request.body }); await audit(user, request, 'update', 'MediaAsset', updated.id, null, updated); return data(reply, updated) })
   routes.post('/api/v1/admin/media/:id/archive', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER, AdminRole.CONTENT_EDITOR])(request); const updated = await prisma.mediaAsset.update({ where: { id: request.params.id }, data: { archivedAt: new Date() } }); await audit(user, request, 'archive', 'MediaAsset', updated.id, null, updated); return data(reply, updated) })
-  routes.delete('/api/v1/admin/media/:id', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER, AdminRole.CONTENT_EDITOR])(request); const asset = await prisma.mediaAsset.findUnique({ where: { id: request.params.id }, include: { productMedia: { include: { product: true } } } }); if (!asset) throw notFound('Media asset not found.'); if (asset.productMedia.some((media) => media.product.status === PublicationStatus.published)) throw validationError('Published content references this asset; archive it instead.'); await prisma.mediaAsset.delete({ where: { id: asset.id } }); await audit(user, request, 'delete', 'MediaAsset', asset.id, asset, null); return data(reply, { deleted: true }) })
+  routes.delete('/api/v1/admin/media/:id', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER, AdminRole.CONTENT_EDITOR])(request); const asset = await prisma.mediaAsset.findUnique({ where: { id: request.params.id }, include: { productMedia: { include: { product: true } } } }); if (!asset) throw notFound('Media asset not found.'); if (asset.productMedia.length) throw validationError('This media is still linked to a product. Remove the product association first or archive the asset.'); if (asset.provider === 'imagekit' && asset.providerAssetId) await imageKit.deleteFile(asset.providerAssetId); if (asset.provider === 'local') { try { await unlink(resolve(process.cwd(), 'uploads', uploadedMediaKey(asset.key))) } catch { /* the database row is still the source of truth */ } } await prisma.mediaAsset.delete({ where: { id: asset.id } }); await audit(user, request, 'delete', 'MediaAsset', asset.id, asset, null); return data(reply, { deleted: true }) })
   routes.get('/api/v1/admin/media/:id/references', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER, AdminRole.CONTENT_EDITOR])(request); return data(reply, await prisma.productMedia.findMany({ where: { mediaAssetId: request.params.id }, include: { product: { select: { id: true, name: true, status: true } } } })) })
 
   routes.get('/api/v1/admin/customers', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT])(request); const params = pageParams(request); const where: any = params.q ? { OR: [{ fullName: { contains: params.q, mode: 'insensitive' } }, { email: { contains: params.q, mode: 'insensitive' } }, { phone: { contains: params.q, mode: 'insensitive' } }] } : {}; const [items, total] = await Promise.all([prisma.customer.findMany({ where, select: { id: true, fullName: true, email: true, phone: true, createdAt: true }, orderBy: { createdAt: 'desc' }, skip: (params.page - 1) * params.limit, take: params.limit }), prisma.customer.count({ where })]); return data(reply, items.map((customer) => ({ ...customer, email: customer.email ? customer.email.replace(/(^.).*(@.*$)/, '$1***$2') : null, phone: customer.phone ? `${customer.phone.slice(0, 2)}******${customer.phone.slice(-2)}` : null })), { page: params.page, limit: params.limit, total, hasNextPage: params.page * params.limit < total }) })

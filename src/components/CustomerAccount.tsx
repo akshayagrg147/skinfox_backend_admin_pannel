@@ -1,4 +1,4 @@
-import { Bell, CheckCircle2, CircleDollarSign, ClipboardList, Home, LoaderCircle, LockKeyhole, LogOut, MapPin, MailCheck, PackageCheck, Pencil, Plus, ShieldCheck, Sparkles, Trash2, UserRound, WalletCards } from 'lucide-react'
+import { Bell, CheckCircle2, CircleDollarSign, ClipboardList, Home, LoaderCircle, LogOut, MapPin, MailCheck, PackageCheck, Pencil, Plus, ShieldCheck, Trash2, UserRound, WalletCards } from 'lucide-react'
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { formatPrice, products } from '../data/products'
 import { deleteStorefront, getStorefront, patchStorefront, postStorefront } from '../lib/storefrontApi'
@@ -6,16 +6,14 @@ import { exchangeFirebaseUser, firebaseAuthErrorMessage, linkEmailPassword, refr
 import { BrandMark } from './BrandMark'
 import { CustomerAuthForm, type CustomerAuthCustomer, type CustomerAuthResponse } from './CustomerAuthForm'
 import { ModalShell } from './ModalShell'
-import { openRazorpayCheckout } from '../lib/razorpay'
 
 export type StorefrontCustomer = CustomerAuthCustomer
-export type AccountSection = 'profile' | 'orders' | 'waitlist' | 'supercoin' | 'wallet' | 'addresses' | 'notifications'
+export type AccountSection = 'profile' | 'orders' | 'supercoin' | 'wallet' | 'addresses' | 'notifications'
 
 type SavedAddress = { id: string; label: string; fullName: string; phone: string; addressLine1: string; addressLine2?: string | null; landmark?: string | null; city: string; state: string; pincode: string; isDefault: boolean }
 type AddressDraft = Omit<SavedAddress, 'id'>
-type CustomerOrderItem = { id: string; productId?: string | null; sku?: string | null; productName: string; size?: string | null; quantity: number; primaryImage?: string | null; unitSellingPricePaise?: number | null; mrpPaise?: number | null; discountPaise?: number | null; finalLineTotalPaise: number; reservationCreditPaise?: number | null; remainingBalancePaise?: number | null }
-type CustomerOrder = { publicToken: string; orderNumber: string; status: string; source?: string; waitlistReservationId?: string | null; subtotalPaise?: number; discountPaise?: number; taxPaise?: number; shippingPaise?: number; codPaise?: number; totalPaise: number; createdAt: string; mrpSubtotalPaise?: number | null; waitlistDiscountPaise?: number | null; reservationCreditPaise?: number; remainingBalancePaise?: number | null; pricingMode?: string | null; pricingPercent?: number | null; completionDeadlineAt?: string | null; balancePaidAt?: string | null; payments?: Array<{ provider: string; status: string }>; items: CustomerOrderItem[]; shippingAddress?: { fullName?: string; addressLine1?: string; addressLine2?: string | null; city?: string; state?: string; pincode?: string } | null }
-type WaitlistReservation = { publicToken: string; waitlistId: string; status: string; depositPaise: number; discountPercent: number; pricingMode?: string; pricingValuePaise?: number | null; founderNumber?: number | null; founderCapacity?: number; refundPaise: number; refundStatus?: string | null; createdAt: string; joinedAt?: string | null; convertedOrder?: { publicToken: string; orderNumber: string; status: string; totalPaise: number; remainingBalancePaise?: number | null; shippingAddress?: CustomerOrder['shippingAddress'] } | null; items: Array<{ productId: string; productName: string; productSlug: string; size: string; quantity: number }> }
+type CustomerOrderItem = { id: string; productId?: string | null; sku?: string | null; productName: string; size?: string | null; quantity: number; primaryImage?: string | null; unitSellingPricePaise?: number | null; mrpPaise?: number | null; discountPaise?: number | null; finalLineTotalPaise: number }
+type CustomerOrder = { publicToken: string; orderNumber: string; status: string; subtotalPaise?: number; discountPaise?: number; taxPaise?: number; shippingPaise?: number; codPaise?: number; totalPaise: number; createdAt: string; mrpSubtotalPaise?: number | null; payments?: Array<{ provider: string; status: string }>; items: CustomerOrderItem[]; shippingAddress?: { fullName?: string; addressLine1?: string; addressLine2?: string | null; city?: string; state?: string; pincode?: string } | null }
 
 const customerCsrfHeaders = (): Record<string, string> => {
   const csrf = document.cookie.split('; ').find((entry) => entry.startsWith('sf_customer_csrf='))?.split('=').slice(1).join('=')
@@ -32,14 +30,6 @@ const numericPaise = (value: number | null | undefined) => {
 const displayPaise = (value: number | null | undefined) => {
   const parsed = numericPaise(value)
   return parsed === null ? 'Not available' : formatPrice(parsed / 100)
-}
-
-const formatDiscountPercent = (mrpPaise: number | null, discountPaise: number) => {
-  if (mrpPaise === null || mrpPaise <= 0 || discountPaise <= 0) return null
-  const percentage = (discountPaise / mrpPaise) * 100
-  if (!Number.isFinite(percentage)) return null
-  const rounded = Math.round(percentage * 100) / 100
-  return `${rounded.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')}%`
 }
 
 const orderItemImage = (item: CustomerOrderItem) => {
@@ -100,7 +90,6 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
   const [activeSection, setActiveSection] = useState<AccountSection>(initialSection)
   const [customer, setCustomer] = useState<StorefrontCustomer | null>(null)
   const [orders, setOrders] = useState<CustomerOrder[]>([])
-  const [waitlist, setWaitlist] = useState<WaitlistReservation[]>([])
   const [addresses, setAddresses] = useState<SavedAddress[]>([])
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -114,12 +103,10 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
   const [addressFormOpen, setAddressFormOpen] = useState(false)
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null)
   const [addressDraft, setAddressDraft] = useState<AddressDraft>(() => emptyAddressDraft())
-  const [addressSelections, setAddressSelections] = useState<Record<string, string>>({})
 
   const showVerificationPending = useCallback((nextCustomer: StorefrontCustomer) => {
     setCustomer(nextCustomer)
     setOrders([])
-    setWaitlist([])
     setAddresses([])
     setLinkEmail(nextCustomer.email ?? '')
     setProfileName(nextCustomer.fullName ?? '')
@@ -129,15 +116,13 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
   }, [onCustomerChange])
 
   const loadAccount = useCallback(async (nextCustomer: StorefrontCustomer) => {
-    const [nextOrders, nextAddresses, nextWaitlist] = await Promise.all([
+    const [nextOrders, nextAddresses] = await Promise.all([
       getStorefront<CustomerOrder[]>('/customer/orders'),
       getStorefront<SavedAddress[]>('/customer/addresses'),
-      getStorefront<WaitlistReservation[]>('/customer/waitlist'),
     ])
     setCustomer(nextCustomer)
     setOrders(nextOrders)
     setAddresses(nextAddresses)
-    setWaitlist(nextWaitlist)
     setLinkEmail(nextCustomer.email ?? '')
     setProfileName(nextCustomer.fullName ?? '')
     setProfilePhone(nextCustomer.phone ?? '')
@@ -226,7 +211,7 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
     try {
       await postStorefront('/customer/auth/logout', {}, customerCsrfHeaders())
       await signOutFirebase()
-      setCustomer(null); setOrders([]); setWaitlist([]); setAddresses([]); setLinkPassword(''); setProfileEditing(false); setAddressFormOpen(false); onCustomerChange(null); setStage('auth')
+      setCustomer(null); setOrders([]); setAddresses([]); setLinkPassword(''); setProfileEditing(false); setAddressFormOpen(false); onCustomerChange(null); setStage('auth')
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to sign out. Please try again.') } finally { setBusy(false) }
   }
 
@@ -253,44 +238,6 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
   const refreshAddresses = async () => {
     const nextAddresses = await getStorefront<SavedAddress[]>('/customer/addresses')
     setAddresses(nextAddresses)
-  }
-
-  const assignWaitlistAddress = async (order: CustomerOrder, addressId: string) => {
-    const address = addresses.find((item) => item.id === addressId)
-    if (!address) { setError('Choose a saved address first.'); return }
-    setBusy(true); setError(''); setNotice('')
-    try {
-      await postStorefront(`/customer/orders/${order.publicToken}/address`, { ...address, saveAddress: false }, customerCsrfHeaders())
-      if (customer) await loadAccount(customer)
-      setNotice(`Delivery address added to ${order.orderNumber}.`)
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'We could not add this delivery address.') } finally { setBusy(false) }
-  }
-
-  const payWaitlistBalance = async (order: CustomerOrder) => {
-    setBusy(true); setError(''); setNotice('')
-    try {
-      const paymentOrderKey = crypto.randomUUID()
-      const checkout = await postStorefront<{ alreadyPaid?: boolean; amountPaise: number; currency?: string; keyId?: string; orderId?: string }>(`/customer/orders/${order.publicToken}/balance-order`, {}, { ...customerCsrfHeaders(), 'Idempotency-Key': paymentOrderKey })
-      if (checkout.alreadyPaid || !checkout.amountPaise) { if (customer) await loadAccount(customer); return }
-      if (!checkout.keyId || !checkout.orderId) throw new Error('Secure payment is not ready yet. Please try again shortly.')
-      const payment = await openRazorpayCheckout({ key: checkout.keyId, amount: checkout.amountPaise, currency: checkout.currency ?? 'INR', name: 'SkinFox', description: `Remaining balance for ${order.orderNumber}`, image: `${window.location.origin}/brand/skinfox-logo.png`, order_id: checkout.orderId, theme: { color: '#7d3f8c' } })
-      const verification = await postStorefront<{ confirmed?: boolean; pending?: boolean }>(`/customer/orders/${order.publicToken}/balance-verify`, { razorpayOrderId: payment.razorpay_order_id, razorpayPaymentId: payment.razorpay_payment_id, razorpaySignature: payment.razorpay_signature }, { ...customerCsrfHeaders(), 'Idempotency-Key': crypto.randomUUID() })
-      let confirmed = Boolean(verification.confirmed)
-      if (!confirmed && verification.pending) {
-        for (let attempt = 0; attempt < 5 && !confirmed; attempt += 1) {
-          await new Promise((resolve) => window.setTimeout(resolve, 1000))
-          try {
-            const status = await getStorefront<{ confirmed?: boolean; pending?: boolean }>(`/customer/orders/${order.publicToken}/payment-status`)
-            confirmed = Boolean(status.confirmed)
-            if (!status.pending) break
-          } catch {
-            break
-          }
-        }
-      }
-      if (customer) await loadAccount(customer)
-      setNotice(confirmed ? `Payment received for ${order.orderNumber}.` : `Payment confirmation is pending for ${order.orderNumber}. You do not need to pay again.`)
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'We could not complete the balance payment. Please try again.') } finally { setBusy(false) }
   }
 
   const beginNewAddress = () => {
@@ -366,7 +313,6 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
           <nav className="account-sidebar__nav">
             <button type="button" className={activeSection === 'profile' ? 'is-active' : ''} aria-current={activeSection === 'profile' ? 'page' : undefined} onClick={() => setActiveSection('profile')}><UserRound size={17} /><span>My profile</span></button>
             <button type="button" className={activeSection === 'orders' ? 'is-active' : ''} aria-current={activeSection === 'orders' ? 'page' : undefined} onClick={() => setActiveSection('orders')}><ClipboardList size={17} /><span>My orders</span><b>{orders.length}</b></button>
-            <button type="button" className={activeSection === 'waitlist' ? 'is-active' : ''} aria-current={activeSection === 'waitlist' ? 'page' : undefined} onClick={() => setActiveSection('waitlist')}><Sparkles size={17} /><span>Priority waitlist</span><b>{waitlist.length}</b></button>
             <div className="account-sidebar__group"><span>Account settings</span><button type="button" className={activeSection === 'addresses' ? 'is-active' : ''} aria-current={activeSection === 'addresses' ? 'page' : undefined} onClick={() => setActiveSection('addresses')}><Home size={17} /><span>Saved addresses</span><b>{addresses.length}</b></button></div>
             <div className="account-sidebar__group"><span>Rewards & payments</span><button type="button" className={activeSection === 'supercoin' ? 'is-active' : ''} aria-current={activeSection === 'supercoin' ? 'page' : undefined} onClick={() => setActiveSection('supercoin')}><CircleDollarSign size={17} /><span>Supercoin</span></button><button type="button" className={activeSection === 'wallet' ? 'is-active' : ''} aria-current={activeSection === 'wallet' ? 'page' : undefined} onClick={() => setActiveSection('wallet')}><WalletCards size={17} /><span>Saved cards & wallet</span></button></div>
             <div className="account-sidebar__group"><span>My stuff</span><button type="button" className={activeSection === 'notifications' ? 'is-active' : ''} aria-current={activeSection === 'notifications' ? 'page' : undefined} onClick={() => setActiveSection('notifications')}><Bell size={17} /><span>Notifications</span></button></div>
@@ -395,9 +341,6 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
           {activeSection === 'orders' ? <section id="account-section-panel" className="account-section" role="tabpanel" aria-labelledby="account-orders-tab">
             <div className="account-section__heading"><div><span className="eyebrow">Order history</span><h3>Your orders</h3></div><span>{orders.length ? `${orders.length} order${orders.length === 1 ? '' : 's'}` : 'No orders yet'}</span></div>
             {orders.length ? <div className="order-list">{orders.map((order) => {
-              const waitlistOrder = order.source === 'waitlist'
-              const addressReady = Boolean(order.shippingAddress && Object.keys(order.shippingAddress).length)
-              const balanceDue = Math.max(0, Number(order.remainingBalancePaise ?? (waitlistOrder ? order.totalPaise : 0)))
               const itemProductTotal = order.items.reduce((total, item) => total + (numericPaise(item.finalLineTotalPaise) ?? 0), 0)
               const itemMrpValues = order.items.map((item) => {
                 const mrp = numericPaise(item.mrpPaise)
@@ -407,32 +350,23 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
               const itemMrpValue = itemMrpValues.every((value) => value !== null) ? itemMrpValues.reduce((total, value) => total + (value ?? 0), 0) : null
               const subtotal = numericPaise(order.subtotalPaise) ?? itemProductTotal
               const mrpValue = numericPaise(order.mrpSubtotalPaise) ?? itemMrpValue
-              const orderDiscount = numericPaise(waitlistOrder ? (order.waitlistDiscountPaise ?? order.discountPaise) : order.discountPaise) ?? 0
+              const orderDiscount = numericPaise(order.discountPaise) ?? 0
               const productTotal = Math.max(0, subtotal - orderDiscount)
-              const reservationCredit = Math.max(0, numericPaise(order.reservationCreditPaise) ?? 0)
               const shipping = Math.max(0, numericPaise(order.shippingPaise) ?? 0)
               const tax = Math.max(0, numericPaise(order.taxPaise) ?? 0)
               const codFee = Math.max(0, numericPaise(order.codPaise) ?? 0)
-              const summaryTotal = waitlistOrder ? balanceDue : Math.max(0, numericPaise(order.totalPaise) ?? 0)
-              // Prefer the immutable percentage saved on percentage-based
-              // orders. Legacy exact-price orders fall back to their actual
-              // effective rate so their historical totals remain accurate.
-              const storedPricingPercent = waitlistOrder && order.pricingMode === 'discount_off_mrp' && Number.isInteger(order.pricingPercent) && Number(order.pricingPercent) >= 1 && Number(order.pricingPercent) <= 99 ? `${Number(order.pricingPercent)}%` : null
-              const waitlistDiscountPercent = waitlistOrder ? (storedPricingPercent ?? formatDiscountPercent(mrpValue, orderDiscount)) : null
-              const formulaBase = waitlistOrder && mrpValue !== null ? `MRP ${displayPaise(mrpValue)}` : `Products ${displayPaise(subtotal)}`
+              const summaryTotal = Math.max(0, numericPaise(order.totalPaise) ?? 0)
+              const formulaBase = `Products ${displayPaise(subtotal)}`
               const balanceFormula = [
                 formulaBase,
-                ...(orderDiscount > 0 ? [waitlistOrder && waitlistDiscountPercent && mrpValue !== null ? `− (${waitlistDiscountPercent} × ${displayPaise(mrpValue)} ≈ ${displayPaise(orderDiscount)})` : `− ${displayPaise(orderDiscount)} ${waitlistOrder ? 'waitlist discount' : 'discount'}`] : []),
-                ...(waitlistOrder && reservationCredit > 0 ? [`− ${displayPaise(reservationCredit)} reservation credit`] : []),
+                ...(orderDiscount > 0 ? [`− ${displayPaise(orderDiscount)} discount`] : []),
                 ...(shipping > 0 ? [`+ ${displayPaise(shipping)} shipping`] : []),
                 ...(tax > 0 ? [`+ ${displayPaise(tax)} tax`] : []),
                 ...(codFee > 0 ? [`+ ${displayPaise(codFee)} COD fee`] : []),
-                `= ${displayPaise(summaryTotal)} ${waitlistOrder ? 'due' : 'total'}`,
+                `= ${displayPaise(summaryTotal)} total`,
               ].join(' ')
-              const paymentConfirmationPending = Boolean(waitlistOrder && !order.balancePaidAt && order.payments?.some((payment) => payment.provider === 'razorpay_waitlist_balance' && ['pending', 'authorised'].includes(payment.status)))
-              return <article className={`order-card ${waitlistOrder ? 'order-card--waitlist' : ''}`} key={order.publicToken}>
+              return <article className="order-card" key={order.publicToken}>
                 <div className="order-card__top"><div><strong>{order.orderNumber}</strong><small>{new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(order.createdAt))}</small></div><span className={`order-status order-status--${order.status}`}>{humanise(order.status)}</span></div>
-                {waitlistOrder && <div className="order-card__waitlist-badge"><Sparkles size={14} /> Waitlist order{order.waitlistReservationId ? ` · ${order.waitlistReservationId}` : ''}</div>}
                 <div className="order-card__products-heading"><span>Products</span><span>{order.items.length} {order.items.length === 1 ? 'item' : 'items'}</span></div>
                 <ul className="order-card__items">{order.items.map((item) => {
                   const quantity = Math.max(0, Number(item.quantity) || 0)
@@ -442,7 +376,6 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
                   const recordedLineDiscount = numericPaise(item.discountPaise)
                   const lineDiscount = recordedLineDiscount !== null && recordedLineDiscount > 0 ? recordedLineDiscount : (mrpUnit !== null && unitPrice !== null ? Math.max(0, (mrpUnit - unitPrice) * quantity) : null)
                   const image = orderItemImage(item)
-                  const hasLineAllocation = item.reservationCreditPaise !== undefined || item.remainingBalancePaise !== undefined
                   return <li className="order-line" key={item.id}>
                     <div className="order-line__header">
                       <div className="order-line__media">{image ? <img src={image} alt={`${item.productName}${item.size ? ` ${item.size}` : ''}`} loading="lazy" decoding="async" /> : <PackageCheck size={18} aria-hidden="true" />}</div>
@@ -453,36 +386,27 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
                       <span><small>MRP / unit</small><b>{displayPaise(mrpUnit)}</b></span>
                       <span><small>Your price / unit</small><b>{displayPaise(unitPrice)}</b></span>
                       <span className="order-line__total"><small>Product total</small><b>{displayPaise(lineTotal)}</b></span>
-                      {hasLineAllocation && <span className="order-line__allocation"><small>Already paid</small><b>{displayPaise(item.reservationCreditPaise)}</b><small>Remaining</small><b>{displayPaise(item.remainingBalancePaise)}</b></span>}
                     </div>
                     {lineDiscount !== null && lineDiscount > 0 && <span className="order-line__saving">Includes {displayPaise(lineDiscount)} saved on this product</span>}
                   </li>
                 })}</ul>
-                {waitlistOrder && <p className="order-card__credit-note">Your reservation fee is credited once against this order total below. It is not allocated to individual products.</p>}
-                {!waitlistOrder && orderDiscount > 0 && <p className="order-card__credit-note">The order discount is applied at checkout and shown in the summary below.</p>}
-                <div className="order-card__breakdown"><div className="order-card__formula"><span>Payment summary</span><strong>{balanceFormula}</strong></div>{mrpValue !== null ? <span><span>Total MRP value</span><b>{displayPaise(mrpValue)}</b></span> : <span><span>Total MRP value</span><b>Not available</b></span>}{orderDiscount > 0 && <span><span>{waitlistOrder && waitlistDiscountPercent ? `Waitlist discount (${waitlistDiscountPercent} of MRP)` : waitlistOrder ? 'Waitlist discount' : 'Order discount'}</span><b>−{displayPaise(orderDiscount)}</b></span>}<span><span>Products after discount</span><b>{displayPaise(productTotal)}</b></span>{waitlistOrder && reservationCredit > 0 && <span><span>Reservation fee paid (credit)</span><b>−{displayPaise(reservationCredit)}</b></span>}{shipping > 0 && <span><span>Shipping</span><b>+{displayPaise(shipping)}</b></span>}{tax > 0 && <span><span>Tax</span><b>+{displayPaise(tax)}</b></span>}{codFee > 0 && <span><span>COD fee</span><b>+{displayPaise(codFee)}</b></span>}<span className="order-card__balance"><span>{waitlistOrder ? 'Amount still due' : 'Order total'}</span><b>{displayPaise(summaryTotal)}</b></span></div>
-                <div className="order-card__bottom"><span><MapPin size={14} /> {order.shippingAddress?.city ?? (waitlistOrder ? 'Delivery address required' : 'Delivery address saved')}{order.shippingAddress?.pincode ? ` · ${order.shippingAddress.pincode}` : ''}</span><strong>{waitlistOrder ? `Due ${displayPaise(summaryTotal)}` : displayPaise(summaryTotal)}</strong></div>
-                {waitlistOrder && !addressReady && <div className="order-card__action"><span>Choose a saved address to continue.</span>{addresses.length ? <><select aria-label={`Address for ${order.orderNumber}`} value={addressSelections[order.publicToken] ?? ''} onChange={(event) => setAddressSelections((current) => ({ ...current, [order.publicToken]: event.target.value }))}><option value="">Select address</option>{addresses.map((address) => <option key={address.id} value={address.id}>{address.label} · {address.city}</option>)}</select><button type="button" className="button button--copper" onClick={() => void assignWaitlistAddress(order, addressSelections[order.publicToken] ?? '')} disabled={busy || !addressSelections[order.publicToken]}>Use address</button></> : <button type="button" className="button button--copper" onClick={() => setActiveSection('addresses')}>Add address</button>}</div>}
-                {waitlistOrder && addressReady && paymentConfirmationPending && <div className="order-card__pending" role="status"><LockKeyhole size={15} /><span><strong>Payment confirmation pending</strong><small>Please don’t pay again. We’ll update this order automatically.</small></span></div>}
-                {waitlistOrder && addressReady && balanceDue > 0 && !order.balancePaidAt && !paymentConfirmationPending && <button type="button" className="button button--copper order-card__pay" onClick={() => void payWaitlistBalance(order)} disabled={busy}><LockKeyhole size={15} /> Pay remaining {formatPrice(balanceDue / 100)}</button>}
+                <div className="order-card__breakdown"><div className="order-card__formula"><span>Payment summary</span><strong>{balanceFormula}</strong></div>{mrpValue !== null ? <span><span>Total MRP value</span><b>{displayPaise(mrpValue)}</b></span> : <span><span>Total MRP value</span><b>Not available</b></span>}{orderDiscount > 0 && <span><span>Order discount</span><b>−{displayPaise(orderDiscount)}</b></span>}<span><span>Products after discount</span><b>{displayPaise(productTotal)}</b></span>{shipping > 0 && <span><span>Shipping</span><b>+{displayPaise(shipping)}</b></span>}{tax > 0 && <span><span>Tax</span><b>+{displayPaise(tax)}</b></span>}{codFee > 0 && <span><span>COD fee</span><b>+{displayPaise(codFee)}</b></span>}<span className="order-card__balance"><span>Order total</span><b>{displayPaise(summaryTotal)}</b></span></div>
+                <div className="order-card__bottom"><span><MapPin size={14} /> {order.shippingAddress?.city ?? 'Delivery address saved'}{order.shippingAddress?.pincode ? ` · ${order.shippingAddress.pincode}` : ''}</span><strong>{displayPaise(summaryTotal)}</strong></div>
               </article>
             })}</div> : <div className="account-empty"><PackageCheck size={24} /><h3>Your next routine starts here.</h3><p>Once you place an order, its items and latest status will appear in this space.</p><button className="button button--copper" type="button" onClick={onClose}>Explore the collection</button></div>}
-          </section> : activeSection === 'waitlist' ? <section className="account-section account-waitlist" aria-labelledby="account-waitlist-title">
-            <div className="account-section__heading"><div><span className="eyebrow">Priority launch access</span><h3 id="account-waitlist-title">Priority waitlist</h3><p className="account-waitlist__help">Use your waitlist ID whenever you contact SkinFox about a reservation.</p></div><span>{waitlist.length ? `${waitlist.length} reservation${waitlist.length === 1 ? '' : 's'}` : 'No reservations yet'}</span></div>
-            {waitlist.length ? <div className="account-waitlist__list">{waitlist.map((reservation) => <article className="account-waitlist__card" key={reservation.publicToken}><div className="account-waitlist__top"><div><span className="account-waitlist__reference">Waitlist ID <code>{reservation.waitlistId}</code></span><strong>{reservation.founderNumber ? `Waitlist member #${reservation.founderNumber} of ${reservation.founderCapacity ?? 200}` : 'Launch access reserved'}</strong><small>{new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(reservation.createdAt))}</small></div><span className={`order-status order-status--${reservation.status}`}>{humanise(reservation.status)}</span></div><ul>{reservation.items.map((item) => <li key={item.productId}><a href={`/products/${encodeURIComponent(item.productSlug)}`}>{item.productName}</a><span>{item.size} · × {item.quantity}</span></li>)}</ul><div className="account-waitlist__bottom"><span><strong>{formatPrice(reservation.depositPaise / 100)}</strong><small>{reservation.status === 'refunded' ? 'Refund completed (legacy)' : reservation.status === 'refund_pending' ? 'Refund processing (legacy)' : reservation.status === 'payment_failed' ? 'Payment not completed' : reservation.status === 'converted' ? 'Applied as credit to your order' : 'Non-refundable reservation fee'}</small></span>{reservation.convertedOrder && <button type="button" className="account-text-button" onClick={() => setActiveSection('orders')}>View order {reservation.convertedOrder.orderNumber} →</button>}</div></article>)}</div> : <div className="account-empty"><Sparkles size={24} /><h3>Your priority list is empty.</h3><p>Add the products you’re interested in and join the priority waitlist to reserve early launch access.</p><button className="button button--copper" type="button" onClick={onClose}>Explore the collection</button></div>}
           </section> : activeSection === 'addresses' ? <section id="account-section-panel" className="account-section" role="tabpanel" aria-labelledby="account-addresses-tab">
             <div className="account-section__heading"><div><span className="eyebrow">Delivery addresses</span><h3>Saved addresses</h3></div><button className="button button--copper account-add-address" type="button" onClick={beginNewAddress}><Plus size={15} /> Add address</button></div>
             {addressFormOpen && <CustomerAddressForm draft={addressDraft} editing={Boolean(editingAddressId)} busy={busy} onChange={setAddressDraft} onSubmit={saveAddress} onCancel={() => { setAddressFormOpen(false); setEditingAddressId(null) }} />}
             {addresses.length ? <div className="address-list">{addresses.map((address) => <article className="address-card" key={address.id}><div className="address-card__top"><div><strong>{address.label}</strong>{address.isDefault && <span>Default</span>}</div><div className="address-card__actions"><button type="button" aria-label={`Edit ${address.label} address`} onClick={() => beginEditAddress(address)} disabled={busy}><Pencil size={14} /></button><button type="button" aria-label={`Remove ${address.label} address`} onClick={() => void removeAddress(address)} disabled={busy}><Trash2 size={14} /></button></div></div><p><b>{address.fullName}</b><br />{address.addressLine1}{address.addressLine2 ? `, ${address.addressLine2}` : ''}{address.landmark ? `, ${address.landmark}` : ''}<br />{address.city}, {address.state} · {address.pincode}<br />{address.phone}</p></article>)}</div> : !addressFormOpen && <div className="account-empty"><Home size={24} /><h3>No saved addresses yet.</h3><p>Add a delivery address once and it will be ready for your next SkinFox order.</p><button type="button" className="button button--copper" onClick={beginNewAddress}><Plus size={15} /> Add your first address</button></div>}
             {!showLinkForm ? <button type="button" className="account-text-button account-link-login" onClick={() => setShowLinkForm(true)}>Add email and password login</button> : <form className="account-link-form" onSubmit={addPasswordLogin}><h4>Add email and password login</h4><label className="account-field"><span>Email address</span><input type="email" value={linkEmail} onChange={(event) => setLinkEmail(event.target.value)} required autoComplete="email" /></label><label className="account-field"><span>Password</span><input type="password" value={linkPassword} onChange={(event) => setLinkPassword(event.target.value)} required minLength={8} autoComplete="new-password" /></label><div><button className="button button--copper" type="submit" disabled={busy}>Save login</button><button className="account-text-button" type="button" onClick={() => setShowLinkForm(false)}>Cancel</button></div></form>}
-          </section> : <AccountUtilitySection section={activeSection} customer={customer} onNavigate={setActiveSection} profileEditing={profileEditing} profileName={profileName} profilePhone={profilePhone} onEditProfile={() => { setProfileEditing(true); setError(''); setNotice('') }} onCancelProfile={() => { setProfileEditing(false); setProfileName(customer.fullName); setProfilePhone(customer.phone ?? '') }} onProfileNameChange={setProfileName} onProfilePhoneChange={setProfilePhone} onSaveProfile={saveProfile} busy={busy} />}
+          </section> : <AccountUtilitySection section={activeSection as Exclude<AccountSection, 'orders' | 'addresses'>} customer={customer} onNavigate={setActiveSection} profileEditing={profileEditing} profileName={profileName} profilePhone={profilePhone} onEditProfile={() => { setProfileEditing(true); setError(''); setNotice('') }} onCancelProfile={() => { setProfileEditing(false); setProfileName(customer.fullName); setProfilePhone(customer.phone ?? '') }} onProfileNameChange={setProfileName} onProfilePhoneChange={setProfilePhone} onSaveProfile={saveProfile} busy={busy} />}
         </div>
       </div>}
     </div>
   </ModalShell>
 }
 
-function AccountUtilitySection({ section, customer, onNavigate, profileEditing, profileName, profilePhone, onEditProfile, onCancelProfile, onProfileNameChange, onProfilePhoneChange, onSaveProfile, busy }: { section: Exclude<AccountSection, 'orders' | 'addresses' | 'waitlist'>; customer: StorefrontCustomer; onNavigate: (section: AccountSection) => void; profileEditing: boolean; profileName: string; profilePhone: string; onEditProfile: () => void; onCancelProfile: () => void; onProfileNameChange: (value: string) => void; onProfilePhoneChange: (value: string) => void; onSaveProfile: (event: FormEvent<HTMLFormElement>) => void; busy: boolean }) {
+function AccountUtilitySection({ section, customer, onNavigate, profileEditing, profileName, profilePhone, onEditProfile, onCancelProfile, onProfileNameChange, onProfilePhoneChange, onSaveProfile, busy }: { section: Exclude<AccountSection, 'orders' | 'addresses'>; customer: StorefrontCustomer; onNavigate: (section: AccountSection) => void; profileEditing: boolean; profileName: string; profilePhone: string; onEditProfile: () => void; onCancelProfile: () => void; onProfileNameChange: (value: string) => void; onProfilePhoneChange: (value: string) => void; onSaveProfile: (event: FormEvent<HTMLFormElement>) => void; busy: boolean }) {
   const content = {
     profile: { eyebrow: 'Personal details', title: 'My profile', description: 'Keep your name and delivery phone number up to date.', icon: <UserRound size={25} />, body: <dl className="account-utility__details"><div><dt>Full name</dt><dd>{customer.fullName || 'SkinFox customer'}</dd></div><div><dt>Email address</dt><dd>{customer.email || 'Not added'}</dd></div><div><dt>Mobile number</dt><dd>{customer.phone || 'Not added'}</dd></div></dl> },
     supercoin: { eyebrow: 'Rewards', title: 'Supercoin', description: 'Supercoin rewards are not enabled for SkinFox yet. We will notify you when the programme launches.', icon: <CircleDollarSign size={25} />, body: <p className="account-utility__note">Your orders and account remain available while rewards are being prepared.</p> },

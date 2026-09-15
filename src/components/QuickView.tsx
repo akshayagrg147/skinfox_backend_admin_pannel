@@ -86,7 +86,7 @@ export function QuickView({ product, onClose, onAdd }: QuickViewProps) {
               <ProductPrice product={product} />
               <span className="quick-view__availability">
                 {product.price === null
-                  ? 'Join now for priority access. Final pricing will be revealed before purchase.'
+                  ? 'This product will be available once a selling price is configured.'
                   : offerDetails?.hasOffer ? 'Offer applied automatically at checkout.' : 'Available to order online.'}
               </span>
             </div>
@@ -106,7 +106,7 @@ export function QuickView({ product, onClose, onAdd }: QuickViewProps) {
                 <button onClick={() => setQuantity((value) => Math.min(8, value + 1))} aria-label="Increase quantity"><Plus size={15} /></button>
               </div>
               <button className="button button--dark quick-view__add" onClick={() => { onAdd(product, quantity); onClose() }}>
-                {product.price === null ? 'Add to priority waitlist' : 'Add to bag'}
+                {product.price === null ? 'Notify me when available' : 'Add to bag'}
               </button>
             </div>
             <a className="text-link" href={`/products/${encodeURIComponent(product.id)}`}>View full product details <ArrowUpRight size={16} /></a>

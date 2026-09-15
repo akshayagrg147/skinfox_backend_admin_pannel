@@ -244,7 +244,7 @@ export const formatPrice = (value: number) =>
   }).format(value)
 
 export const formatProductPrice = (product: Product) =>
-  product.price !== null ? formatPrice(product.price) : product.mrp !== null ? `MRP ${formatPrice(product.mrp)}` : 'Price on launch'
+  product.price !== null ? formatPrice(product.price) : product.mrp !== null ? `MRP ${formatPrice(product.mrp)}` : 'Coming soon'
 
 export const getProductById = (id: string) => {
   const product = products.find((item) => item.id === id)

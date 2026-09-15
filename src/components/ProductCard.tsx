@@ -46,9 +46,10 @@ export function ProductCard({ product, index, onAdd }: ProductCardProps) {
         <button
           className="quick-add"
           onClick={() => onAdd(product)}
-          aria-label={`${product.price === null ? 'Join waitlist at ₹99 for' : 'Add'} ${product.name} ${product.subtitle}`}
+          aria-label={`${product.price === null ? 'Coming soon' : 'Add'} ${product.name} ${product.subtitle}`}
+          disabled={product.price === null}
         >
-          {product.price === null ? 'Join Waitlist @ ₹99/-' : 'Add to bag'} <Plus size={17} />
+          {product.price === null ? 'Coming soon' : 'Add to bag'} <Plus size={17} />
         </button>
       </div>
     </motion.article>
