@@ -1,6 +1,6 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { ArrowLeft, ArrowRight, Pause, Play, Volume2, VolumeX } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 export type CampaignSlide = {
   id: string
@@ -75,12 +75,48 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
   const [isPageVisible, setIsPageVisible] = useState(() => !isBrowser || document.visibilityState !== 'hidden')
   const sectionRef = useRef<HTMLElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const playAttemptRef = useRef(0)
   const isVisibleRef = useRef(false)
   const hasUserInteractedRef = useRef(false)
   const safeIndex = Math.min(activeIndex, campaignSlides.length - 1)
   const slide = campaignSlides[safeIndex]
   const hasMultipleSlides = campaignSlides.length > 1
   const playbackActive = isPlaying && isVisible && isPageVisible
+
+  // Keep the media start attempt in one place. Calling play() directly from a
+  // user gesture (the reel controls or a scroll gesture) is important on
+  // mobile browsers, which may reject a later effect-only play request even
+  // for a muted inline video.
+  const startVideoPlayback = useCallback(() => {
+    const video = videoRef.current
+    if (!video || slide.kind !== 'video') return
+    if (!video.paused) {
+      setIsPlaying(true)
+      return
+    }
+    if (typeof video.play !== 'function') {
+      // Some embedded previews do not expose HTMLMediaElement playback APIs.
+      // Leave the control in its honest paused state rather than showing a
+      // misleading pause action over a frozen poster.
+      setIsPlaying(false)
+      return
+    }
+    const attempt = ++playAttemptRef.current
+    video.muted = isMuted
+    let started: Promise<void> | undefined
+    try {
+      started = video.play() as Promise<void> | undefined
+    } catch {
+      setIsPlaying(false)
+      return
+    }
+    // Keep the control responsive for browsers whose play() does not return a
+    // promise, while reverting it if the browser rejects playback.
+    setIsPlaying(true)
+    started?.catch(() => {
+      if (playAttemptRef.current === attempt) setIsPlaying(false)
+    })
+  }, [isMuted, slide.kind])
 
   useEffect(() => {
     const section = sectionRef.current
@@ -105,25 +141,36 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
         // the customer comes back to it.
         setIsPlaying(false)
       } else if (hasUserInteractedRef.current && !prefersCalmPlayback()) {
-        setIsPlaying(true)
+        startVideoPlayback()
       }
     }, { threshold: 0.35, rootMargin: '0px 0px -8% 0px' })
     visibilityObserver.observe(section)
     return () => visibilityObserver.disconnect()
-  }, [])
+  }, [startVideoPlayback])
 
   useEffect(() => {
     const markUserInteraction = () => {
-      if (hasUserInteractedRef.current) return
       hasUserInteractedRef.current = true
 
-      // A wheel, touch, pointer or keyboard gesture is an explicit signal
+      const section = sectionRef.current
+      const rect = section?.getBoundingClientRect()
+      const viewportHeight = isBrowser ? window.innerHeight : 0
+      const sectionInViewport = Boolean(rect && rect.bottom > 0 && rect.top < viewportHeight && (Math.min(rect.bottom, viewportHeight) - Math.max(rect.top, 0)) / rect.height >= 0.35)
+
+      // A wheel, touch or keyboard gesture is an explicit signal
       // that the customer is browsing. Browser scroll restoration on refresh
       // does not emit these events, so it cannot unexpectedly start playback.
-      if (isVisibleRef.current && !prefersCalmPlayback()) setIsPlaying(true)
+      if ((isVisibleRef.current || sectionInViewport) && !prefersCalmPlayback()) {
+        if (!isVisibleRef.current && sectionInViewport) {
+          isVisibleRef.current = true
+          setIsVisible(true)
+        }
+        startVideoPlayback()
+      }
     }
 
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLElement && event.target.closest('button, a, input, textarea, select')) return
       if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(event.key)) {
         markUserInteraction()
       }
@@ -131,15 +178,13 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
 
     window.addEventListener('wheel', markUserInteraction, { passive: true })
     window.addEventListener('touchmove', markUserInteraction, { passive: true })
-    window.addEventListener('pointerdown', markUserInteraction, { passive: true })
     window.addEventListener('keydown', onKeyDown)
     return () => {
       window.removeEventListener('wheel', markUserInteraction)
       window.removeEventListener('touchmove', markUserInteraction)
-      window.removeEventListener('pointerdown', markUserInteraction)
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [])
+  }, [startVideoPlayback])
 
   useEffect(() => {
     const updateVisibility = () => setIsPageVisible(document.visibilityState !== 'hidden')
@@ -169,9 +214,20 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
     let active = true
     if (playbackActive) {
       // play() resolves to a promise in browsers, but to undefined in some environments.
-      const started = video.play() as Promise<void> | undefined
-      started?.catch(() => { if (active) setIsPlaying(false) })
+      // A canplay retry covers slower mobile media loads without leaving the
+      // control in a misleading "pause" state.
+      const start = () => {
+        if (active) startVideoPlayback()
+      }
+      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) start()
+      else video.addEventListener('canplay', start, { once: true })
+      return () => {
+        active = false
+        playAttemptRef.current += 1
+        video.removeEventListener('canplay', start)
+      }
     } else {
+      playAttemptRef.current += 1
       if (!video.paused) video.pause()
       // Reset only when the section is no longer visible. A hidden tab should
       // resume from its current position when the customer returns.
@@ -180,7 +236,7 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
       }
     }
     return () => { active = false }
-  }, [isPageVisible, isVisible, playbackActive, slide.id, slide.kind])
+  }, [isPageVisible, isVisible, isMuted, playbackActive, slide.id, slide.kind, startVideoPlayback])
 
   const move = (direction: -1 | 1) => {
     setActiveIndex((current) => (current + direction + campaignSlides.length) % campaignSlides.length)
@@ -199,7 +255,19 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
   }
 
   const togglePlayback = () => {
-    setIsPlaying((current) => !current)
+    if (slide.kind !== 'video') {
+      setIsPlaying((current) => !current)
+      return
+    }
+    const video = videoRef.current
+    if (!video) return
+    if (isPlaying) {
+      video.pause()
+      playAttemptRef.current += 1
+      setIsPlaying(false)
+    } else {
+      startVideoPlayback()
+    }
   }
 
   const toggleMute = () => {
@@ -263,7 +331,9 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
                     loop={!hasMultipleSlides}
                     playsInline
                     preload="metadata"
+                    onPlay={() => setIsPlaying(true)}
                     onPause={(event) => { if (playbackActive && videoRef.current === event.currentTarget) setIsPlaying(false) }}
+                    onError={() => setIsPlaying(false)}
                     onEnded={() => hasMultipleSlides && advanceWhenActive(slide.id)}
                   />
                 ) : (
