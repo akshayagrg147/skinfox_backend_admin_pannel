@@ -202,6 +202,7 @@ describe('CustomerAccount', () => {
       if (path === '/customer/auth/me') return Promise.resolve({ customer: { id: 'customer-1', fullName: 'Asha Sharma', email: 'asha@example.com', phone: '9876543210', emailVerified: true } }) as never
       if (path === '/customer/orders') return Promise.resolve([]) as never
       if (path === '/customer/addresses') return Promise.resolve(savedAddresses) as never
+      if (path === '/shipping/pincode/400001') return Promise.resolve({ city: 'Mumbai', state: 'Maharashtra' }) as never
       return Promise.resolve({}) as never
     })
     postMock.mockImplementation((_path, value) => {
@@ -216,9 +217,9 @@ describe('CustomerAccount', () => {
     fireEvent.change(screen.getByRole('textbox', { name: /^full name$/i }), { target: { value: 'Asha Sharma' } })
     fireEvent.change(screen.getByRole('textbox', { name: /mobile number/i }), { target: { value: '9876543210' } })
     fireEvent.change(screen.getByRole('textbox', { name: /address line/i }), { target: { value: '12 Marine Drive' } })
-    fireEvent.change(screen.getByRole('textbox', { name: /^city$/i }), { target: { value: 'Mumbai' } })
-    fireEvent.change(screen.getByRole('textbox', { name: /^state$/i }), { target: { value: 'Maharashtra' } })
-    fireEvent.change(screen.getByRole('textbox', { name: /pincode/i }), { target: { value: '400001' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /^pincode$/i }), { target: { value: '400001' } })
+    await screen.findByDisplayValue('Mumbai')
+    await screen.findByDisplayValue('Maharashtra')
     fireEvent.click(screen.getByRole('button', { name: /save address/i }))
     await screen.findByText('Work')
     expect(postMock).toHaveBeenCalledWith('/customer/addresses', expect.objectContaining({ label: 'Work', addressLine1: '12 Marine Drive', city: 'Mumbai', pincode: '400001' }), {})

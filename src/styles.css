@@ -6744,6 +6744,32 @@ blockquote {
   font-size: 0.72rem;
 }
 
+.field-grid input.field-readonly {
+  background: #f8f4f8;
+  color: #5f5263;
+  cursor: default;
+}
+
+.pincode-status {
+  min-height: 1.1em;
+  color: #777171;
+  font-size: .59rem;
+  line-height: 1.4;
+}
+
+.pincode-status--loading {
+  color: #6d5877;
+}
+
+.pincode-status--found {
+  color: #347354;
+}
+
+.pincode-status--unavailable,
+.pincode-status--error {
+  color: #a33d29;
+}
+
 .checkout-intro {
   max-width: 490px;
   margin: -14px 0 24px;
@@ -6835,6 +6861,17 @@ blockquote {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.payment-unavailable {
+  margin: 0;
+  padding: 13px;
+  border: 1px solid #e2c9c2;
+  border-radius: 10px;
+  background: #fff7f5;
+  color: #8d493a;
+  font-size: .64rem;
+  line-height: 1.5;
 }
 
 .payment-options label + label {

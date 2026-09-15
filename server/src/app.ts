@@ -23,12 +23,13 @@ import { productMrpPaise, productPricePaise, scoreCareFinderProducts, type CareF
 import { analysePhoto, photoAnalysisConfigured, photoNote } from './lib/photoAnalysis.js'
 import { PHOTO_DAILY_LIMIT, PHOTO_DEVICE_COOKIE, checkPhotoQuota, newDeviceId, recordPhotoUse } from './lib/photoQuota.js'
 import { ImageKitAdapter, LocalEmailAdapter, LocalStorageAdapter, ManualShippingAdapter, RazorpayAdapter } from './lib/providers.js'
-import { ShiprocketAdapter, shippingEnvironment, type ShippingPackage } from './lib/shiprocket.js'
+import { DelhiveryAdapter, shippingEnvironment, type ShippingPackage } from './lib/delhivery.js'
 import { productImageSourceSchema, productMediaInputSchema } from './lib/productAssets.js'
 import { calculateWaitlistDepositPaise, createWaitlistId, parseStoredWaitlistSettings, waitlistDefaultsFromEnv, waitlistResetConfirmationSchema, waitlistSettingsSchema, type WaitlistSettings } from './lib/waitlistConfig.js'
 import { calculateWaitlistOrderPricing, type WaitlistPricingMode } from './lib/waitlistOrders.js'
 import { adjustInventory, inventoryHistory, inventoryWorkspace } from './lib/inventoryWorkspace.js'
 import { defaultLaunchPromotion, launchPromotionDiscount, launchPromotionStatus, parseLaunchPromotion, launchPromotionSchema, type LaunchPromotion } from './lib/launchPromotion.js'
+import { lookupPincode } from './lib/pincode.js'
 
 const secureCookies = () => process.env.COOKIE_SECURE === undefined ? process.env.NODE_ENV === 'production' : process.env.COOKIE_SECURE === 'true'
 const defaultWaitlistSettings = waitlistDefaultsFromEnv()
@@ -48,8 +49,9 @@ const productSnapshotFields = ['slug', 'name', 'subtitle', 'type', 'packaging', 
 const mediaSnapshotFields = ['type', 'src', 'mobileSrc', 'poster', 'alt', 'sortOrder', 'width', 'height', 'aspectRatio', 'fitMode', 'objectPosition', 'imageScale', 'focalPointX', 'focalPointY', 'mediaAssetId'] as const
 const productSnapshot = (product: any) => ({ ...Object.fromEntries(productSnapshotFields.filter((key) => product[key] !== undefined).map((key) => [key, product[key]])), media: Array.isArray(product.media) ? product.media.map((media: any) => Object.fromEntries(mediaSnapshotFields.filter((key) => media[key] !== undefined).map((key) => [key, media[key]]))) : [] })
 const deliveryPhoneSchema = z.string().trim().regex(/^[6-9]\d{9}$/)
-const checkoutSchema = z.object({ fullName: z.string().min(2), email: z.union([z.string().email(), z.literal('')]).optional().transform((value) => value || undefined), phone: deliveryPhoneSchema, addressId: z.string().optional(), addressLine1: z.string().min(5), addressLine2: z.string().optional(), landmark: z.string().optional(), city: z.string().min(2), state: z.string().min(2), pincode: z.string().regex(/^[1-9]\d{5}$/), saveAddress: z.boolean().default(true), saveAsDefault: z.boolean().default(false), billingSameAsShipping: z.boolean().default(true), marketingConsent: z.boolean().default(false), paymentMethod: z.enum(['cod', 'razorpay']).default('cod'), couponCode: z.string().optional() })
+const checkoutSchema = z.object({ fullName: z.string().min(2), email: z.union([z.string().email(), z.literal('')]).optional().transform((value) => value || undefined), phone: deliveryPhoneSchema, addressId: z.string().optional(), addressLine1: z.string().min(5), addressLine2: z.string().optional(), landmark: z.string().optional(), city: z.string().min(2), state: z.string().min(2), pincode: z.string().regex(/^[1-9]\d{5}$/), saveAddress: z.boolean().default(true), saveAsDefault: z.boolean().default(false), billingSameAsShipping: z.boolean().default(true), marketingConsent: z.boolean().default(false), paymentMethod: z.literal('razorpay').default('razorpay'), couponCode: z.string().optional() })
 const shippingPackageSchema = z.object({ weightGrams: z.number().int().min(1).max(30_000), lengthCm: z.number().positive().max(200).optional(), breadthCm: z.number().positive().max(200).optional(), heightCm: z.number().positive().max(200).optional(), declaredValuePaise: z.number().int().nonnegative().optional() })
+const defaultShippingPackage = (): ShippingPackage => ({ weightKg: Number(process.env.SHIPPING_DEFAULT_WEIGHT_KG ?? 0.5), lengthCm: process.env.SHIPPING_DEFAULT_LENGTH_CM ? Number(process.env.SHIPPING_DEFAULT_LENGTH_CM) : undefined, breadthCm: process.env.SHIPPING_DEFAULT_BREADTH_CM ? Number(process.env.SHIPPING_DEFAULT_BREADTH_CM) : undefined, heightCm: process.env.SHIPPING_DEFAULT_HEIGHT_CM ? Number(process.env.SHIPPING_DEFAULT_HEIGHT_CM) : undefined })
 const addressSchema = z.object({ label: z.string().trim().min(2).max(30).default('Home'), fullName: z.string().trim().min(2).max(120), phone: deliveryPhoneSchema, addressLine1: z.string().trim().min(5).max(200), addressLine2: z.string().trim().max(200).optional(), landmark: z.string().trim().max(120).optional(), city: z.string().trim().min(2).max(80), state: z.string().trim().min(2).max(80), pincode: z.string().regex(/^[1-9]\d{5}$/), isDefault: z.boolean().default(false) })
 const customerProfileSchema = z.object({ fullName: z.string().trim().min(2).max(120), phone: deliveryPhoneSchema.nullable().optional() })
 const rolePermissions: Record<AdminRole, string[]> = {
@@ -135,7 +137,7 @@ const documentPath = (path: string, methods: string[], summary: string) => {
   ['/carts', ['post'], 'Create cart'], ['/carts/{cartId}', ['get', 'delete'], 'Get or delete cart'], ['/carts/{cartId}/items', ['post'], 'Add cart item'], ['/carts/{cartId}/items/{itemId}', ['patch', 'delete'], 'Update or remove cart item'], ['/carts/{cartId}/apply-coupon', ['post'], 'Apply coupon'], ['/carts/{cartId}/coupon', ['delete'], 'Remove coupon'],
   ['/customer/auth/firebase', ['post'], 'Exchange Firebase customer identity'], ['/customer/auth/me', ['get'], 'Get current customer'], ['/customer/auth/profile', ['patch'], 'Update customer profile'], ['/customer/auth/logout', ['post'], 'Log out customer'], ['/customer/addresses', ['get', 'post'], 'List or save customer addresses'], ['/customer/addresses/{id}', ['patch', 'delete'], 'Update or delete customer address'], ['/customer/orders', ['get'], 'List customer orders'], ['/customer/orders/{publicToken}', ['get'], 'Get customer order'],
   ['/affiliate/applications', ['post'], 'Submit affiliate application'], ['/affiliate/auth/request-otp', ['post'], 'Request affiliate OTP'], ['/affiliate/auth/verify-otp', ['post'], 'Verify affiliate OTP'], ['/affiliate/auth/me', ['get'], 'Get current affiliate'], ['/affiliate/auth/logout', ['post'], 'Log out affiliate'], ['/affiliate/referrals/track', ['post'], 'Track affiliate referral'], ['/affiliate/dashboard', ['get'], 'Get affiliate dashboard'], ['/affiliate/wallet/redemptions', ['post'], 'Request affiliate wallet redemption'],
-  ['/shipping/serviceability', ['get'], 'Check shipping serviceability'], ['/shipping/webhook', ['post'], 'Receive Shiprocket shipment webhook'], ['/checkout/quote', ['post'], 'Calculate checkout quote'], ['/checkout/sessions', ['post'], 'Create checkout session'], ['/checkout/sessions/{id}', ['get'], 'Get checkout session'], ['/checkout/sessions/{id}/payment-order', ['post'], 'Create payment order'], ['/checkout/sessions/{id}/confirm-cod', ['post'], 'Confirm cash on delivery'],
+  ['/shipping/pincode/{pincode}', ['get'], 'Look up pincode location'], ['/shipping/serviceability', ['get'], 'Check shipping serviceability'], ['/shipping/webhook', ['post'], 'Receive Delhivery shipment webhook'], ['/checkout/quote', ['post'], 'Calculate checkout quote'], ['/checkout/sessions', ['post'], 'Create checkout session'], ['/checkout/sessions/{id}', ['get'], 'Get checkout session'], ['/checkout/sessions/{id}/payment-order', ['post'], 'Create payment order'], ['/checkout/sessions/{id}/confirm-cod', ['post'], 'Confirm cash on delivery'],
   ['/payments/razorpay/verify', ['post'], 'Verify Razorpay payment'], ['/webhooks/payments/razorpay', ['post'], 'Receive Razorpay webhook'], ['/payments/{publicToken}/status', ['get'], 'Get payment status'], ['/orders/{publicToken}', ['get'], 'Get public order'], ['/orders/{publicToken}/tracking', ['get'], 'Get order tracking'], ['/orders/{publicToken}/cancel-request', ['post'], 'Request order cancellation'], ['/orders/{publicToken}/return-request', ['post'], 'Request return'],
   ['/newsletter/subscriptions', ['post'], 'Subscribe to newsletter'], ['/newsletter/confirm', ['post'], 'Confirm newsletter subscription'], ['/newsletter/subscriptions/{token}', ['delete'], 'Unsubscribe from newsletter'], ['/contact', ['post'], 'Submit contact form'], ['/events', ['post'], 'Record analytics event'], ['/events/batch', ['post'], 'Record analytics events'],
   ['/admin/auth/login', ['post'], 'Admin login'], ['/admin/auth/logout', ['post'], 'Admin logout'], ['/admin/auth/refresh', ['post'], 'Refresh admin session'], ['/admin/auth/me', ['get'], 'Get current admin'], ['/admin/auth/forgot-password', ['post'], 'Start password reset'], ['/admin/auth/reset-password', ['post'], 'Reset password'], ['/admin/auth/accept-invitation', ['post'], 'Accept admin invitation'], ['/admin/auth/mfa/setup', ['post'], 'Set up MFA'], ['/admin/auth/mfa/verify', ['post'], 'Verify MFA'], ['/admin/auth/logout-all-sessions', ['post'], 'Revoke all admin sessions'], ['/admin/auth/sessions', ['get'], 'List admin sessions'], ['/admin/auth/sessions/{sessionId}', ['delete'], 'Revoke admin session'],
@@ -143,7 +145,7 @@ const documentPath = (path: string, methods: string[], summary: string) => {
   ...['submit-review', 'approve', 'schedule', 'archive'].map((action) => [`/admin/products/{id}/${action}`, ['post'], `Product ${action}`]), ['/admin/products/{id}/revisions/{revisionId}/restore', ['post'], 'Restore product revision snapshot'],
   ['/admin/products/{productId}/variants', ['get', 'post'], 'Manage product variants'], ['/admin/products/{productId}/variants/{variantId}', ['patch', 'delete'], 'Update or delete variant'], ['/admin/products/{productId}/media', ['get', 'post'], 'Manage product media'], ['/admin/products/{productId}/media/{mediaId}', ['patch', 'delete'], 'Update or delete product media'], ['/admin/products/{productId}/media/reorder', ['post'], 'Reorder product media'],
   ['/admin/inventory', ['get'], 'List inventory'], ['/admin/inventory/low-stock', ['get'], 'List low stock inventory'], ['/admin/inventory/{variantId}', ['get'], 'Get variant inventory'], ['/admin/inventory/adjustments', ['post'], 'Adjust inventory'], ['/admin/inventory/bulk-adjustments', ['post'], 'Bulk adjust inventory'], ['/admin/inventory/history', ['get'], 'Inventory movement history'], ['/admin/inventory/import', ['post'], 'Import inventory'], ['/admin/inventory/export', ['get'], 'Export inventory'],
-  ['/admin/shipping/status', ['get'], 'Get shipping provider status'], ['/admin/shipping/serviceability', ['post'], 'Test shipping serviceability'], ['/admin/orders', ['get'], 'List admin orders'], ['/admin/orders/{id}', ['get', 'patch'], 'Admin order detail'], ['/admin/orders/{id}/shipment/quote', ['post'], 'Get courier quotes'], ['/admin/orders/{id}/shipment/book', ['post'], 'Book Shiprocket shipment'], ['/admin/orders/{id}/shipment/pickup', ['post'], 'Request shipment pickup'], ['/admin/orders/{id}/shipment/label', ['post'], 'Generate shipment label'], ['/admin/orders/{id}/shipment/manifest', ['post'], 'Generate shipment manifest'], ['/admin/orders/{id}/shipment/cancel', ['post'], 'Cancel shipment'], ['/admin/orders/{id}/shipment/refresh', ['post'], 'Refresh shipment tracking'], ...['confirm', 'process', 'pack', 'fulfill', 'ship', 'deliver', 'cancel'].map((action) => [`/admin/orders/{id}/${action}`, ['post'], `Order ${action}`]), ['/admin/orders/{id}/{action}', ['post'], 'Transition order'], ['/admin/orders/{id}/refund', ['post'], 'Refund order'], ['/admin/orders/{id}/notes', ['post'], 'Add order note'], ['/admin/orders/{id}/resend-confirmation', ['post'], 'Resend order confirmation'], ['/admin/orders/{id}/invoice', ['get'], 'Get order invoice'], ['/admin/orders/export', ['get'], 'Export orders'],
+  ['/admin/shipping/status', ['get'], 'Get Delhivery shipping status'], ['/admin/shipping/serviceability', ['post'], 'Test Delhivery serviceability'], ['/admin/orders', ['get'], 'List admin orders'], ['/admin/orders/{id}', ['get', 'patch'], 'Admin order detail'], ['/admin/orders/{id}/shipment/quote', ['post'], 'Get Delhivery quote'], ['/admin/orders/{id}/shipment/book', ['post'], 'Book Delhivery shipment'], ['/admin/orders/{id}/shipment/pickup', ['post'], 'Request Delhivery pickup'], ['/admin/orders/{id}/shipment/label', ['post'], 'Generate Delhivery packing slip'], ['/admin/orders/{id}/shipment/cancel', ['post'], 'Cancel Delhivery shipment'], ['/admin/orders/{id}/shipment/refresh', ['post'], 'Refresh Delhivery tracking'], ...['confirm', 'process', 'pack', 'fulfill', 'ship', 'deliver', 'cancel'].map((action) => [`/admin/orders/{id}/${action}`, ['post'], `Order ${action}`]), ['/admin/orders/{id}/{action}', ['post'], 'Transition order'], ['/admin/orders/{id}/refund', ['post'], 'Refund order'], ['/admin/orders/{id}/notes', ['post'], 'Add order note'], ['/admin/orders/{id}/resend-confirmation', ['post'], 'Resend order confirmation'], ['/admin/orders/{id}/invoice', ['get'], 'Get order invoice'], ['/admin/orders/export', ['get'], 'Export orders'],
   ['/admin/customers', ['get'], 'List customers'], ['/admin/customers/{id}', ['get', 'patch'], 'Customer detail'], ['/admin/customers/{id}/orders', ['get'], 'Customer orders'], ['/admin/customers/{id}/notes', ['post'], 'Add customer note'], ['/admin/customers/{id}/anonymize', ['post'], 'Anonymize customer'], ['/admin/customers/{id}/export-data', ['post'], 'Export customer data'], ['/admin/customers/{id}/consent', ['patch'], 'Update customer consent'],
   ['/admin/care-finder', ['get'], 'Get care finder configuration'], ['/admin/care-finder/{id}', ['patch'], 'Update care finder configuration'],
   ['/admin/affiliates', ['get'], 'List affiliate applications'], ['/admin/affiliates/{id}/status', ['post'], 'Review affiliate application'], ['/admin/affiliate-redemptions', ['get'], 'List affiliate redemptions'], ['/admin/affiliate-redemptions/{id}/review', ['post'], 'Review affiliate redemption'],
@@ -174,10 +176,10 @@ export function buildApp(): FastifyInstance {
   const storage = new LocalStorageAdapter()
   const imageKit = new ImageKitAdapter()
   const manualShipping = new ManualShippingAdapter(async (pincode) => Boolean(await prisma.serviceablePincode.findUnique({ where: { pincode, active: true } })))
-  const shiprocket = new ShiprocketAdapter()
-  // Manual serviceability remains the safe default. Shiprocket becomes active
-  // only when SHIPPING_PROVIDER=shiprocket is explicitly configured.
-  const shipping = process.env.SHIPPING_PROVIDER === 'shiprocket' ? shiprocket : manualShipping
+  const delhivery = new DelhiveryAdapter()
+  // Manual serviceability remains the safe default. Delhivery becomes active
+  // only when SHIPPING_PROVIDER=delhivery is explicitly configured.
+  const shipping = process.env.SHIPPING_PROVIDER === 'delhivery' ? delhivery : manualShipping
 
   app.register(cookie, { secret: process.env.COOKIE_SECRET ?? 'local-only-change-this-cookie-secret-please' })
   app.register(cors, { credentials: true, origin: (origin, cb) => { const allowed = [process.env.STOREFRONT_ORIGIN ?? 'http://localhost:4173', process.env.ADMIN_ORIGIN ?? 'http://localhost:4174', process.env.AFFILIATE_ORIGIN ?? 'http://localhost:4175']; const localPreview = /^http:\/\/(?:localhost|127\.0\.0\.1):417[345]$/.test(origin ?? ''); cb(null, !origin || allowed.includes(origin) || (process.env.NODE_ENV !== 'production' && localPreview)) } })
@@ -387,7 +389,7 @@ export function buildApp(): FastifyInstance {
   routes.get('/api/v1/storefront/bootstrap', async (_, reply) => {
     const settings = await prisma.storeSetting.findMany({ where: { key: { in: ['storefront', 'seo'] } } })
     const values = Object.fromEntries(settings.map((setting) => [setting.key, setting.value])) as any
-    return data(reply, { storeName: 'SkinFox', logo: '/brand/skinfox-logo.png', currency: 'INR', announcement: values.storefront?.announcement ?? 'The SkinFox collection is now available', navigation: [{ label: 'Shop', href: '#shop' }, { label: 'Care finder', href: '#care-finder' }], footerLinks: [{ label: 'FAQ', href: '#faq' }], socialLinks: [{ label: 'Instagram', href: '#story' }], freeShippingThresholdPaise: values.storefront?.freeShippingThresholdPaise ?? 99900, featureFlags: { customerOtp: false, firebaseAuth: firebaseAdminIsConfigured(), customerEmailAuth: firebaseAdminIsConfigured(), paymentMode: payment.configured() ? 'online' : 'cod' }, supportContact: { email: values.storefront?.supportEmail ?? 'contact@skinfox.in' }, enabledPaymentMethods: payment.configured() ? ['cod', 'razorpay'] : ['cod'], promotion: await launchPromotionResponse(), seo: values.seo ?? {} })
+    return data(reply, { storeName: 'SkinFox', logo: '/brand/skinfox-logo.png', currency: 'INR', announcement: values.storefront?.announcement ?? 'The SkinFox collection is now available', navigation: [{ label: 'Shop', href: '#shop' }, { label: 'Care finder', href: '#care-finder' }], footerLinks: [{ label: 'FAQ', href: '#faq' }], socialLinks: [{ label: 'Instagram', href: '#story' }], freeShippingThresholdPaise: values.storefront?.freeShippingThresholdPaise ?? 99900, featureFlags: { customerOtp: false, firebaseAuth: firebaseAdminIsConfigured(), customerEmailAuth: firebaseAdminIsConfigured(), paymentMode: payment.configured() ? 'online' : 'unavailable' }, supportContact: { email: values.storefront?.supportEmail ?? 'contact@skinfox.in' }, enabledPaymentMethods: payment.configured() ? ['razorpay'] : [], promotion: await launchPromotionResponse(), seo: values.seo ?? {} })
   })
   routes.get('/api/v1/products', async (request, reply) => {
     const params = pageParams(request)
@@ -1089,18 +1091,39 @@ export function buildApp(): FastifyInstance {
   routes.post('/api/v1/carts/:cartId/apply-coupon', async (request, reply) => { const code = z.string().min(2).parse(request.body?.code); const cart = await getCart(request); const coupon = await prisma.coupon.findUnique({ where: { code: code.toUpperCase() }, include: { promotion: true } }); if (!coupon || !coupon.promotion.active || coupon.promotion.startsAt > new Date() || coupon.promotion.endsAt < new Date()) throw validationError('This coupon is not active or has expired.'); await prisma.cart.update({ where: { id: cart.id }, data: { couponId: coupon.id } }); return data(reply, await cartResponse(await getCart(request))) })
   routes.delete('/api/v1/carts/:cartId/coupon', async (request, reply) => { const cart = await getCart(request); await prisma.cart.update({ where: { id: cart.id }, data: { couponId: null } }); return data(reply, await cartResponse(await getCart(request))) })
 
+  routes.get('/api/v1/shipping/pincode/:pincode', async (request, reply) => {
+    const pincode = String(request.params?.pincode ?? '')
+    if (!isValidPincode(pincode)) throw validationError('Enter a valid six-digit pincode.')
+    const saved = await prisma.serviceablePincode.findUnique({ where: { pincode } })
+    let location = { city: saved?.city ?? null, state: saved?.state ?? null }
+    if (!location.city || !location.state) {
+      try {
+        const directoryLocation = await lookupPincode(pincode)
+        location = { city: location.city ?? directoryLocation?.city ?? null, state: location.state ?? directoryLocation?.state ?? null }
+      } catch {
+        // Location lookup is an enhancement; checkout can still show a clear
+        // unavailable state if the directory is temporarily unreachable.
+      }
+    }
+    let serviceable = false
+    try { serviceable = await shipping.serviceable(pincode) } catch { serviceable = false }
+    return data(reply, { pincode, ...location, provider: shipping === delhivery ? 'delhivery' : 'manual', serviceable })
+  })
   routes.get('/api/v1/shipping/serviceability', async (request, reply) => {
     const pincode = String(request.query?.pincode ?? '')
     if (!isValidPincode(pincode)) throw validationError('Enter a valid six-digit pincode.')
-    const paymentMethod = request.query?.paymentMethod === 'prepaid' ? 'prepaid' : 'cod'
-    if (shipping === shiprocket) {
-      const pickupPincode = process.env.SHIPROCKET_PICKUP_PINCODE
-      if (!shiprocket.configured() || !pickupPincode) throw new ApiError(503, 'SHIPPING_PROVIDER_NOT_READY', 'Shiprocket is selected but API credentials or pickup pincode are not configured.')
-      const result = await shiprocket.serviceability({ pickupPincode, deliveryPincode: pincode, paymentMethod, weightKg: Number(process.env.SHIPPING_DEFAULT_WEIGHT_KG ?? 0.5) })
+    // Storefront checkout is prepaid-only. Keep the legacy query parameter
+    // ignored so callers cannot re-enable COD through the serviceability API.
+    const paymentMethod = 'prepaid' as const
+    if (shipping === delhivery) {
+      const pickupPincode = process.env.DELHIVERY_PICKUP_PINCODE
+      if (!delhivery.configured() || !pickupPincode) throw new ApiError(503, 'SHIPPING_PROVIDER_NOT_READY', 'Delhivery is selected but API credentials or pickup pincode are not configured.')
+      const result = await delhivery.serviceability({ pickupPincode, deliveryPincode: pincode, paymentMethod, ...defaultShippingPackage() })
       return data(reply, { pincode, ...result })
     }
     const serviceable = await shipping.serviceable(pincode)
-    return data(reply, { pincode, provider: 'manual', serviceable, codAvailable: Boolean(await prisma.serviceablePincode.findUnique({ where: { pincode, active: true } })) })
+    const saved = await prisma.serviceablePincode.findUnique({ where: { pincode } })
+    return data(reply, { pincode, city: saved?.city ?? null, state: saved?.state ?? null, provider: 'manual', serviceable, codAvailable: false })
   })
   const makeQuote = async (request: any, sessionInput?: any, customer?: any) => {
     const cart = await getCart(request)
@@ -1109,17 +1132,18 @@ export function buildApp(): FastifyInstance {
     if (!customer?.emailVerifiedAt) throw new ApiError(400, 'CUSTOMER_EMAIL_UNVERIFIED', 'Verify your email address before placing an order.')
     let serviceable = false
     let providerQuote: any = null
-    if (shipping === shiprocket) {
-      const pickupPincode = process.env.SHIPROCKET_PICKUP_PINCODE
-      if (!shiprocket.configured() || !pickupPincode) throw new ApiError(503, 'SHIPPING_PROVIDER_NOT_READY', 'Shiprocket checkout is not configured. Add credentials and pickup pincode, or switch SHIPPING_PROVIDER to manual.')
-      providerQuote = await shiprocket.serviceability({ pickupPincode, deliveryPincode: parsed.pincode, paymentMethod: parsed.paymentMethod === 'cod' ? 'cod' : 'prepaid', weightKg: Number(process.env.SHIPPING_DEFAULT_WEIGHT_KG ?? 0.5) })
+    if (shipping === delhivery) {
+      const pickupPincode = process.env.DELHIVERY_PICKUP_PINCODE
+      if (!delhivery.configured() || !pickupPincode) throw new ApiError(503, 'SHIPPING_PROVIDER_NOT_READY', 'Delhivery checkout is not configured. Add credentials and pickup pincode, or switch SHIPPING_PROVIDER to manual.')
+      providerQuote = await delhivery.serviceability({ pickupPincode, deliveryPincode: parsed.pincode, paymentMethod: 'prepaid', ...defaultShippingPackage() })
       serviceable = providerQuote.serviceable
     } else serviceable = await shipping.serviceable(parsed.pincode)
-    const base = await cartResponse(cart, parsed.paymentMethod === 'cod', serviceable, customer)
+    const base = await cartResponse(cart, false, serviceable, customer)
     const providerCharge = providerQuote?.couriers?.[0]?.ratePaise
+    if (shipping === delhivery && serviceable && (providerCharge === null || providerCharge === undefined)) throw new ApiError(503, 'SHIPPING_RATE_UNAVAILABLE', 'Delhivery confirmed this pincode, but could not return a shipping rate. Please try again or contact support.')
     const response = providerCharge === null || providerCharge === undefined ? base : { ...base, shippingPaise: providerCharge, totalPaise: Math.max(0, Number(base.subtotalPaise) - Number(base.discountPaise) + Number(base.taxPaise) + Number(providerCharge) + Number(base.codPaise)) }
     const estimate = providerQuote?.couriers?.[0]?.estimatedDays
-    return { ...response, serviceability: serviceable, shippingProvider: shipping === shiprocket ? 'shiprocket' : 'manual', courierOptions: providerQuote?.couriers ?? [], estimatedDeliveryFrom: serviceable ? new Date(Date.now() + (estimate ?? 3) * 86400000).toISOString() : null, estimatedDeliveryTo: serviceable ? new Date(Date.now() + (estimate ? estimate + 2 : 7) * 86400000).toISOString() : null, quoteExpiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(), checkout: { ...parsed, email: parsed.email ?? customer.email ?? undefined } }
+    return { ...response, serviceability: serviceable, shippingProvider: shipping === delhivery ? 'delhivery' : 'manual', courierOptions: providerQuote?.couriers ?? [], estimatedDeliveryFrom: serviceable ? new Date(Date.now() + (estimate ?? 3) * 86400000).toISOString() : null, estimatedDeliveryTo: serviceable ? new Date(Date.now() + (estimate ? estimate + 2 : 7) * 86400000).toISOString() : null, quoteExpiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(), checkout: { ...parsed, email: parsed.email ?? customer.email ?? undefined } }
   }
   routes.post('/api/v1/checkout/quote', async (request, reply) => { const customer = await requireCustomer(request); return data(reply, await makeQuote(request, undefined, customer)) })
   routes.post('/api/v1/checkout/sessions', async (request, reply) => {
@@ -1193,40 +1217,10 @@ export function buildApp(): FastifyInstance {
     await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
     return data(reply, response)
   })
-  routes.post('/api/v1/checkout/sessions/:id/confirm-cod', async (request, reply) => {
-    const customer = await requireCustomer(request, true)
-    const idempotencyScope = `confirm-cod:${request.params.id}`
-    const replay = await idemReplay(request, idempotencyScope)
-    if (replay) return reply.status(replay.status).send(replay.body)
-    const session = await prisma.checkoutSession.findUnique({ where: { publicToken: request.params.id }, include: { order: true } })
-    if (!session?.order || session.customerId !== customer.id) throw notFound('Checkout session not found.')
-    if (session.paymentMethod !== 'cod' || session.status !== 'open') throw validationError('This checkout session cannot be confirmed as COD.')
-    const order = await prisma.$transaction(async (tx) => {
-      const promotionSnapshot = (session.order?.conversionSnapshot as any)?.promotion
-      if (promotionSnapshot?.id === activeLaunchPromotion.id) {
-        // Serialize confirmations for this promotion so the final available
-        // order cannot be oversold when several customers confirm together.
-        await tx.$queryRaw`SELECT "id" FROM "StoreSetting" WHERE "key" = 'launch-promotion' FOR UPDATE`
-        const successfulOrders = await launchPromotionOrderCount(tx)
-        if (successfulOrders >= activeLaunchPromotion.maximumOrders) throw new ApiError(409, 'PROMOTION_COMPLETED', 'The SkinFox launch offer has ended. Please restart checkout to continue at the current price.')
-      }
-      const updated = await tx.order.update({ where: { id: session.order!.id }, data: { status: OrderStatus.confirmed, payments: { create: { provider: 'cod', amountPaise: session.order!.totalPaise, status: PaymentStatus.authorised } }, statusEvents: { create: { fromStatus: OrderStatus.pending_payment, toStatus: OrderStatus.confirmed, reason: 'COD confirmed' } } } })
-      const cart = await tx.cart.findUnique({ where: { id: session.cartId }, include: { affiliate: true } })
-      // A cart keeps its first approved referral. Self-referrals never generate a wallet credit.
-      if (cart?.affiliate && cart.affiliate.status === AffiliateStatus.approved && cart.affiliate.phone !== customer.phone) {
-        const commissionPaise = affiliateCommissionPaise(updated.subtotalPaise, updated.discountPaise)
-        if (commissionPaise > 0) {
-          const attribution = await tx.affiliateAttribution.upsert({ where: { orderId: updated.id }, update: {}, create: { affiliateId: cart.affiliate.id, orderId: updated.id, referralCode: cart.affiliate.referralCode, commissionPaise } })
-          await tx.affiliateWalletEntry.upsert({ where: { attributionId: attribution.id }, update: {}, create: { affiliateId: cart.affiliate.id, type: AffiliateWalletEntryType.commission, amountPaise: commissionPaise, description: `10% commission for ${updated.orderNumber}`, attributionId: attribution.id } })
-        }
-      }
-      await tx.checkoutSession.update({ where: { id: session.id }, data: { status: 'confirmed' } })
-      await tx.cartItem.deleteMany({ where: { cartId: session.cartId } })
-      return updated
-    })
-    const response = { orderPublicToken: order.publicToken, orderNumber: order.orderNumber, status: order.status }
-    await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
-    return data(reply, response)
+  // Keep the legacy endpoint so older clients receive a clear response, but
+  // never allow a new cash-on-delivery confirmation.
+  routes.post('/api/v1/checkout/sessions/:id/confirm-cod', async () => {
+    throw new ApiError(410, 'COD_DISABLED', 'Cash on delivery is no longer available. Please pay securely online with Razorpay.')
   })
   routes.post('/api/v1/payments/razorpay/verify', async (request, reply) => {
     const customer = await requireCustomer(request, true)
@@ -1294,25 +1288,28 @@ export function buildApp(): FastifyInstance {
     return data(reply, response)
   })
   routes.post('/api/v1/shipping/webhook', async (request, reply) => {
-    if (shipping !== shiprocket) return data(reply, { accepted: false, ignored: true, provider: 'manual' })
-    const configuredToken = process.env.SHIPROCKET_WEBHOOK_TOKEN
-    const receivedToken = String(request.headers['x-shiprocket-webhook-token'] ?? request.headers['x-webhook-token'] ?? '')
-    if (!configuredToken || !receivedToken || !safeEqual(configuredToken, receivedToken)) throw new ApiError(401, 'WEBHOOK_TOKEN_INVALID', 'Shiprocket webhook token verification failed.')
+    if (shipping !== delhivery) return data(reply, { accepted: false, ignored: true, provider: 'manual' })
+    const configuredToken = process.env.DELHIVERY_WEBHOOK_TOKEN
+    const receivedToken = String(request.headers['x-delhivery-webhook-token'] ?? request.headers['x-webhook-token'] ?? '')
+    if (!configuredToken || !receivedToken || !safeEqual(configuredToken, receivedToken)) throw new ApiError(401, 'WEBHOOK_TOKEN_INVALID', 'Delhivery webhook token verification failed.')
     const payload: any = request.body ?? {}
-    const externalId = String(request.headers['x-shiprocket-event-id'] ?? payload.id ?? payload.event_id ?? sha256Json(payload))
-    const existing = await prisma.webhookEvent.findUnique({ where: { provider_externalId: { provider: 'shiprocket', externalId } } })
+    const externalId = String(request.headers['x-delhivery-event-id'] ?? payload.id ?? payload.event_id ?? sha256Json(payload))
+    const existing = await prisma.webhookEvent.findUnique({ where: { provider_externalId: { provider: 'delhivery', externalId } } })
     if (existing?.processedAt) return data(reply, { accepted: true, replay: true })
-    const event = existing ?? await prisma.webhookEvent.create({ data: { provider: 'shiprocket', externalId, eventType: String(payload.event ?? payload.current_status ?? 'shipment.updated'), payload } })
-    const providerShipmentId = String(payload.shipment_id ?? payload.data?.shipment_id ?? payload.shipment?.shipment_id ?? '')
-    const awb = String(payload.awb ?? payload.awb_code ?? payload.data?.awb_code ?? payload.shipment?.awb ?? '')
-    const nextStatusRaw = String(payload.current_status ?? payload.status ?? payload.data?.status ?? 'updated')
+    const event = existing ?? await prisma.webhookEvent.create({ data: { provider: 'delhivery', externalId, eventType: String(payload.event ?? payload.current_status ?? 'shipment.updated'), payload } })
+    const providerShipmentId = String(payload.shipment_id ?? payload.data?.shipment_id ?? payload.shipment?.shipment_id ?? payload.Shipment?.ReferenceNo ?? payload.Shipment?.ReferenceNumber ?? payload.ShipmentData?.[0]?.Shipment?.ReferenceNo ?? '')
+    const awb = String(payload.awb ?? payload.awb_code ?? payload.data?.awb_code ?? payload.shipment?.awb ?? payload.Shipment?.AWB ?? payload.AWB ?? payload.ShipmentData?.[0]?.Shipment?.AWB ?? '')
+    if (!providerShipmentId && !awb) throw new ApiError(400, 'WEBHOOK_IDENTIFIER_MISSING', 'Delhivery webhook did not include an AWB or reference number.')
+    const nextStatusRaw = String(payload.current_status ?? payload.status ?? payload.data?.status ?? payload.Shipment?.Status?.Status ?? payload.Shipment?.StatusType ?? payload.ShipmentData?.[0]?.Shipment?.Status?.Status ?? payload.ShipmentData?.[0]?.Shipment?.StatusType ?? 'updated')
     const nextStatus = nextStatusRaw.toLowerCase().replace(/[^a-z0-9]+/g, '_')
-    const shipment = await prisma.shipment.findFirst({ where: { provider: 'shiprocket', ...(providerShipmentId ? { providerShipmentId } : awb ? { trackingNumber: awb } : {}) } })
+    const shipment = await prisma.shipment.findFirst({ where: { provider: 'delhivery', ...(providerShipmentId ? { providerShipmentId } : awb ? { trackingNumber: awb } : {}) } })
     if (shipment) {
-      const orderStatus = nextStatus.includes('delivered') ? OrderStatus.delivered : nextStatus.includes('shipped') || nextStatus.includes('picked') || nextStatus.includes('transit') ? OrderStatus.shipped : undefined
+      const orderStatus = nextStatus.includes('delivered') ? OrderStatus.delivered : nextStatus.includes('rto') || nextStatus.includes('returned') ? OrderStatus.returned : nextStatus.includes('cancel') ? OrderStatus.cancelled : nextStatus.includes('shipped') || nextStatus.includes('picked') || nextStatus.includes('transit') || nextStatus.includes('dispatched') ? OrderStatus.shipped : undefined
+      const statusRank = (status: string) => status.includes('delivered') ? 5 : status.includes('rto') || status.includes('returned') || status.includes('cancel') ? 5 : status.includes('transit') || status.includes('shipped') || status.includes('picked') || status.includes('dispatched') ? 3 : status.includes('awb') || status.includes('book') ? 1 : 2
+      const applyUpdate = statusRank(nextStatus) >= statusRank(String(shipment.status ?? '')) || statusRank(nextStatus) >= 5
       await prisma.$transaction(async (tx) => {
-        await tx.shipment.update({ where: { id: shipment.id }, data: { status: nextStatus, providerStatus: nextStatusRaw, ...(awb ? { trackingNumber: awb } : {}), lastSyncedAt: new Date(), events: { create: { status: nextStatus, externalId, payload } } } })
-        if (orderStatus && shipment.orderId) await tx.order.update({ where: { id: shipment.orderId }, data: { status: orderStatus } })
+        await tx.shipment.update({ where: { id: shipment.id }, data: { ...(applyUpdate ? { status: nextStatus, providerStatus: nextStatusRaw } : {}), ...(awb ? { trackingNumber: awb } : {}), lastSyncedAt: new Date(), events: { create: { status: nextStatus, externalId, payload } } } })
+        if (applyUpdate && orderStatus && shipment.orderId) await tx.order.update({ where: { id: shipment.orderId }, data: { status: orderStatus } })
         await tx.webhookEvent.update({ where: { id: event.id }, data: { processedAt: new Date() } })
       })
     } else await prisma.webhookEvent.update({ where: { id: event.id }, data: { processedAt: new Date() } })
@@ -1876,108 +1873,112 @@ export function buildApp(): FastifyInstance {
     await idemStore(request, 'waitlist-reveal', 200, envelope)
     return reply.send(envelope)
   })
-  const requireShiprocket = () => {
-    if (shipping !== shiprocket) throw new ApiError(409, 'SHIPPING_PROVIDER_MANUAL', 'Shiprocket is not the active shipping provider.')
-    if (!shiprocket.configured()) throw new ApiError(503, 'SHIPPING_PROVIDER_NOT_READY', 'Add Shiprocket API credentials to the server environment first.')
-    if (!process.env.SHIPROCKET_PICKUP_PINCODE) throw new ApiError(503, 'SHIPPING_PICKUP_NOT_CONFIGURED', 'Add the pickup pincode for the Shiprocket pickup location.')
+  const requireDelhivery = () => {
+    if (shipping !== delhivery) throw new ApiError(409, 'SHIPPING_PROVIDER_MANUAL', 'Delhivery is not the active shipping provider.')
+    if (!delhivery.configured()) throw new ApiError(503, 'SHIPPING_PROVIDER_NOT_READY', 'Add Delhivery API credentials to the server environment first.')
+    const missing = ['DELHIVERY_CLIENT_NAME', 'DELHIVERY_PICKUP_LOCATION', 'DELHIVERY_PICKUP_PINCODE'].filter((key) => !process.env[key])
+    if (missing.length) throw new ApiError(503, 'SHIPPING_PICKUP_NOT_CONFIGURED', `Complete Delhivery pickup configuration: ${missing.join(', ')}.`)
   }
   const orderPackage = (input: z.infer<typeof shippingPackageSchema>): ShippingPackage => ({ weightKg: input.weightGrams / 1000, lengthCm: input.lengthCm, breadthCm: input.breadthCm, heightCm: input.heightCm, declaredValuePaise: input.declaredValuePaise })
-  const providerStatus = (payload: any) => String(payload?.data?.status ?? payload?.data?.response?.data?.status ?? payload?.status ?? '').trim()
+  const providerStatus = (payload: any) => String(payload?.Shipment?.Status?.Status ?? payload?.Shipment?.StatusType ?? payload?.ShipmentData?.[0]?.Shipment?.Status?.Status ?? payload?.ShipmentData?.[0]?.Shipment?.StatusType ?? payload?.data?.status ?? payload?.data?.response?.data?.status ?? payload?.status ?? '').trim()
   const providerValue = (payload: any, keys: string[]) => { for (const key of keys) { const value = key.split('.').reduce((current, part) => current?.[part], payload); if (value !== undefined && value !== null && value !== '') return String(value) } return null }
 
   routes.get('/api/v1/admin/shipping/status', async (request, reply) => {
     await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT, AdminRole.ANALYST])(request)
-    return data(reply, { ...shippingEnvironment(), apiBaseUrl: shipping === shiprocket ? process.env.SHIPROCKET_API_BASE_URL ?? 'https://apiv2.shiprocket.in/v1/external' : null, defaultWeightKg: Number(process.env.SHIPPING_DEFAULT_WEIGHT_KG ?? 0.5) })
+    return data(reply, { ...shippingEnvironment(), apiBaseUrl: shipping === delhivery ? delhivery.apiBaseUrl : null, defaultPackage: defaultShippingPackage() })
   })
   routes.post('/api/v1/admin/shipping/serviceability', async (request, reply) => {
     await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT, AdminRole.ANALYST])(request)
     const input = z.object({ deliveryPincode: z.string().regex(/^[1-9]\d{5}$/), paymentMethod: z.enum(['cod', 'prepaid']).default('prepaid'), package: shippingPackageSchema }).parse(request.body)
-    if (shipping !== shiprocket) {
+    if (shipping !== delhivery) {
       const serviceable = await shipping.serviceable(input.deliveryPincode)
-      return data(reply, { provider: 'manual', serviceable, codAvailable: serviceable, couriers: serviceable ? [{ id: 'manual', name: 'Manual shipping', ratePaise: null, codAvailable: true, estimatedDays: null, etd: null }] : [], message: serviceable ? undefined : 'This pincode is not in the active serviceable-pincode list.' })
+      return data(reply, { provider: 'manual', serviceable, codAvailable: false, couriers: serviceable ? [{ id: 'manual', name: 'Manual shipping', ratePaise: null, codAvailable: false, estimatedDays: null, etd: null }] : [], message: serviceable ? undefined : 'This pincode is not in the active serviceable-pincode list.' })
     }
-    requireShiprocket()
-    const result = await shiprocket.serviceability({ pickupPincode: process.env.SHIPROCKET_PICKUP_PINCODE!, deliveryPincode: input.deliveryPincode, paymentMethod: input.paymentMethod, ...orderPackage(input.package) })
+    requireDelhivery()
+    const result = await delhivery.serviceability({ pickupPincode: process.env.DELHIVERY_PICKUP_PINCODE!, deliveryPincode: input.deliveryPincode, paymentMethod: input.paymentMethod, ...orderPackage(input.package) })
     return data(reply, result)
   })
   routes.post('/api/v1/admin/orders/:id/shipment/quote', async (request, reply) => {
     await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT])(request)
-    requireShiprocket()
+    requireDelhivery()
     const input = z.object({ paymentMethod: z.enum(['cod', 'prepaid']).default('prepaid'), package: shippingPackageSchema }).parse(request.body)
     const order = await prisma.order.findUnique({ where: { id: request.params.id }, include: { items: true } })
     if (!order) throw notFound('Order not found.')
     const address = order.shippingAddress && typeof order.shippingAddress === 'object' ? order.shippingAddress as Record<string, any> : null
     if (!address?.pincode) throw validationError('Add a delivery address before requesting courier quotes.')
-    const result = await shiprocket.serviceability({ pickupPincode: process.env.SHIPROCKET_PICKUP_PINCODE!, deliveryPincode: String(address.pincode), paymentMethod: input.paymentMethod, ...orderPackage(input.package), declaredValuePaise: input.package.declaredValuePaise ?? order.totalPaise })
-    if (order.checkoutSessionId) await prisma.shippingQuote.create({ data: { checkoutSessionId: order.checkoutSessionId, pincode: String(address.pincode), serviceable: result.serviceable, chargePaise: result.couriers[0]?.ratePaise ?? 0, provider: 'shiprocket', courierId: result.couriers[0]?.id, courierName: result.couriers[0]?.name, metadata: result as any, expiresAt: new Date(Date.now() + 15 * 60 * 1000) } })
+    const result = await delhivery.serviceability({ pickupPincode: process.env.DELHIVERY_PICKUP_PINCODE!, deliveryPincode: String(address.pincode), paymentMethod: input.paymentMethod, ...orderPackage(input.package), declaredValuePaise: input.package.declaredValuePaise ?? order.totalPaise })
+    if (order.checkoutSessionId) await prisma.shippingQuote.create({ data: { checkoutSessionId: order.checkoutSessionId, pincode: String(address.pincode), serviceable: result.serviceable, chargePaise: result.couriers[0]?.ratePaise ?? 0, provider: 'delhivery', courierId: result.couriers[0]?.id, courierName: result.couriers[0]?.name, metadata: result as any, expiresAt: new Date(Date.now() + 15 * 60 * 1000) } })
     return data(reply, result)
   })
   routes.post('/api/v1/admin/orders/:id/shipment/book', async (request, reply) => {
-    const scope = `shiprocket-book:${request.params.id}`
+    const scope = `delhivery-book:${request.params.id}`
     const replay = await idemReplay(request, scope)
     if (replay) return reply.status(replay.status).send(replay.body)
     const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER])(request)
-    requireShiprocket()
-    if (!shiprocket.bookingEnabled()) throw new ApiError(409, 'SHIPMENT_BOOKING_DISABLED', 'Shipment booking is disabled. Set SHIPROCKET_BOOKING_ENABLED=true only when you are ready to create live Shiprocket shipments.')
+    requireDelhivery()
+    if (!delhivery.bookingEnabled()) throw new ApiError(409, 'SHIPMENT_BOOKING_DISABLED', 'Shipment booking is disabled. Set DELHIVERY_BOOKING_ENABLED=true only when you are ready to create live Delhivery shipments.')
     const input = z.object({ courierId: z.string().min(1), courierName: z.string().min(1).optional(), paymentMethod: z.enum(['cod', 'prepaid']).default('prepaid'), package: shippingPackageSchema }).parse(request.body)
+    if (input.courierId !== 'delhivery') throw validationError('Delhivery is the only active courier for this store.')
     const order = await prisma.order.findUnique({ where: { id: request.params.id }, include: { items: true, customer: true, shipments: true } })
     if (!order) throw notFound('Order not found.')
-    if (order.shipments.some((shipment) => shipment.provider === 'shiprocket' && shipment.status !== 'cancelled')) throw validationError('A Shiprocket shipment is already attached to this order.')
+    if (order.shipments.some((shipment) => shipment.provider === 'delhivery' && shipment.status !== 'cancelled')) throw validationError('A Delhivery shipment is already attached to this order.')
     if (!['confirmed', 'processing', 'packed'].includes(order.status)) throw validationError('Only confirmed, processing, or packed orders can be booked.')
     const address = order.shippingAddress && typeof order.shippingAddress === 'object' ? order.shippingAddress as Record<string, any> : null
     if (!address?.pincode || !address.addressLine1) throw validationError('Add a complete delivery address before booking shipment.')
     const paymentReady = order.payments.some((paymentRecord) => paymentRecord.status === PaymentStatus.captured || (paymentRecord.provider === 'cod' && paymentRecord.status === PaymentStatus.authorised))
     if (!paymentReady) throw validationError('A captured or COD-authorised payment is required before booking shipment.')
-    const created = await shiprocket.createOrder({ orderNumber: order.orderNumber, orderDate: order.createdAt.toISOString(), pickupLocation: process.env.SHIPROCKET_PICKUP_LOCATION!, paymentMethod: input.paymentMethod, subtotalPaise: order.subtotalPaise, customer: { name: String(address.fullName ?? order.customer?.fullName ?? 'Customer'), email: order.customer?.email, phone: String(address.phone ?? order.customer?.phone ?? '') }, address: { line1: String(address.addressLine1), line2: address.addressLine2 ? String(address.addressLine2) : undefined, landmark: address.landmark ? String(address.landmark) : undefined, city: String(address.city), state: String(address.state), pincode: String(address.pincode) }, items: order.items.map((item) => ({ name: item.productName, sku: item.sku, quantity: item.quantity, sellingPricePaise: item.unitSellingPricePaise })), package: orderPackage(input.package) })
-    if (!created.providerShipmentId) throw new ApiError(502, 'SHIPROCKET_ORDER_FAILED', 'Shiprocket accepted no shipment ID; the shipment was not stored as booked.')
-    const assigned = await shiprocket.assignAwb(created.providerShipmentId, input.courierId)
+    const created = await delhivery.createOrder({ orderNumber: order.orderNumber, orderDate: order.createdAt.toISOString(), pickupLocation: process.env.DELHIVERY_PICKUP_LOCATION!, paymentMethod: input.paymentMethod, totalPaise: order.totalPaise, customer: { name: String(address.fullName ?? order.customer?.fullName ?? 'Customer'), email: order.customer?.email, phone: String(address.phone ?? order.customer?.phone ?? '') }, address: { line1: String(address.addressLine1), line2: address.addressLine2 ? String(address.addressLine2) : undefined, landmark: address.landmark ? String(address.landmark) : undefined, city: String(address.city), state: String(address.state), pincode: String(address.pincode) }, items: order.items.map((item) => ({ name: item.productName, sku: item.sku, quantity: item.quantity, sellingPricePaise: item.unitSellingPricePaise })), package: orderPackage(input.package) })
+    if (!created.providerShipmentId) throw new ApiError(502, 'DELHIVERY_ORDER_FAILED', 'Delhivery accepted no shipment ID; the shipment was not stored as booked.')
+    const assigned = await delhivery.assignAwb(created.providerShipmentId, input.courierId)
     const awb = providerValue(assigned, ['data.response.data.awb_code', 'response.data.awb_code', 'data.awb_code', 'awb_code'])
-    const shipment = await prisma.shipment.create({ data: { orderId: order.id, provider: 'shiprocket', providerOrderId: created.providerOrderId, providerShipmentId: created.providerShipmentId, courierId: input.courierId, courierName: input.courierName ?? providerValue(assigned, ['data.response.data.courier_name', 'data.courier_name']), trackingNumber: awb, providerStatus: providerStatus(assigned) || 'awb_assigned', status: awb ? 'awb_assigned' : 'booked', metadata: { createResponse: created.raw, awbResponse: assigned } as any, packedWeightGrams: input.package.weightGrams, lengthCm: input.package.lengthCm, breadthCm: input.package.breadthCm, heightCm: input.package.heightCm, bookedAt: new Date(), events: { create: { status: awb ? 'awb_assigned' : 'booked', externalId: `book-${request.id}`, payload: { create: created.raw, assign: assigned } as any } } } })
-    if (order.status !== OrderStatus.shipped) await prisma.order.update({ where: { id: order.id }, data: { status: OrderStatus.shipped, statusEvents: { create: { fromStatus: order.status, toStatus: OrderStatus.shipped, reason: `Shiprocket shipment booked (${awb ?? 'AWB pending'})`, actorId: user.id } } } })
-    await audit(user, request, 'shipment_book', 'Shipment', shipment.id, null, shipment, 'Shiprocket shipment booked')
+    const shipment = await prisma.shipment.create({ data: { orderId: order.id, provider: 'delhivery', providerOrderId: created.providerOrderId, providerShipmentId: created.providerShipmentId, courierId: input.courierId, courierName: input.courierName ?? providerValue(assigned, ['data.response.data.courier_name', 'data.courier_name']), trackingNumber: awb, providerStatus: providerStatus(assigned) || 'awb_assigned', status: awb ? 'awb_assigned' : 'booked', metadata: { createResponse: created.raw, awbResponse: assigned } as any, packedWeightGrams: input.package.weightGrams, lengthCm: input.package.lengthCm, breadthCm: input.package.breadthCm, heightCm: input.package.heightCm, bookedAt: new Date(), events: { create: { status: awb ? 'awb_assigned' : 'booked', externalId: `book-${request.id}`, payload: { create: created.raw, assign: assigned } as any } } } })
+    if (order.status !== OrderStatus.shipped) await prisma.order.update({ where: { id: order.id }, data: { status: OrderStatus.shipped, statusEvents: { create: { fromStatus: order.status, toStatus: OrderStatus.shipped, reason: `Delhivery shipment booked (${awb ?? 'AWB pending'})`, actorId: user.id } } } })
+    await audit(user, request, 'shipment_book', 'Shipment', shipment.id, null, shipment, 'Delhivery shipment booked')
     const response = { shipment }
     const envelope = { data: response, meta: { requestId: request.id } }
     await idemStore(request, scope, 201, envelope)
     return reply.status(201).send(envelope)
   })
-  const shipmentAction = async (request: any, reply: any, action: 'pickup' | 'label' | 'manifest' | 'cancel' | 'refresh') => {
+  const shipmentAction = async (request: any, reply: any, action: 'pickup' | 'label' | 'cancel' | 'refresh') => {
     const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER])(request)
-    requireShiprocket()
-    const shipment = await prisma.shipment.findFirst({ where: { orderId: request.params.id, provider: 'shiprocket', status: { not: 'cancelled' } }, orderBy: { createdAt: 'desc' } })
-    if (!shipment) throw notFound('No active Shiprocket shipment is attached to this order.')
+    requireDelhivery()
+    const shipment = await prisma.shipment.findFirst({ where: { orderId: request.params.id, provider: 'delhivery', status: { not: 'cancelled' } }, orderBy: { createdAt: 'desc' } })
+    if (!shipment) throw notFound('No active Delhivery shipment is attached to this order.')
     if (action === 'pickup') {
+      if (shipment.pickupId) return data(reply, shipment)
       if (!shipment.providerShipmentId) throw validationError('Shipment ID is not available yet.')
-      const result = await shiprocket.requestPickup(shipment.providerShipmentId)
+      const result = await delhivery.requestPickup(shipment.providerShipmentId)
       const updated = await prisma.shipment.update({ where: { id: shipment.id }, data: { status: 'pickup_requested', pickupId: providerValue(result, ['data.response.pickup_id', 'data.pickup_id', 'pickup_id']), pickupScheduledAt: new Date(), providerStatus: providerStatus(result) || 'pickup_requested', events: { create: { status: 'pickup_requested', externalId: `pickup-${request.id}`, payload: result as any } } } })
       await audit(user, request, 'shipment_pickup', 'Shipment', shipment.id, shipment, updated)
       return data(reply, updated)
     }
-    if (action === 'label' || action === 'manifest') {
+    if (action === 'label') {
+      if (shipment.labelUrl) return data(reply, shipment)
       if (!shipment.providerShipmentId) throw validationError('Shipment ID is not available yet.')
-      const result = action === 'label' ? await shiprocket.generateLabel(shipment.providerShipmentId) : await shiprocket.generateManifest(shipment.providerShipmentId)
-      const url = providerValue(result, action === 'label' ? ['data.label_url', 'label_url', 'data.response.data.label_url'] : ['data.manifest_url', 'manifest_url', 'data.response.data.manifest_url'])
-      const updated = await prisma.shipment.update({ where: { id: shipment.id }, data: { ...(action === 'label' ? { labelUrl: url } : { manifestUrl: url }), events: { create: { status: action === 'label' ? 'label_generated' : 'manifest_generated', externalId: `${action}-${request.id}`, payload: result as any } } } })
+      const result = await delhivery.generateLabel(shipment.providerShipmentId)
+      const url = providerValue(result, ['data.label_url', 'label_url', 'data.response.data.label_url'])
+      const updated = await prisma.shipment.update({ where: { id: shipment.id }, data: { labelUrl: url, events: { create: { status: 'label_generated', externalId: `label-${request.id}`, payload: result as any } } } })
       await audit(user, request, `shipment_${action}`, 'Shipment', shipment.id, shipment, updated)
       return data(reply, updated)
     }
     if (action === 'cancel') {
       const ids = [shipment.providerOrderId, shipment.providerShipmentId].filter(Boolean) as string[]
       if (!ids.length) throw validationError('Provider shipment identifiers are unavailable.')
-      const result = await shiprocket.cancelOrder(ids)
+      const result = await delhivery.cancelOrder(ids)
       const updated = await prisma.shipment.update({ where: { id: shipment.id }, data: { status: 'cancelled', providerStatus: providerStatus(result) || 'cancelled', events: { create: { status: 'cancelled', externalId: `cancel-${request.id}`, payload: result as any } } } })
       await audit(user, request, 'shipment_cancel', 'Shipment', shipment.id, shipment, updated)
       return data(reply, updated)
     }
     if (!shipment.trackingNumber) throw validationError('An AWB is required before tracking can be refreshed.')
-    const result = await shiprocket.trackAwb(shipment.trackingNumber)
+    const result = await delhivery.trackAwb(shipment.trackingNumber)
     const nextStatus = providerStatus(result) || providerValue(result, ['data.track_status', 'track_status']) || 'tracking_updated'
     const updated = await prisma.shipment.update({ where: { id: shipment.id }, data: { status: nextStatus.toLowerCase().replaceAll(' ', '_'), providerStatus: nextStatus, lastSyncedAt: new Date(), events: { create: { status: nextStatus.toLowerCase().replaceAll(' ', '_'), externalId: `refresh-${request.id}`, payload: result as any } } } })
     await audit(user, request, 'shipment_refresh', 'Shipment', shipment.id, shipment, updated)
     return data(reply, updated)
   }
-  for (const action of ['pickup', 'label', 'manifest', 'cancel', 'refresh'] as const) routes.post(`/api/v1/admin/orders/:id/shipment/${action}`, (request, reply) => shipmentAction(request, reply, action))
+  for (const action of ['pickup', 'label', 'cancel', 'refresh'] as const) routes.post(`/api/v1/admin/orders/:id/shipment/${action}`, (request, reply) => shipmentAction(request, reply, action))
   routes.get('/api/v1/admin/orders/:id', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT])(request); const order = await prisma.order.findUnique({ where: { id: request.params.id }, include: { customer: true, items: true, payments: true, refunds: true, shipments: { include: { events: true } }, statusEvents: true, notes: true } }); if (!order) throw notFound('Order not found.'); return data(reply, { ...order, customer: maskCustomer(order.customer) }) })
-  for (const [action, target] of Object.entries(transition)) app.post(`/api/v1/admin/orders/:id/${action}`, async (request, reply) => { const scope = `order-transition:${request.params.id}:${action}`; const replay = await idemReplay(request, scope); if (replay) return reply.status(replay.status).send(replay.body); const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER])(request); const reason = z.string().min(3).parse(request.body?.reason); const order = await prisma.order.findUnique({ where: { id: request.params.id } }); if (!order) throw notFound('Order not found.'); const allowed: Record<OrderStatus, OrderStatus[]> = { pending_payment: [OrderStatus.confirmed, OrderStatus.cancelled], payment_failed: [OrderStatus.confirmed, OrderStatus.cancelled], confirmed: [OrderStatus.processing, OrderStatus.cancelled], processing: [OrderStatus.packed, OrderStatus.cancelled], packed: [OrderStatus.shipped], shipped: [OrderStatus.delivered], delivered: [], cancelled: [], partially_refunded: [], refunded: [], return_requested: [], returned: [] }; if (!allowed[order.status].includes(target)) throw validationError(`Cannot transition ${order.status} to ${target}.`); if (target === OrderStatus.shipped && shipping === shiprocket && !(await prisma.shipment.findFirst({ where: { orderId: order.id, provider: 'shiprocket', status: { not: 'cancelled' } } }))) throw validationError('Book a Shiprocket shipment before marking this order as shipped.'); const updated = await prisma.$transaction(async (tx) => { const next = await tx.order.update({ where: { id: order.id }, data: { status: target } }); await tx.orderStatusEvent.create({ data: { orderId: order.id, fromStatus: order.status, toStatus: target, reason, actorId: user.id } }); if ((target === OrderStatus.cancelled || target === OrderStatus.shipped) && order.checkoutSessionId) { const holds = await tx.inventoryReservation.findMany({ where: { checkoutSessionId: order.checkoutSessionId, releasedAt: null } }); for (const hold of holds) { const claimed = await tx.inventoryReservation.updateMany({ where: { id: hold.id, releasedAt: null }, data: { releasedAt: new Date() } }); if (!claimed.count) continue; await tx.inventoryItem.update({ where: { variantId_locationId: { variantId: hold.variantId, locationId: hold.locationId } }, data: target === OrderStatus.shipped ? { availableQty: { decrement: hold.quantity }, reservedQty: { decrement: hold.quantity } } : { reservedQty: { decrement: hold.quantity } } }); await tx.inventoryMovement.create({ data: { variantId: hold.variantId, locationId: hold.locationId, type: target === OrderStatus.shipped ? 'sale' : 'reservation_release', quantity: hold.quantity, orderId: order.id, actorId: user.id, reason: target === OrderStatus.shipped ? 'Order shipped' : 'Order cancelled' } }) } } return next }); await audit(user, request, `order_${action}`, 'Order', order.id, order, updated, reason); const envelope = { data: updated, meta: { requestId: request.id } }; await idemStore(request, scope, 200, envelope); return reply.send(envelope) })
+  for (const [action, target] of Object.entries(transition)) app.post(`/api/v1/admin/orders/:id/${action}`, async (request, reply) => { const scope = `order-transition:${request.params.id}:${action}`; const replay = await idemReplay(request, scope); if (replay) return reply.status(replay.status).send(replay.body); const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER])(request); const reason = z.string().min(3).parse(request.body?.reason); const order = await prisma.order.findUnique({ where: { id: request.params.id } }); if (!order) throw notFound('Order not found.'); const allowed: Record<OrderStatus, OrderStatus[]> = { pending_payment: [OrderStatus.confirmed, OrderStatus.cancelled], payment_failed: [OrderStatus.confirmed, OrderStatus.cancelled], confirmed: [OrderStatus.processing, OrderStatus.cancelled], processing: [OrderStatus.packed, OrderStatus.cancelled], packed: [OrderStatus.shipped], shipped: [OrderStatus.delivered], delivered: [], cancelled: [], partially_refunded: [], refunded: [], return_requested: [], returned: [] }; if (!allowed[order.status].includes(target)) throw validationError(`Cannot transition ${order.status} to ${target}.`); if (target === OrderStatus.shipped && shipping === delhivery && !(await prisma.shipment.findFirst({ where: { orderId: order.id, provider: 'delhivery', status: { not: 'cancelled' } } }))) throw validationError('Book a Delhivery shipment before marking this order as shipped.'); const updated = await prisma.$transaction(async (tx) => { const next = await tx.order.update({ where: { id: order.id }, data: { status: target } }); await tx.orderStatusEvent.create({ data: { orderId: order.id, fromStatus: order.status, toStatus: target, reason, actorId: user.id } }); if ((target === OrderStatus.cancelled || target === OrderStatus.shipped) && order.checkoutSessionId) { const holds = await tx.inventoryReservation.findMany({ where: { checkoutSessionId: order.checkoutSessionId, releasedAt: null } }); for (const hold of holds) { const claimed = await tx.inventoryReservation.updateMany({ where: { id: hold.id, releasedAt: null }, data: { releasedAt: new Date() } }); if (!claimed.count) continue; await tx.inventoryItem.update({ where: { variantId_locationId: { variantId: hold.variantId, locationId: hold.locationId } }, data: target === OrderStatus.shipped ? { availableQty: { decrement: hold.quantity }, reservedQty: { decrement: hold.quantity } } : { reservedQty: { decrement: hold.quantity } } }); await tx.inventoryMovement.create({ data: { variantId: hold.variantId, locationId: hold.locationId, type: target === OrderStatus.shipped ? 'sale' : 'reservation_release', quantity: hold.quantity, orderId: order.id, actorId: user.id, reason: target === OrderStatus.shipped ? 'Order shipped' : 'Order cancelled' } }) } } return next }); await audit(user, request, `order_${action}`, 'Order', order.id, order, updated, reason); const envelope = { data: updated, meta: { requestId: request.id } }; await idemStore(request, scope, 200, envelope); return reply.send(envelope) })
   routes.patch('/api/v1/admin/orders/:id', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER])(request); const before = await prisma.order.findUnique({ where: { id: request.params.id } }); if (!before) throw notFound('Order not found.'); const updated = await prisma.order.update({ where: { id: before.id }, data: request.body }); await audit(user, request, 'update', 'Order', before.id, before, updated, String(request.body?.reason ?? 'Order update')); return data(reply, updated) })
   routes.post('/api/v1/admin/orders/:id/refund', async (request, reply) => { const replay = await idemReplay(request, 'refund'); if (replay) return reply.status(replay.status).send(replay.body); const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER])(request); const input = z.object({ amountPaise: z.number().int().positive(), reason: z.string().min(3), confirmed: z.literal(true) }).parse(request.body); const order = await prisma.order.findUnique({ where: { id: request.params.id }, include: { payments: true, refunds: true } }); if (!order) throw notFound('Order not found.'); const captured = order.payments.reduce((sum, p) => sum + p.capturedPaise, 0); const refunded = order.refunds.reduce((sum, r) => sum + r.amountPaise, 0); if (input.amountPaise > captured - refunded) throw validationError('Refund cannot exceed captured payment.'); const paymentRecord = order.payments.find((p) => p.status === PaymentStatus.captured); if (!paymentRecord) throw validationError('No captured payment is available for refund.'); const providerRefund = await payment.refund({ paymentId: paymentRecord.providerPaymentId ?? paymentRecord.id, amountPaise: input.amountPaise }); const result = await prisma.$transaction(async (tx) => { const refund = await tx.refund.create({ data: { orderId: order.id, paymentId: paymentRecord.id, amountPaise: input.amountPaise, reason: input.reason, idempotencyKey: String(request.headers['idempotency-key'] ?? randomToken(12)), status: providerRefund.status, actorId: user.id } }); const nextStatus = input.amountPaise === captured ? OrderStatus.refunded : OrderStatus.partially_refunded; await tx.order.update({ where: { id: order.id }, data: { status: nextStatus } }); await tx.payment.update({ where: { id: paymentRecord.id }, data: { status: nextStatus === OrderStatus.refunded ? PaymentStatus.refunded : PaymentStatus.partially_refunded } }); return refund }); await audit(user, request, 'refund', 'Order', order.id, { captured, refunded }, result, input.reason); const response = { refund: result }; await idemStore(request, 'refund', 200, { data: response, meta: { requestId: request.id } }); return data(reply, response) })
   routes.post('/api/v1/admin/orders/:id/notes', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT])(request); const note = await prisma.orderNote.create({ data: { orderId: request.params.id, body: z.string().min(2).parse(request.body?.body), actorId: user.id } }); await audit(user, request, 'note', 'Order', request.params.id, null, note); return data(reply, note) })

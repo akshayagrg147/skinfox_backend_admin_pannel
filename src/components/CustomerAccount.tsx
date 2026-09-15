@@ -1,5 +1,5 @@
 import { Bell, CheckCircle2, CircleDollarSign, ClipboardList, Home, LoaderCircle, LogOut, MapPin, MailCheck, PackageCheck, Pencil, Plus, ShieldCheck, Trash2, UserRound, WalletCards } from 'lucide-react'
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { formatPrice, products } from '../data/products'
 import { deleteStorefront, getStorefront, patchStorefront, postStorefront } from '../lib/storefrontApi'
 import { exchangeFirebaseUser, firebaseAuthErrorMessage, linkEmailPassword, refreshFirebaseUser, resendEmailVerification, signOutFirebase } from '../lib/firebaseAuth'
@@ -410,14 +410,53 @@ function AccountUtilitySection({ section, customer, onNavigate, profileEditing, 
   const content = {
     profile: { eyebrow: 'Personal details', title: 'My profile', description: 'Keep your name and delivery phone number up to date.', icon: <UserRound size={25} />, body: <dl className="account-utility__details"><div><dt>Full name</dt><dd>{customer.fullName || 'SkinFox customer'}</dd></div><div><dt>Email address</dt><dd>{customer.email || 'Not added'}</dd></div><div><dt>Mobile number</dt><dd>{customer.phone || 'Not added'}</dd></div></dl> },
     supercoin: { eyebrow: 'Rewards', title: 'Supercoin', description: 'Supercoin rewards are not enabled for SkinFox yet. We will notify you when the programme launches.', icon: <CircleDollarSign size={25} />, body: <p className="account-utility__note">Your orders and account remain available while rewards are being prepared.</p> },
-    wallet: { eyebrow: 'Payments', title: 'Saved cards & wallet', description: 'Card saving and wallet payments are not available yet.', icon: <WalletCards size={25} />, body: <p className="account-utility__note">You can currently shop using cash on delivery. There’s no need to add or save card details.</p> },
+    wallet: { eyebrow: 'Payments', title: 'Saved cards & wallet', description: 'Card saving and wallet payments are not available yet.', icon: <WalletCards size={25} />, body: <p className="account-utility__note">Payments are completed securely through Razorpay at checkout. SkinFox does not store your card or UPI credentials.</p> },
     notifications: { eyebrow: 'Updates', title: 'Notifications', description: 'Your notification centre is coming soon.', icon: <MailCheck size={25} />, body: <p className="account-utility__note">For now, check My orders for your latest order status. For help, email <a href="mailto:contact@skinfox.in">contact@skinfox.in</a>.</p> },
   }[section]
   return <section className="account-utility" aria-labelledby="account-utility-title"><span className="account-utility__icon">{content.icon}</span><span className="eyebrow">{content.eyebrow}</span><h3 id="account-utility-title">{content.title}</h3><p>{content.description}</p>{section === 'profile' && profileEditing ? <form className="account-utility__edit-form" onSubmit={onSaveProfile}><label className="account-field"><span>Full name</span><input type="text" value={profileName} onChange={(event) => onProfileNameChange(event.target.value)} autoComplete="name" required minLength={2} maxLength={120} /></label><label className="account-field"><span>Mobile number</span><input type="tel" value={profilePhone} onChange={(event) => onProfilePhoneChange(event.target.value)} inputMode="numeric" autoComplete="tel" maxLength={10} placeholder="10-digit mobile number (optional)" /><small>Use an Indian mobile number beginning with 6, 7, 8 or 9.</small></label><p className="account-utility__form-note">Your email address is managed by your secure sign-in provider and cannot be changed here.</p><div className="account-utility__actions"><button type="submit" className="button button--copper" disabled={busy}>Save changes</button><button type="button" className="account-text-button" onClick={onCancelProfile} disabled={busy}>Cancel</button></div></form> : <>{content.body}<div className="account-utility__actions">{section === 'profile' && <button type="button" className="button button--dark" onClick={onEditProfile}>Edit profile</button>}<button type="button" className="button button--copper" onClick={() => onNavigate('orders')}>View orders</button><button type="button" className="account-text-button" onClick={() => onNavigate('addresses')}>Saved addresses</button></div></>}</section>
 }
 
 function CustomerAddressForm({ draft, editing, busy, onChange, onSubmit, onCancel }: { draft: AddressDraft; editing: boolean; busy: boolean; onChange: (draft: AddressDraft) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onCancel: () => void }) {
+  const [pincodeStatus, setPincodeStatus] = useState<'idle' | 'loading' | 'found' | 'error'>('idle')
+  const [pincodeMessage, setPincodeMessage] = useState('')
+  const latestDraft = useRef(draft)
+  const latestOnChange = useRef(onChange)
   const update = <K extends keyof AddressDraft>(field: K, value: AddressDraft[K]) => onChange({ ...draft, [field]: value })
+  useEffect(() => { latestDraft.current = draft }, [draft])
+  useEffect(() => { latestOnChange.current = onChange }, [onChange])
+  useEffect(() => {
+    const pincode = draft.pincode
+    if (!/^[1-9]\d{5}$/.test(pincode)) {
+      setPincodeStatus('idle')
+      setPincodeMessage(pincode ? 'Enter all 6 digits to look up your location.' : '')
+      return
+    }
+    let active = true
+    const timer = window.setTimeout(() => {
+      setPincodeStatus('loading')
+      setPincodeMessage('Looking up city and state…')
+      void getStorefront<{ city?: string | null; state?: string | null }>(`/shipping/pincode/${pincode}`)
+        .then((location) => {
+          if (!active) return
+          const currentDraft = latestDraft.current
+          if (currentDraft.pincode !== pincode) return
+          latestOnChange.current({ ...currentDraft, city: location.city ?? '', state: location.state ?? '' })
+          setPincodeStatus(location.city && location.state ? 'found' : 'error')
+          setPincodeMessage(location.city && location.state ? 'Location confirmed.' : 'We could not identify this pincode. Check the number and try again.')
+        })
+        .catch(() => {
+          if (!active) return
+          setPincodeStatus('error')
+          setPincodeMessage('Location lookup is temporarily unavailable. Try again shortly.')
+        })
+    }, 350)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [draft.pincode])
+  const updatePincode = (value: string) => {
+    onChange({ ...draft, pincode: value, ...(draft.pincode === value ? {} : { city: '', state: '' }) })
+    setPincodeStatus('idle')
+    setPincodeMessage('')
+  }
   return <form className="account-address-form" onSubmit={onSubmit}>
     <div className="account-address-form__heading"><div><span className="eyebrow">{editing ? 'Update address' : 'New address'}</span><h4>{editing ? 'Edit delivery address' : 'Add a delivery address'}</h4></div><button className="account-address-form__close" type="button" onClick={onCancel} disabled={busy} aria-label="Close address form">×</button></div>
     <div className="account-address-form__grid">
@@ -427,9 +466,9 @@ function CustomerAddressForm({ draft, editing, busy, onChange, onSubmit, onCance
       <label className="account-field account-field--wide"><span>Address line</span><input value={draft.addressLine1} onChange={(event) => update('addressLine1', event.target.value)} required minLength={5} maxLength={200} autoComplete="street-address" placeholder="Flat, house no., street" /></label>
       <label className="account-field"><span>Apartment / area</span><input value={draft.addressLine2 ?? ''} onChange={(event) => update('addressLine2', event.target.value)} maxLength={200} placeholder="Optional" /></label>
       <label className="account-field"><span>Landmark</span><input value={draft.landmark ?? ''} onChange={(event) => update('landmark', event.target.value)} maxLength={120} placeholder="Optional" /></label>
-      <label className="account-field"><span>City</span><input value={draft.city} onChange={(event) => update('city', event.target.value)} required minLength={2} maxLength={80} autoComplete="address-level2" /></label>
-      <label className="account-field"><span>State</span><input value={draft.state} onChange={(event) => update('state', event.target.value)} required minLength={2} maxLength={80} autoComplete="address-level1" /></label>
-      <label className="account-field"><span>Pincode</span><input value={draft.pincode} onChange={(event) => update('pincode', event.target.value)} required inputMode="numeric" pattern="[1-9][0-9]{5}" maxLength={6} autoComplete="postal-code" /></label>
+      <label className="account-field"><span>City <small>(from pincode)</small></span><input value={draft.city} readOnly aria-readonly="true" className="field-readonly" required minLength={2} maxLength={80} autoComplete="address-level2" placeholder="City will appear automatically" /></label>
+      <label className="account-field"><span>State <small>(from pincode)</small></span><input value={draft.state} readOnly aria-readonly="true" className="field-readonly" required minLength={2} maxLength={80} autoComplete="address-level1" placeholder="State will appear automatically" /></label>
+      <label className="account-field"><span>Pincode</span><input value={draft.pincode} onChange={(event) => updatePincode(event.target.value.replace(/\D/g, '').slice(0, 6))} required inputMode="numeric" pattern="[1-9][0-9]{5}" maxLength={6} autoComplete="postal-code" aria-describedby="account-pincode-status" /><small id="account-pincode-status" className={`pincode-status pincode-status--${pincodeStatus}`} aria-live="polite">{pincodeMessage}</small></label>
     </div>
     <label className="account-address-form__default"><input type="checkbox" checked={draft.isDefault} onChange={(event) => update('isDefault', event.target.checked)} /> <span>Set as my default delivery address</span></label>
     <div className="account-address-form__actions"><button type="submit" className="button button--copper" disabled={busy}>{busy ? 'Saving…' : editing ? 'Update address' : 'Save address'}</button><button type="button" className="account-text-button" onClick={onCancel} disabled={busy}>Cancel</button></div>

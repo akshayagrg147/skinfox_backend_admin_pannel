@@ -85,6 +85,38 @@
   line-height: 1.45;
 }
 
+.sf-dialog .field-grid input.field-readonly {
+  background: #f7f2f8;
+  color: #65586a;
+  cursor: default;
+}
+
+.sf-dialog .pincode-status {
+  min-height: 1.1em;
+  color: #74687a;
+  font-size: .72rem;
+  line-height: 1.4;
+}
+
+.sf-dialog .pincode-status--found {
+  color: #347354;
+}
+
+.sf-dialog :is(.pincode-status--unavailable, .pincode-status--error) {
+  color: #a33d29;
+}
+
+.sf-dialog .payment-unavailable {
+  margin: 0;
+  padding: 13px;
+  border: 1px solid #e2c9c2;
+  border-radius: 10px;
+  background: #fff7f5;
+  color: #8d493a;
+  font-size: .74rem;
+  line-height: 1.5;
+}
+
 .sf-dialog :is(.account-field input, .field-grid input)::placeholder {
   color: #8a818e;
   opacity: 1;

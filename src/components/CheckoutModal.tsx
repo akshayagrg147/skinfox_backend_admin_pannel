@@ -10,7 +10,7 @@ import { ModalShell } from './ModalShell'
 import { ProductPrice } from './ProductPrice'
 
 type Customer = CustomerAuthResponse['customer']
-type PaymentMethod = 'cod' | 'razorpay'
+type PaymentMethod = 'razorpay'
 type SavedAddress = { id: string; label: string; fullName: string; phone: string; addressLine1: string; addressLine2?: string | null; landmark?: string | null; city: string; state: string; pincode: string; isDefault: boolean }
 type AddressForm = { fullName: string; email: string; phone: string; addressLine1: string; addressLine2: string; landmark: string; city: string; state: string; pincode: string; saveAddress: boolean; saveAsDefault: boolean }
 
@@ -20,7 +20,7 @@ const customerCsrfHeaders = (): Record<string, string> => {
   return csrf ? { 'x-customer-csrf-token': decodeURIComponent(csrf) } : {}
 }
 
-export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChange, cartToken = '', apiAvailable = true, enabledPaymentMethods = ['cod'] }: { open: boolean; lines: CartLine[]; onClose: () => void; onComplete: () => void; onCustomerChange?: (customer: Customer | null) => void; cartToken?: string; apiAvailable?: boolean; enabledPaymentMethods?: PaymentMethod[] }) {
+export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChange, cartToken = '', apiAvailable = true, enabledPaymentMethods = ['razorpay'] }: { open: boolean; lines: CartLine[]; onClose: () => void; onComplete: () => void; onCustomerChange?: (customer: Customer | null) => void; cartToken?: string; apiAvailable?: boolean; enabledPaymentMethods?: PaymentMethod[] }) {
   const [stage, setStage] = useState<'loading' | 'auth' | 'address' | 'complete'>('loading')
   const [customer, setCustomer] = useState<Customer | null>(null)
   const [addresses, setAddresses] = useState<SavedAddress[]>([])
@@ -30,7 +30,9 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
   const [notice, setNotice] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const razorpayEnabled = enabledPaymentMethods.includes('razorpay')
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(razorpayEnabled ? 'razorpay' : 'cod')
+  const [paymentMethod] = useState<PaymentMethod>('razorpay')
+  const [pincodeLookup, setPincodeLookup] = useState<'idle' | 'loading' | 'found' | 'unavailable' | 'error'>('idle')
+  const [pincodeMessage, setPincodeMessage] = useState('')
   const hasPendingPrice = lines.some((line) => line.product.price === null)
   const subtotal = lines.reduce((sum, line) => sum + (line.product.price ?? 0) * line.quantity, 0)
 
@@ -45,7 +47,7 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
   useEffect(() => {
     if (!open) return
     let active = true
-    setError(''); setNotice(''); setSubmitting(false); setSelectedAddressId(''); setForm(emptyAddress); setPaymentMethod(razorpayEnabled ? 'razorpay' : 'cod')
+    setError(''); setNotice(''); setSubmitting(false); setSelectedAddressId(''); setForm(emptyAddress); setPincodeLookup('idle'); setPincodeMessage('')
     setStage(hasPendingPrice ? 'address' : 'loading')
     if (hasPendingPrice || import.meta.env.MODE === 'test') return
     if (!apiAvailable) { setStage('auth'); return }
@@ -59,6 +61,41 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
     }).catch(() => { if (active) setStage('auth') })
     return () => { active = false }
   }, [apiAvailable, open, hasPendingPrice, onCustomerChange, razorpayEnabled])
+
+  useEffect(() => {
+    if (!open || stage !== 'address') return
+    const pincode = form.pincode
+    if (!/^[1-9]\d{5}$/.test(pincode)) {
+      setPincodeLookup('idle')
+      setPincodeMessage(pincode ? 'Enter all 6 digits to look up your location.' : '')
+      return
+    }
+    let active = true
+    const timer = window.setTimeout(() => {
+      setPincodeLookup('loading')
+      setPincodeMessage('Looking up city and state…')
+      void getStorefront<{ city?: string | null; state?: string | null; serviceable?: boolean }>(`/shipping/pincode/${pincode}`)
+        .then((location) => {
+          if (!active) return
+          const city = location.city ?? ''
+          const state = location.state ?? ''
+          setForm((current) => ({ ...current, city, state }))
+          if (city && state) {
+            setPincodeLookup('found')
+            setPincodeMessage(location.serviceable === false ? 'We do not deliver to this pincode yet.' : 'Location confirmed.')
+          } else {
+            setPincodeLookup('unavailable')
+            setPincodeMessage('We could not identify this pincode. Check the number and try again.')
+          }
+        })
+        .catch(() => {
+          if (!active) return
+          setPincodeLookup('error')
+          setPincodeMessage('Location lookup is temporarily unavailable. Try again shortly.')
+        })
+    }, 350)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [form.pincode, open, stage])
 
   const authenticated = async (response: CustomerAuthResponse) => {
     setCustomer(response.customer)
@@ -95,28 +132,31 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
     if (hasPendingPrice) { setError('One or more items are awaiting a confirmed price. Please review your bag.'); return }
     if (!customer || !cartToken) { setStage('auth'); return }
     if (!customer.emailVerified) { setError('Verify your email address before placing an order.'); return }
+    if (!razorpayEnabled) { setError('Online payment is temporarily unavailable. Please try again shortly.'); return }
     if (!/^[6-9]\d{9}$/.test(form.phone.replace(/\D/g, ''))) { setError('Enter a valid 10-digit Indian delivery phone number.'); return }
     if (!/^[1-9]\d{5}$/.test(form.pincode)) { setError('Enter a valid six-digit pincode that does not start with zero.'); return }
+    if (!form.city || !form.state) { setError('Enter a valid pincode so we can confirm the delivery city and state.'); return }
     setSubmitting(true); setError(''); setNotice('')
     try {
       const headers = { 'x-cart-token': cartToken, 'Idempotency-Key': `checkout-${Date.now()}`, ...customerCsrfHeaders() }
       const session = await postStorefront<{ checkoutSessionId: string; orderNumber: string }>('/checkout/sessions', { ...form, phone: form.phone.replace(/\D/g, ''), addressId: selectedAddressId || undefined, paymentMethod, billingSameAsShipping: true }, headers)
-      if (paymentMethod === 'razorpay') {
-        const paymentOrder = await postStorefront<{ orderNumber: string; amountPaise: number; currency: string; keyId: string; orderId: string; name: string; description: string; prefill?: { name?: string; email?: string; contact?: string } }>(`/checkout/sessions/${session.checkoutSessionId}/payment-order`, {}, { 'x-cart-token': cartToken, 'Idempotency-Key': `payment-order-${session.checkoutSessionId}`, ...customerCsrfHeaders() })
-        const payment = await openRazorpayCheckout({ key: paymentOrder.keyId, amount: paymentOrder.amountPaise, currency: paymentOrder.currency, name: paymentOrder.name, description: paymentOrder.description, order_id: paymentOrder.orderId, prefill: paymentOrder.prefill, notes: { order: paymentOrder.orderNumber }, theme: { color: '#4e275e' } })
-        await postStorefront('/payments/razorpay/verify', { razorpayOrderId: payment.razorpay_order_id, razorpayPaymentId: payment.razorpay_payment_id, razorpaySignature: payment.razorpay_signature }, { 'x-cart-token': cartToken, 'Idempotency-Key': `razorpay-verify-${payment.razorpay_payment_id}`, ...customerCsrfHeaders() })
-      } else {
-        await postStorefront(`/checkout/sessions/${session.checkoutSessionId}/confirm-cod`, {}, { 'x-cart-token': cartToken, 'Idempotency-Key': `cod-${Date.now()}`, ...customerCsrfHeaders() })
-      }
+      const paymentOrder = await postStorefront<{ orderNumber: string; amountPaise: number; currency: string; keyId: string; orderId: string; name: string; description: string; prefill?: { name?: string; email?: string; contact?: string } }>(`/checkout/sessions/${session.checkoutSessionId}/payment-order`, {}, { 'x-cart-token': cartToken, 'Idempotency-Key': `payment-order-${session.checkoutSessionId}`, ...customerCsrfHeaders() })
+      const payment = await openRazorpayCheckout({ key: paymentOrder.keyId, amount: paymentOrder.amountPaise, currency: paymentOrder.currency, name: paymentOrder.name, description: paymentOrder.description, order_id: paymentOrder.orderId, prefill: paymentOrder.prefill, notes: { order: paymentOrder.orderNumber }, theme: { color: '#4e275e' } })
+      await postStorefront('/payments/razorpay/verify', { razorpayOrderId: payment.razorpay_order_id, razorpayPaymentId: payment.razorpay_payment_id, razorpaySignature: payment.razorpay_signature }, { 'x-cart-token': cartToken, 'Idempotency-Key': `razorpay-verify-${payment.razorpay_payment_id}`, ...customerCsrfHeaders() })
       setStage('complete'); onComplete()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to complete checkout. Please try again.') } finally { setSubmitting(false) }
   }
 
   const close = () => { setError(''); setNotice(''); setSubmitting(false); setStage('loading'); onClose() }
   const updateForm = (key: keyof AddressForm, value: string | boolean) => setForm((current) => ({ ...current, [key]: value }))
+  const updatePincode = (value: string) => {
+    setForm((current) => ({ ...current, pincode: value, ...(current.pincode === value ? {} : { city: '', state: '' }) }))
+    setPincodeLookup('idle')
+    setPincodeMessage('')
+  }
 
   return <ModalShell open={open} onClose={close} title="Secure SkinFox checkout" className="checkout-modal">
-        {stage === 'complete' ? <div className="checkout-success" role="status"><span><Check size={26} /></span><p className="eyebrow">{paymentMethod === 'razorpay' ? 'Payment confirmed' : 'Cash on delivery confirmed'}</p><h2>Your order is confirmed.</h2><p>{paymentMethod === 'razorpay' ? 'Your payment was received securely. Find the latest status in My orders.' : 'Pay when it arrives, and find the latest status in My orders.'}</p><button className="button button--dark" onClick={close}>Continue shopping</button></div> : <div className="checkout-grid">
+        {stage === 'complete' ? <div className="checkout-success" role="status"><span><Check size={26} /></span><p className="eyebrow">Payment confirmed</p><h2>Your order is confirmed.</h2><p>Your payment was received securely. Find the latest status in My orders.</p><button className="button button--dark" onClick={close}>Continue shopping</button></div> : <div className="checkout-grid">
       <div className="checkout-form-content">
         {stage !== 'loading' && !hasPendingPrice && <ol className="checkout-steps" aria-label="Checkout progress"><li className="is-current" aria-current={stage === 'auth' ? 'step' : undefined}><span>{stage === 'address' ? <Check size={13} aria-hidden="true" /> : '1'}</span>Sign in</li><li className={stage === 'address' ? 'is-current' : ''} aria-current={stage === 'address' ? 'step' : undefined}><span>2</span>Delivery & payment</li></ol>}
         {stage === 'loading' && <div className="checkout-loading" role="status"><LoaderCircle size={24} className="auth-spinner" aria-hidden="true" /><span className="eyebrow">Secure checkout</span><h2>Getting your order ready…</h2></div>}
@@ -132,23 +172,23 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
               <label><span>Full name</span><input value={form.fullName} onChange={(event) => updateForm('fullName', event.target.value)} autoComplete="name" required placeholder="Your name" /></label>
               <label><span>Email <small>(optional)</small></span><input value={form.email} onChange={(event) => updateForm('email', event.target.value)} type="email" autoComplete="email" placeholder="you@example.com" /></label>
               <label><span>Delivery phone</span><input value={form.phone} onChange={(event) => updateForm('phone', event.target.value.replace(/\D/g, '').slice(0, 10))} inputMode="tel" autoComplete="tel" required placeholder="9876543210" /></label>
-              <label><span>Pincode</span><input value={form.pincode} onChange={(event) => updateForm('pincode', event.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="postal-code" maxLength={6} required placeholder="400001" /></label>
+              <label><span>Pincode</span><input value={form.pincode} onChange={(event) => updatePincode(event.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="postal-code" maxLength={6} required placeholder="400001" aria-describedby="pincode-status" /><small id="pincode-status" className={`pincode-status pincode-status--${pincodeLookup}`} aria-live="polite">{pincodeMessage}</small></label>
               <label className="field-grid__wide"><span>Address line 1</span><input value={form.addressLine1} onChange={(event) => updateForm('addressLine1', event.target.value)} autoComplete="street-address" required placeholder="Street and locality" /></label>
               <label className="field-grid__wide"><span>Address line 2 <small>(optional)</small></span><input value={form.addressLine2} onChange={(event) => updateForm('addressLine2', event.target.value)} placeholder="Apartment, suite, etc." /></label>
               <label className="field-grid__wide"><span>Landmark <small>(optional)</small></span><input value={form.landmark} onChange={(event) => updateForm('landmark', event.target.value)} placeholder="Nearby landmark" /></label>
-              <label><span>City</span><input value={form.city} onChange={(event) => updateForm('city', event.target.value)} autoComplete="address-level2" required placeholder="City" /></label>
-              <label><span>State</span><input value={form.state} onChange={(event) => updateForm('state', event.target.value)} autoComplete="address-level1" required placeholder="State" /></label>
+              <label><span>City <small>(from pincode)</small></span><input value={form.city} readOnly aria-readonly="true" className="field-readonly" autoComplete="address-level2" required placeholder="City will appear automatically" /></label>
+              <label><span>State <small>(from pincode)</small></span><input value={form.state} readOnly aria-readonly="true" className="field-readonly" autoComplete="address-level1" required placeholder="State will appear automatically" /></label>
             </div>
             {!selectedAddressId && <label className="consent-check"><input type="checkbox" checked={form.saveAddress} onChange={(event) => updateForm('saveAddress', event.target.checked)} /> <span>Save this address to my account.</span></label>}
             {!selectedAddressId && form.saveAddress && <label className="consent-check"><input type="checkbox" checked={form.saveAsDefault} onChange={(event) => updateForm('saveAsDefault', event.target.checked)} /> <span>Make this my default address.</span></label>}
-            <fieldset className="payment-options"><legend>Payment method</legend><label className={paymentMethod === 'cod' ? 'is-selected' : ''}><input type="radio" name="paymentMethod" value="cod" checked={paymentMethod === 'cod'} onChange={() => setPaymentMethod('cod')} /><LockKeyhole size={18} /><span><strong>Cash on delivery</strong><small>Pay on arrival. No card details needed.</small></span></label>{razorpayEnabled && <label className={paymentMethod === 'razorpay' ? 'is-selected' : ''}><input type="radio" name="paymentMethod" value="razorpay" checked={paymentMethod === 'razorpay'} onChange={() => setPaymentMethod('razorpay')} /><LockKeyhole size={18} /><span><strong>Pay online with Razorpay</strong><small>Cards, UPI and wallets are handled securely by Razorpay.</small></span></label>}</fieldset>
+            <fieldset className="payment-options"><legend>Payment method</legend>{razorpayEnabled ? <label className="is-selected"><input type="radio" name="paymentMethod" value="razorpay" checked readOnly /><LockKeyhole size={18} /><span><strong>Pay securely online with Razorpay</strong><small>Cards, UPI and wallets are handled securely by Razorpay.</small></span></label> : <p className="payment-unavailable" role="status">Online payment is temporarily unavailable. Please try again shortly.</p>}</fieldset>
           </>}
           {error && <p className="form-error" role="alert">{error}</p>}{notice && <p className="auth-notice" role="status">{notice}</p>}
-          <button className="button button--copper checkout-submit" type="submit" disabled={submitting || hasPendingPrice || Boolean(customer && !customer.emailVerified)}>{submitting ? <LoaderCircle size={16} className="auth-spinner" aria-hidden="true" /> : <LockKeyhole size={16} aria-hidden="true" />} {hasPendingPrice ? 'Awaiting confirmed prices' : submitting ? 'Placing your order…' : paymentMethod === 'razorpay' ? 'Continue to secure payment' : 'Place cash-on-delivery order'}</button>
+          <button className="button button--copper checkout-submit" type="submit" disabled={submitting || hasPendingPrice || !razorpayEnabled || !form.city || !form.state || Boolean(customer && !customer.emailVerified)}>{submitting ? <LoaderCircle size={16} className="auth-spinner" aria-hidden="true" /> : <LockKeyhole size={16} aria-hidden="true" />} {hasPendingPrice ? 'Awaiting confirmed prices' : submitting ? 'Placing your order…' : 'Continue to secure payment'}</button>
         </form>}
         {stage !== 'address' && stage !== 'auth' && error && <p className="form-error" role="alert">{error}</p>}
       </div>
-      <aside className="checkout-summary" aria-label="Order summary"><span className="eyebrow">Your selection</span><h3>Order summary</h3>{lines.map((line) => <div key={line.product.id}><span>{line.product.name} <i>× {line.quantity}</i></span><ProductPrice product={line.product} quantity={line.quantity} compact className="checkout-line-price" /></div>)}<hr /><div><span>Shipping</span><strong>{hasPendingPrice ? 'Price pending' : 'Calculated by pincode'}</strong></div><div className="checkout-total"><span>Items subtotal</span><strong>{hasPendingPrice ? 'Price pending' : formatPrice(subtotal)}</strong></div><p className="checkout-summary__note"><LockKeyhole size={14} aria-hidden="true" />{paymentMethod === 'razorpay' ? 'Secure online payment by Razorpay' : 'Cash on delivery available'}</p></aside>
+      <aside className="checkout-summary" aria-label="Order summary"><span className="eyebrow">Your selection</span><h3>Order summary</h3>{lines.map((line) => <div key={line.product.id}><span>{line.product.name} <i>× {line.quantity}</i></span><ProductPrice product={line.product} quantity={line.quantity} compact className="checkout-line-price" /></div>)}<hr /><div><span>Shipping</span><strong>{hasPendingPrice ? 'Price pending' : 'Calculated by pincode'}</strong></div><div className="checkout-total"><span>Items subtotal</span><strong>{hasPendingPrice ? 'Price pending' : formatPrice(subtotal)}</strong></div><p className="checkout-summary__note"><LockKeyhole size={14} aria-hidden="true" />Secure online payment by Razorpay</p></aside>
     </div>}
   </ModalShell>
 }

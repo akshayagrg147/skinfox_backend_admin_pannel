@@ -24,7 +24,7 @@ export type CareFinderApi = {
 }
 export type HomeApi = { sections?: Array<Record<string, unknown>>; campaignSlides?: CampaignApiSlide[]; faqs?: Array<{ question: string; answer: string }>; careMoments?: Array<Record<string, unknown>>; announcement?: string | null }
 export type LaunchPromotion = { id: string; enabled: boolean; discountPercent: number; maximumOrders: number; successfulOrders: number; remainingOrders: number; status: 'active' | 'paused' | 'scheduled' | 'completed' | 'ended'; message: string }
-export type PaymentMethod = 'cod' | 'razorpay'
+export type PaymentMethod = 'razorpay'
 
 const fixedProductBySlug = new Map(seedProducts.map((product) => [product.id, product]))
 
@@ -82,7 +82,7 @@ export function useStorefront() {
   const [home, setHome] = useState<HomeApi | null>(null)
   const [careFinder, setCareFinder] = useState<CareFinderApi | null>(null)
   const [promotion, setPromotion] = useState<LaunchPromotion>({ id: 'skinfox-launch-50', enabled: true, discountPercent: 50, maximumOrders: 500, successfulOrders: 0, remainingOrders: 500, status: 'active', message: 'Exclusive launch access — enjoy 50% off for the first 500 orders.' })
-  const [enabledPaymentMethods, setEnabledPaymentMethods] = useState<PaymentMethod[]>(['cod'])
+  const [enabledPaymentMethods, setEnabledPaymentMethods] = useState<PaymentMethod[]>(['razorpay'])
   const [loading, setLoading] = useState(!isTest && !isServer)
   const [error, setError] = useState('')
   useEffect(() => {
@@ -96,7 +96,7 @@ export function useStorefront() {
       setFaqs(homePayload.faqs?.length ? homePayload.faqs : faqItems)
       setCareFinder(finder)
       if (bootstrap.promotion) setPromotion(bootstrap.promotion)
-      if (Array.isArray(bootstrap.enabledPaymentMethods) && bootstrap.enabledPaymentMethods.length) setEnabledPaymentMethods(bootstrap.enabledPaymentMethods)
+      if (Array.isArray(bootstrap.enabledPaymentMethods)) setEnabledPaymentMethods(bootstrap.enabledPaymentMethods)
       setError('')
     }).catch((cause: unknown) => { if (!cancelled) setError(cause instanceof Error ? cause.message : 'The SkinFox API is unavailable.') }).finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }

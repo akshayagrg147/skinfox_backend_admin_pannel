@@ -57,6 +57,10 @@ function browserStorage(): Storage | null {
   }
 }
 
+function isMissingCartError(cause: unknown): boolean {
+  return cause instanceof Error && /cart not found or expired/i.test(cause.message)
+}
+
 function readInitialCart(): CartLine[] {
   if (import.meta.env.MODE !== 'test') return []
   try {
@@ -106,7 +110,20 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
 
   useEffect(() => {
     if (!storefront.apiMode || !cartToken) return
-    getStorefront<any>(`/carts/${cartToken}`).then((response) => setCart((response.lines ?? []).map((line: any) => ({ product: mapProduct(line.product), quantity: line.quantity })))).catch(() => undefined)
+    getStorefront<any>(`/carts/${cartToken}`)
+      .then((response) => setCart((response.lines ?? []).map((line: any) => ({ product: mapProduct(line.product), quantity: line.quantity }))))
+      .catch((cause: unknown) => {
+        // A cart token is persisted for convenience, but the API can expire or
+        // replace it (for example after a database reset). Clear it so the
+        // next add starts a fresh cart instead of failing on every attempt.
+        if (!isMissingCartError(cause)) return
+        // This request may have started before an add-to-cart retry replaced
+        // the token. Do not clear the newer cart in that case.
+        if (browserStorage()?.getItem('skinfox-cart-token') !== cartToken) return
+        browserStorage()?.removeItem('skinfox-cart-token')
+        setCartToken('')
+        setCart([])
+      })
   }, [cartToken, storefront.apiMode])
 
   useEffect(() => {
@@ -181,17 +198,47 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
     if (!storefront.apiMode || !cartToken) return
     void trackAffiliateReferral(cartToken).catch(() => undefined)
   }, [cartToken, storefront.apiMode])
-  const ensureCartToken = async () => {
-    if (cartToken) return cartToken
+  const ensureCartToken = async (forceNew = false) => {
+    if (cartToken && !forceNew) return cartToken
     const response = await postStorefront<any>('/carts', {})
     const token = response.token ?? response.cartId
+    if (!token) throw new Error('Unable to create a shopping bag. Please try again.')
     setCartToken(token)
     browserStorage()?.setItem('skinfox-cart-token', token)
     return token
   }
   const addToCart = (product: Product, quantity = 1, openCart = false) => {
     if (storefront.apiMode) {
-      void ensureCartToken().then((token) => postStorefront<any>(`/carts/${token}/items`, { productId: product.id, quantity }, { 'x-cart-token': token })).then((response) => { applyCartResponse(response); const issue = Array.isArray(response.validationMessages) ? response.validationMessages[0] : ''; if (issue) throw new Error(issue); return response }).then(() => { setToast(`${product.name} added to your edit`); if (openCart) setCartOpen(true) }).catch((cause: unknown) => setToast(cause instanceof Error ? cause.message : 'Unable to update your bag'))
+      const addLine = (token: string) => postStorefront<any>(
+        `/carts/${token}/items`,
+        { productId: product.id, quantity },
+        { 'x-cart-token': token },
+      )
+      void ensureCartToken()
+        .then(async (token) => {
+          try {
+            return await addLine(token)
+          } catch (cause) {
+            if (!isMissingCartError(cause)) throw cause
+            // Recover once from a stale token kept in localStorage. The retry
+            // is deliberately bounded so real API failures still surface.
+            browserStorage()?.removeItem('skinfox-cart-token')
+            setCartToken('')
+            const freshToken = await ensureCartToken(true)
+            return addLine(freshToken)
+          }
+        })
+        .then((response) => {
+          applyCartResponse(response)
+          const issue = Array.isArray(response.validationMessages) ? response.validationMessages[0] : ''
+          if (issue) throw new Error(issue)
+          return response
+        })
+        .then(() => {
+          setToast(`${product.name} added to your edit`)
+          if (openCart) setCartOpen(true)
+        })
+        .catch((cause: unknown) => setToast(cause instanceof Error ? cause.message : 'Unable to update your bag'))
       return
     }
     setCart((current) => {
