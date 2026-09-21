@@ -348,7 +348,7 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
           </div>
         </section>
 
-        <CampaignSlideshow slides={storefront.campaigns.length ? storefront.campaigns.map((slide) => ({ id: slide.id, kind: slide.kind, src: slide.desktopSrc, mobileSrc: slide.mobileSrc, poster: slide.poster, orientation: 'landscape' as const, durationMs: slide.durationMs, eyebrow: slide.textOverlay?.eyebrow ?? '', title: slide.textOverlay?.title ?? 'Daily care, in motion.', description: slide.textOverlay?.description ?? '', alt: slide.alt })) : undefined} />
+        <CampaignSlideshow slides={storefront.campaigns.length ? storefront.campaigns.map((slide) => ({ id: slide.id, kind: slide.kind, src: slide.desktopSrc, mobileSrc: slide.mobileSrc, poster: slide.poster, autoplay: slide.autoplay, orientation: 'landscape' as const, durationMs: slide.durationMs, eyebrow: slide.textOverlay?.eyebrow ?? '', title: slide.textOverlay?.title ?? 'Daily care, in motion.', description: slide.textOverlay?.description ?? '', alt: slide.alt })) : undefined} />
 
         <section id="shop" className="collection section-pad">
           <div className="shell">

@@ -8,6 +8,7 @@ export type CampaignSlide = {
   src: string
   mobileSrc?: string
   poster?: string
+  autoplay?: boolean
   orientation: 'portrait' | 'landscape'
   durationMs: number
   eyebrow: string
@@ -67,26 +68,20 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
   const campaignSlides = slides?.length ? slides : defaultCampaignSlides
   const [activeIndex, setActiveIndex] = useState(0)
   const prefersReducedMotion = useReducedMotion()
-  // Keep campaign media paused until the section is reached. This avoids
-  // starting a video while the storefront is still loading above the fold.
+  // Campaign films start only when the video itself enters the viewport.
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(true)
   const [isVisible, setIsVisible] = useState(false)
   const [isPageVisible, setIsPageVisible] = useState(() => !isBrowser || document.visibilityState !== 'hidden')
-  const sectionRef = useRef<HTMLElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const playAttemptRef = useRef(0)
-  const isVisibleRef = useRef(false)
-  const hasUserInteractedRef = useRef(false)
   const safeIndex = Math.min(activeIndex, campaignSlides.length - 1)
   const slide = campaignSlides[safeIndex]
   const hasMultipleSlides = campaignSlides.length > 1
   const playbackActive = isPlaying && isVisible && isPageVisible
 
-  // Keep the media start attempt in one place. Calling play() directly from a
-  // user gesture (the reel controls or a scroll gesture) is important on
-  // mobile browsers, which may reject a later effect-only play request even
-  // for a muted inline video.
+  // Keep the media start attempt in one place. Playback is muted and inline,
+  // which allows browsers to autoplay it when the video reaches the viewport.
   const startVideoPlayback = useCallback(() => {
     const video = videoRef.current
     if (!video || slide.kind !== 'video') return
@@ -119,72 +114,36 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
   }, [isMuted, slide.kind])
 
   useEffect(() => {
-    const section = sectionRef.current
-    if (!section) return
+    const video = videoRef.current
+    if (slide.kind !== 'video' || !video) {
+      setIsVisible(false)
+      setIsPlaying(false)
+      return
+    }
 
-    // IntersectionObserver is supported by all current browsers. The
-    // fallback keeps the controls usable in older browsers while still
-    // waiting for an explicit browsing gesture before attempting autoplay.
+    // Observe the actual media, rather than the much taller carousel section.
+    // This reliably triggers on mobile layouts where the entire section may
+    // never reach a useful viewport-intersection ratio.
     if (typeof IntersectionObserver === 'undefined') {
-      isVisibleRef.current = true
       setIsVisible(true)
+      if (slide.autoplay !== false && !prefersCalmPlayback()) startVideoPlayback()
       return
     }
 
     const visibilityObserver = new IntersectionObserver(([entry]) => {
-      const visible = Boolean(entry?.isIntersecting)
-      isVisibleRef.current = visible
+      const visible = Boolean(entry?.isIntersecting && (entry.intersectionRatio ?? 0) >= 0.2)
       setIsVisible(visible)
 
       if (!visible) {
-        // Leaving the section pauses the reel and lets it start cleanly when
-        // the customer comes back to it.
+        // Leaving the video pauses it and lets it resume when it re-enters.
         setIsPlaying(false)
-      } else if (hasUserInteractedRef.current && !prefersCalmPlayback()) {
+      } else if (slide.autoplay !== false && document.visibilityState !== 'hidden' && !prefersCalmPlayback()) {
         startVideoPlayback()
       }
-    }, { threshold: 0.35, rootMargin: '0px 0px -8% 0px' })
-    visibilityObserver.observe(section)
+    }, { threshold: [0, 0.2] })
+    visibilityObserver.observe(video)
     return () => visibilityObserver.disconnect()
-  }, [startVideoPlayback])
-
-  useEffect(() => {
-    const markUserInteraction = () => {
-      hasUserInteractedRef.current = true
-
-      const section = sectionRef.current
-      const rect = section?.getBoundingClientRect()
-      const viewportHeight = isBrowser ? window.innerHeight : 0
-      const sectionInViewport = Boolean(rect && rect.bottom > 0 && rect.top < viewportHeight && (Math.min(rect.bottom, viewportHeight) - Math.max(rect.top, 0)) / rect.height >= 0.35)
-
-      // A wheel, touch or keyboard gesture is an explicit signal
-      // that the customer is browsing. Browser scroll restoration on refresh
-      // does not emit these events, so it cannot unexpectedly start playback.
-      if ((isVisibleRef.current || sectionInViewport) && !prefersCalmPlayback()) {
-        if (!isVisibleRef.current && sectionInViewport) {
-          isVisibleRef.current = true
-          setIsVisible(true)
-        }
-        startVideoPlayback()
-      }
-    }
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLElement && event.target.closest('button, a, input, textarea, select')) return
-      if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(event.key)) {
-        markUserInteraction()
-      }
-    }
-
-    window.addEventListener('wheel', markUserInteraction, { passive: true })
-    window.addEventListener('touchmove', markUserInteraction, { passive: true })
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('wheel', markUserInteraction)
-      window.removeEventListener('touchmove', markUserInteraction)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [startVideoPlayback])
+  }, [slide.autoplay, slide.id, slide.kind, startVideoPlayback])
 
   useEffect(() => {
     const updateVisibility = () => setIsPageVisible(document.visibilityState !== 'hidden')
@@ -281,7 +240,6 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
 
   return (
     <section
-      ref={sectionRef}
       className={`campaign-slideshow campaign-slideshow--${slide.orientation} campaign-slideshow--${slide.kind} ${playbackActive ? '' : 'is-paused'}`}
       role="region"
       aria-labelledby="campaign-slideshow-title"

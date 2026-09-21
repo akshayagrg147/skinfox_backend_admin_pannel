@@ -8,13 +8,14 @@ describe('CampaignSlideshow viewport playback', () => {
   let notifyIntersection: ObserverCallback | undefined
   let play: ReturnType<typeof vi.fn>
   let pause: ReturnType<typeof vi.fn>
+  let observedElement: Element | undefined
 
   beforeEach(() => {
     class TestIntersectionObserver implements IntersectionObserver {
       readonly root = null
       readonly rootMargin = '0px'
-      readonly thresholds = [0.35]
-      readonly observe = vi.fn()
+      readonly thresholds = [0, 0.2]
+      readonly observe = vi.fn((target: Element) => { observedElement = target })
       readonly disconnect = vi.fn()
       readonly takeRecords = vi.fn(() => [])
       readonly unobserve = vi.fn()
@@ -36,9 +37,10 @@ describe('CampaignSlideshow viewport playback', () => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
     notifyIntersection = undefined
+    observedElement = undefined
   })
 
-  it('keeps the video paused on initial load and starts after scroll and viewport entry', async () => {
+  it('autoplays muted when the video itself enters the viewport and pauses when it leaves', async () => {
     render(<CampaignSlideshow slides={[{
       id: 'campaign-film',
       kind: 'video',
@@ -52,23 +54,45 @@ describe('CampaignSlideshow viewport playback', () => {
       alt: 'Campaign film',
     }]} />)
 
+    const campaignVideo = screen.getByRole('region', { name: /daily care, in motion/i }).querySelector('video')
+    expect(observedElement).toBe(campaignVideo)
     expect(play).not.toHaveBeenCalled()
-    expect(screen.getByRole('region', { name: /daily care, in motion/i }).querySelector('video'))
-      .not.toHaveAttribute('autoplay')
+    expect(campaignVideo).not.toHaveAttribute('autoplay')
 
     await act(async () => {
-      notifyIntersection?.([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver)
+      notifyIntersection?.([{ isIntersecting: true, intersectionRatio: 0.5 } as IntersectionObserverEntry], {} as IntersectionObserver)
     })
-    expect(play).not.toHaveBeenCalled()
-
-    fireEvent.wheel(window)
-
     expect(play).toHaveBeenCalledOnce()
+    expect(campaignVideo).toHaveProperty('muted', true)
 
     await act(async () => {
-      notifyIntersection?.([{ isIntersecting: false } as IntersectionObserverEntry], {} as IntersectionObserver)
+      notifyIntersection?.([{ isIntersecting: false, intersectionRatio: 0 } as IntersectionObserverEntry], {} as IntersectionObserver)
     })
 
     expect(screen.getByRole('button', { name: 'Play campaign film' })).toBeInTheDocument()
+  })
+
+  it('respects the campaign autoplay setting and keeps manual playback available', async () => {
+    render(<CampaignSlideshow slides={[{
+      id: 'campaign-film',
+      kind: 'video',
+      src: '/media/campaign-film.mp4',
+      poster: '/media/campaign-film.jpg',
+      autoplay: false,
+      orientation: 'landscape',
+      durationMs: 10000,
+      eyebrow: 'Campaign film',
+      title: 'Daily care, in motion.',
+      description: 'A campaign film.',
+      alt: 'Campaign film',
+    }]} />)
+
+    await act(async () => {
+      notifyIntersection?.([{ isIntersecting: true, intersectionRatio: 0.5 } as IntersectionObserverEntry], {} as IntersectionObserver)
+    })
+    expect(play).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Play campaign film' }))
+    expect(play).toHaveBeenCalledOnce()
   })
 })
