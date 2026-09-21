@@ -78,6 +78,8 @@ describe('CampaignSlideshow viewport playback', () => {
     })
     expect(play).toHaveBeenCalledOnce()
     expect(campaignVideo).toHaveProperty('muted', true)
+    expect(campaignVideo).toHaveProperty('defaultMuted', true)
+    expect(campaignVideo).toHaveAttribute('muted')
     expect(campaignVideo).toHaveAttribute('autoplay')
 
     await act(async () => {

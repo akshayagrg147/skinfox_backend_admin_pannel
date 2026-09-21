@@ -128,6 +128,11 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
       return
     }
 
+    // React controls the live muted property, but doesn't emit the native
+    // `muted` attribute. Set the default before the browser's autoplay check.
+    video.defaultMuted = true
+    video.setAttribute('muted', '')
+
     const applyVisibility = (visible: boolean) => {
       setIsVisible(visible)
 
