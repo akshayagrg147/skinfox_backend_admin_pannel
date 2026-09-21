@@ -31,18 +31,23 @@ describe('CampaignSlideshow viewport playback', () => {
     pause = vi.fn()
     Object.defineProperty(HTMLMediaElement.prototype, 'play', { configurable: true, value: play })
     Object.defineProperty(HTMLMediaElement.prototype, 'pause', { configurable: true, value: pause })
+    vi.spyOn(HTMLMediaElement.prototype, 'readyState', 'get').mockReturnValue(HTMLMediaElement.HAVE_ENOUGH_DATA)
     videoTop = 1200
-    vi.spyOn(HTMLVideoElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({
-      x: 0,
-      y: videoTop,
-      left: 0,
-      top: videoTop,
-      right: 640,
-      bottom: videoTop + 360,
-      width: 640,
-      height: 360,
-      toJSON: () => ({}),
-    }) as DOMRect)
+    const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (!this.classList.contains('campaign-slideshow__media-surface')) return originalGetBoundingClientRect.call(this)
+      return {
+        x: 0,
+        y: videoTop,
+        left: 0,
+        top: videoTop,
+        right: 640,
+        bottom: videoTop + 360,
+        width: 640,
+        height: 360,
+        toJSON: () => ({}),
+      } as DOMRect
+    })
     Object.defineProperty(window, 'scrollY', { configurable: true, value: 0, writable: true })
   })
 
@@ -68,14 +73,16 @@ describe('CampaignSlideshow viewport playback', () => {
       alt: 'Campaign film',
     }]} />)
 
-    const campaignVideo = screen.getByRole('region', { name: /daily care, in motion/i }).querySelector('video')
-    expect(observedElement).toBe(campaignVideo)
+    const region = screen.getByRole('region', { name: /daily care, in motion/i })
+    expect(observedElement).toBe(region.querySelector('.campaign-slideshow__media-surface'))
     expect(play).not.toHaveBeenCalled()
-    expect(campaignVideo).not.toHaveAttribute('autoplay')
+    expect(region.querySelector('video')).not.toBeInTheDocument()
 
     await act(async () => {
       notifyIntersection?.([{ isIntersecting: true, intersectionRatio: 0.5 } as IntersectionObserverEntry], {} as IntersectionObserver)
     })
+    const campaignVideo = region.querySelector('video')
+    expect(campaignVideo).toBeInTheDocument()
     expect(play).toHaveBeenCalledOnce()
     expect(campaignVideo).toHaveProperty('muted', true)
     expect(campaignVideo).toHaveProperty('defaultMuted', true)
@@ -87,7 +94,7 @@ describe('CampaignSlideshow viewport playback', () => {
     })
 
     expect(screen.getByRole('button', { name: 'Play campaign film' })).toBeInTheDocument()
-    expect(campaignVideo).not.toHaveAttribute('autoplay')
+    expect(region.querySelector('video')).not.toBeInTheDocument()
   })
 
   it('respects the campaign autoplay setting and keeps manual playback available', async () => {
@@ -108,6 +115,7 @@ describe('CampaignSlideshow viewport playback', () => {
     await act(async () => {
       notifyIntersection?.([{ isIntersecting: true, intersectionRatio: 0.5 } as IntersectionObserverEntry], {} as IntersectionObserver)
     })
+    expect(screen.getByRole('region', { name: /daily care, in motion/i }).querySelector('video')).toBeInTheDocument()
     expect(play).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: 'Play campaign film' }))

@@ -75,6 +75,7 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
   const [isVisible, setIsVisible] = useState(false)
   const [isPageVisible, setIsPageVisible] = useState(() => !isBrowser || document.visibilityState !== 'hidden')
   const videoRef = useRef<HTMLVideoElement>(null)
+  const mediaRef = useRef<HTMLDivElement>(null)
   const playAttemptRef = useRef(0)
   const safeIndex = Math.min(activeIndex, campaignSlides.length - 1)
   const slide = campaignSlides[safeIndex]
@@ -121,17 +122,12 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
   }, [isMuted, slide.kind])
 
   useEffect(() => {
-    const video = videoRef.current
-    if (slide.kind !== 'video' || !video) {
+    const target = mediaRef.current
+    if (slide.kind !== 'video' || !target) {
       setIsVisible(false)
       setIsPlaying(false)
       return
     }
-
-    // React controls the live muted property, but doesn't emit the native
-    // `muted` attribute. Set the default before the browser's autoplay check.
-    video.defaultMuted = true
-    video.setAttribute('muted', '')
 
     const applyVisibility = (visible: boolean) => {
       setIsVisible(visible)
@@ -139,8 +135,12 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
       if (!visible) {
         // Leaving the video pauses it and lets it resume when it re-enters.
         setIsPlaying(false)
-      } else if (slide.autoplay !== false && document.visibilityState !== 'hidden' && !prefersCalmPlayback()) {
-        startVideoPlayback()
+        const video = videoRef.current
+        if (video) {
+          playAttemptRef.current += 1
+          if (!video.paused) video.pause()
+          try { video.currentTime = 0 } catch { /* Some media streams are not seekable. */ }
+        }
       }
     }
 
@@ -148,7 +148,7 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
     // and resize is a fallback for browsers/webviews that miss the first
     // intersection transition after hydration or a restored scroll position.
     const checkViewport = () => {
-      const rect = video.getBoundingClientRect()
+      const rect = target.getBoundingClientRect()
       const area = rect.width * rect.height
       if (!area) {
         applyVisibility(false)
@@ -164,7 +164,7 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
       : new IntersectionObserver(([entry]) => {
         applyVisibility(Boolean(entry?.isIntersecting && (entry.intersectionRatio ?? 0) >= 0.2))
       }, { threshold: [0, 0.2] })
-    visibilityObserver?.observe(video)
+    visibilityObserver?.observe(target)
     // Listen in capture phase as scroll events from the document scrolling
     // element do not bubble consistently across browsers and embedded views.
     document.addEventListener('scroll', checkViewport, { passive: true, capture: true })
@@ -182,7 +182,7 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
       window.removeEventListener('resize', checkViewport)
       window.clearInterval(visibilityPoll)
     }
-  }, [slide.autoplay, slide.id, slide.kind, startVideoPlayback])
+  }, [slide.id, slide.kind])
 
   useEffect(() => {
     const updateVisibility = () => setIsPageVisible(document.visibilityState !== 'hidden')
@@ -209,8 +209,19 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
   useEffect(() => {
     const video = videoRef.current
     if (slide.kind !== 'video' || !video) return
+
+    // React controls the live muted property, but doesn't emit the native
+    // `muted` attribute. Set the default before the browser's autoplay check.
+    video.defaultMuted = true
+    video.setAttribute('muted', '')
+
     let active = true
-    if (playbackActive) {
+    const canStart = isVisible
+      && isPageVisible
+      && slide.autoplay !== false
+      && !prefersReducedMotion
+      && !prefersCalmPlayback()
+    if (canStart) {
       // play() resolves to a promise in browsers, but to undefined in some environments.
       // A canplay retry covers slower mobile media loads without leaving the
       // control in a misleading "pause" state.
@@ -234,7 +245,7 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
       }
     }
     return () => { active = false }
-  }, [isPageVisible, isVisible, isMuted, playbackActive, slide.id, slide.kind, startVideoPlayback])
+  }, [isPageVisible, isVisible, isMuted, prefersReducedMotion, slide.autoplay, slide.id, slide.kind, startVideoPlayback])
 
   const move = (direction: -1 | 1) => {
     setActiveIndex((current) => (current + direction + campaignSlides.length) % campaignSlides.length)
@@ -318,28 +329,34 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
             >
               <div className="campaign-slideshow__media">
                 <span className="campaign-slideshow__media-backdrop" aria-hidden="true" />
+                <div ref={mediaRef} className="campaign-slideshow__media-surface">
                 {slide.kind === 'video' ? (
-                  <video
-                    ref={videoRef}
-                    src={slide.src}
-                    poster={slide.poster}
-                    aria-label={slide.alt}
-                    muted={isMuted}
-                    autoPlay={canAutoplayInView}
-                    loop={!hasMultipleSlides}
-                    playsInline
-                    preload="metadata"
-                    onPlay={() => setIsPlaying(true)}
-                    onPause={(event) => { if (playbackActive && videoRef.current === event.currentTarget) setIsPlaying(false) }}
-                    onError={() => setIsPlaying(false)}
-                    onEnded={() => hasMultipleSlides && advanceWhenActive(slide.id)}
-                  />
+                  isVisible ? (
+                    <video
+                      ref={videoRef}
+                      src={slide.src}
+                      poster={slide.poster}
+                      aria-label={slide.alt}
+                      muted={isMuted}
+                      autoPlay={canAutoplayInView}
+                      loop={!hasMultipleSlides}
+                      playsInline
+                      preload="metadata"
+                      onPlay={() => setIsPlaying(true)}
+                      onPause={(event) => { if (playbackActive && videoRef.current === event.currentTarget) setIsPlaying(false) }}
+                      onError={() => setIsPlaying(false)}
+                      onEnded={() => hasMultipleSlides && advanceWhenActive(slide.id)}
+                    />
+                  ) : (
+                    <img src={slide.poster ?? slide.src} alt={slide.alt} decoding="async" loading="lazy" />
+                  )
                 ) : (
                   <picture>
                     {slide.mobileSrc && <source media="(max-width: 720px)" srcSet={slide.mobileSrc} />}
                     <img src={slide.src} alt={slide.alt} decoding="async" loading="lazy" width={slide.orientation === 'landscape' ? 1600 : 1000} height={slide.orientation === 'landscape' ? 900 : 1400} />
                   </picture>
                 )}
+                </div>
                 <span className="campaign-slideshow__scrim" aria-hidden="true" />
                 <div className="campaign-slideshow__media-topline" aria-hidden="true">
                   <span>SkinFox / Campaign {String(safeIndex + 1).padStart(2, '0')}</span>

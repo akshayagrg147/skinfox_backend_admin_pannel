@@ -92,18 +92,16 @@ describe('SkinFox storefront', () => {
     expect(screen.queryByText(/rooted in six botanicals/i)).not.toBeInTheDocument()
   })
 
-  it('cycles through the supplied campaign video and landscape images', async () => {
+  it('keeps the campaign film poster offscreen and cycles through landscape images', async () => {
     render(<App />)
 
     const slideshow = screen.getByRole('region', { name: /daily care, in motion/i })
-    const campaignVideo = slideshow.querySelector('video')
-    expect(campaignVideo).not.toBeNull()
-    expect(campaignVideo).toHaveAttribute('src', '/media/rayyvia-campaign-slide-01-v2.mp4')
-    expect(campaignVideo).toHaveAttribute('poster', '/media/rayyvia-campaign-slide-01-v2-poster.jpg')
+    expect(slideshow.querySelector('video')).not.toBeInTheDocument()
+    expect(within(slideshow).getByRole('img', { name: /campaign film/i })).toHaveAttribute(
+      'src',
+      '/media/rayyvia-campaign-slide-01-v2-poster.jpg',
+    )
     expect(slideshow).toHaveClass('campaign-slideshow--landscape', 'campaign-slideshow--video')
-    expect(campaignVideo).not.toHaveAttribute('autoplay')
-    expect(campaignVideo).not.toHaveAttribute('loop')
-    expect(campaignVideo).toHaveProperty('muted', true)
 
     const nextButton = within(slideshow).getByRole('button', { name: /next campaign slide/i })
     expect(nextButton).toBeEnabled()
@@ -115,9 +113,6 @@ describe('SkinFox storefront', () => {
         '/media/rayyvia-campaign-slide-02.jpg',
       )
     })
-
-    fireEvent.ended(campaignVideo!)
-    expect(within(slideshow).getByRole('img', { name: /campaign banner with two women/i })).toBeInTheDocument()
 
     fireEvent.click(nextButton)
     await waitFor(() => {
