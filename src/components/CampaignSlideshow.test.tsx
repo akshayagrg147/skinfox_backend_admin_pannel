@@ -47,6 +47,7 @@ describe('CampaignSlideshow viewport playback', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
     notifyIntersection = undefined
@@ -127,6 +128,33 @@ describe('CampaignSlideshow viewport playback', () => {
     expect(play).not.toHaveBeenCalled()
     videoTop = 100
     fireEvent.scroll(window)
+
+    expect(play).toHaveBeenCalledOnce()
+    expect(screen.getByRole('button', { name: 'Pause campaign film' })).toBeInTheDocument()
+  })
+
+  it('starts playback when the visibility poll catches a missed browser scroll event', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    render(<CampaignSlideshow slides={[{
+      id: 'campaign-film',
+      kind: 'video',
+      src: '/media/campaign-film.mp4',
+      poster: '/media/campaign-film.jpg',
+      autoplay: true,
+      orientation: 'landscape',
+      durationMs: 10000,
+      eyebrow: 'Campaign film',
+      title: 'Daily care, in motion.',
+      description: 'A campaign film.',
+      alt: 'Campaign film',
+    }]} />)
+
+    expect(play).not.toHaveBeenCalled()
+    videoTop = 100
+
+    await act(async () => {
+      vi.advanceTimersByTime(250)
+    })
 
     expect(play).toHaveBeenCalledOnce()
     expect(screen.getByRole('button', { name: 'Pause campaign film' })).toBeInTheDocument()

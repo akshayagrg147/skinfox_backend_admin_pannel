@@ -154,13 +154,22 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
         applyVisibility(Boolean(entry?.isIntersecting && (entry.intersectionRatio ?? 0) >= 0.2))
       }, { threshold: [0, 0.2] })
     visibilityObserver?.observe(video)
-    window.addEventListener('scroll', checkViewport, { passive: true })
+    // Listen in capture phase as scroll events from the document scrolling
+    // element do not bubble consistently across browsers and embedded views.
+    document.addEventListener('scroll', checkViewport, { passive: true, capture: true })
+    window.addEventListener('scroll', checkViewport, { passive: true, capture: true })
     window.addEventListener('resize', checkViewport)
+    // Some mobile webviews restore or animate scroll positions without
+    // delivering the initial observer/scroll transition. A single lightweight
+    // check while the video slide is active keeps viewport playback reliable.
+    const visibilityPoll = window.setInterval(checkViewport, 250)
     checkViewport()
     return () => {
       visibilityObserver?.disconnect()
-      window.removeEventListener('scroll', checkViewport)
+      document.removeEventListener('scroll', checkViewport, true)
+      window.removeEventListener('scroll', checkViewport, true)
       window.removeEventListener('resize', checkViewport)
+      window.clearInterval(visibilityPoll)
     }
   }, [slide.autoplay, slide.id, slide.kind, startVideoPlayback])
 
