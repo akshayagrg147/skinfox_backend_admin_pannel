@@ -80,6 +80,12 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
   const slide = campaignSlides[safeIndex]
   const hasMultipleSlides = campaignSlides.length > 1
   const playbackActive = isPlaying && isVisible && isPageVisible
+  const canAutoplayInView = slide.kind === 'video'
+    && slide.autoplay !== false
+    && isVisible
+    && isPageVisible
+    && !prefersReducedMotion
+    && !prefersCalmPlayback()
 
   // Keep the media start attempt in one place. Playback is muted and inline,
   // which allows browsers to autoplay it when the video reaches the viewport.
@@ -314,6 +320,7 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
                     poster={slide.poster}
                     aria-label={slide.alt}
                     muted={isMuted}
+                    autoPlay={canAutoplayInView}
                     loop={!hasMultipleSlides}
                     playsInline
                     preload="metadata"

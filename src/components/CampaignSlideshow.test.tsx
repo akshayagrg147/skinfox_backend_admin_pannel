@@ -78,12 +78,14 @@ describe('CampaignSlideshow viewport playback', () => {
     })
     expect(play).toHaveBeenCalledOnce()
     expect(campaignVideo).toHaveProperty('muted', true)
+    expect(campaignVideo).toHaveAttribute('autoplay')
 
     await act(async () => {
       notifyIntersection?.([{ isIntersecting: false, intersectionRatio: 0 } as IntersectionObserverEntry], {} as IntersectionObserver)
     })
 
     expect(screen.getByRole('button', { name: 'Play campaign film' })).toBeInTheDocument()
+    expect(campaignVideo).not.toHaveAttribute('autoplay')
   })
 
   it('respects the campaign autoplay setting and keeps manual playback available', async () => {
