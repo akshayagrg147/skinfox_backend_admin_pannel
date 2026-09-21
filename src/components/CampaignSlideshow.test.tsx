@@ -9,6 +9,7 @@ describe('CampaignSlideshow viewport playback', () => {
   let play: ReturnType<typeof vi.fn>
   let pause: ReturnType<typeof vi.fn>
   let observedElement: Element | undefined
+  let videoTop: number
 
   beforeEach(() => {
     class TestIntersectionObserver implements IntersectionObserver {
@@ -30,6 +31,18 @@ describe('CampaignSlideshow viewport playback', () => {
     pause = vi.fn()
     Object.defineProperty(HTMLMediaElement.prototype, 'play', { configurable: true, value: play })
     Object.defineProperty(HTMLMediaElement.prototype, 'pause', { configurable: true, value: pause })
+    videoTop = 1200
+    vi.spyOn(HTMLVideoElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({
+      x: 0,
+      y: videoTop,
+      left: 0,
+      top: videoTop,
+      right: 640,
+      bottom: videoTop + 360,
+      width: 640,
+      height: 360,
+      toJSON: () => ({}),
+    }) as DOMRect)
     Object.defineProperty(window, 'scrollY', { configurable: true, value: 0, writable: true })
   })
 
@@ -94,5 +107,28 @@ describe('CampaignSlideshow viewport playback', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Play campaign film' }))
     expect(play).toHaveBeenCalledOnce()
+  })
+
+  it('starts playback from scroll geometry if the observer misses the entry transition', () => {
+    render(<CampaignSlideshow slides={[{
+      id: 'campaign-film',
+      kind: 'video',
+      src: '/media/campaign-film.mp4',
+      poster: '/media/campaign-film.jpg',
+      autoplay: true,
+      orientation: 'landscape',
+      durationMs: 10000,
+      eyebrow: 'Campaign film',
+      title: 'Daily care, in motion.',
+      description: 'A campaign film.',
+      alt: 'Campaign film',
+    }]} />)
+
+    expect(play).not.toHaveBeenCalled()
+    videoTop = 100
+    fireEvent.scroll(window)
+
+    expect(play).toHaveBeenCalledOnce()
+    expect(screen.getByRole('button', { name: 'Pause campaign film' })).toBeInTheDocument()
   })
 })

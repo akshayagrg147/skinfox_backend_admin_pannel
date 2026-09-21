@@ -59,7 +59,8 @@ const isBrowser = typeof window !== 'undefined'
 
 const prefersCalmPlayback = () => {
   if (!isBrowser) return false
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const motionPreference = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : undefined
+  const reducedMotion = Boolean(motionPreference?.matches)
   const saveData = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData
   return reducedMotion || Boolean(saveData)
 }
@@ -121,17 +122,7 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
       return
     }
 
-    // Observe the actual media, rather than the much taller carousel section.
-    // This reliably triggers on mobile layouts where the entire section may
-    // never reach a useful viewport-intersection ratio.
-    if (typeof IntersectionObserver === 'undefined') {
-      setIsVisible(true)
-      if (slide.autoplay !== false && !prefersCalmPlayback()) startVideoPlayback()
-      return
-    }
-
-    const visibilityObserver = new IntersectionObserver(([entry]) => {
-      const visible = Boolean(entry?.isIntersecting && (entry.intersectionRatio ?? 0) >= 0.2)
+    const applyVisibility = (visible: boolean) => {
       setIsVisible(visible)
 
       if (!visible) {
@@ -140,9 +131,37 @@ export function CampaignSlideshow({ slides }: { slides?: CampaignSlide[] }) {
       } else if (slide.autoplay !== false && document.visibilityState !== 'hidden' && !prefersCalmPlayback()) {
         startVideoPlayback()
       }
-    }, { threshold: [0, 0.2] })
-    visibilityObserver.observe(video)
-    return () => visibilityObserver.disconnect()
+    }
+
+    // IntersectionObserver is the primary signal. A geometry check on scroll
+    // and resize is a fallback for browsers/webviews that miss the first
+    // intersection transition after hydration or a restored scroll position.
+    const checkViewport = () => {
+      const rect = video.getBoundingClientRect()
+      const area = rect.width * rect.height
+      if (!area) {
+        applyVisibility(false)
+        return
+      }
+      const visibleWidth = Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0))
+      const visibleHeight = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0))
+      applyVisibility((visibleWidth * visibleHeight) / area >= 0.2)
+    }
+
+    const visibilityObserver = typeof IntersectionObserver === 'undefined'
+      ? undefined
+      : new IntersectionObserver(([entry]) => {
+        applyVisibility(Boolean(entry?.isIntersecting && (entry.intersectionRatio ?? 0) >= 0.2))
+      }, { threshold: [0, 0.2] })
+    visibilityObserver?.observe(video)
+    window.addEventListener('scroll', checkViewport, { passive: true })
+    window.addEventListener('resize', checkViewport)
+    checkViewport()
+    return () => {
+      visibilityObserver?.disconnect()
+      window.removeEventListener('scroll', checkViewport)
+      window.removeEventListener('resize', checkViewport)
+    }
   }, [slide.autoplay, slide.id, slide.kind, startVideoPlayback])
 
   useEffect(() => {
