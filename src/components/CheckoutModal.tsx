@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useState } from 'react'
 import { formatPrice } from '../data/products'
 import type { CartLine } from '../types'
 import { getStorefront, postStorefront } from '../lib/storefrontApi'
+import { formatCheckoutPaise } from '../lib/currency'
 import { exchangeFirebaseUser, firebaseAuthErrorMessage, refreshFirebaseUser, resendEmailVerification } from '../lib/firebaseAuth'
 import { openRazorpayCheckout } from '../lib/razorpay'
 import { CustomerAuthForm, type CustomerAuthResponse } from './CustomerAuthForm'
@@ -39,7 +40,6 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
   const [quoteLoading, setQuoteLoading] = useState(false)
   const hasPendingPrice = lines.some((line) => line.product.price === null)
   const subtotal = lines.reduce((sum, line) => sum + (line.product.price ?? 0) * line.quantity, 0)
-  const formatPaise = (value: number) => formatPrice(Math.max(0, value) / 100)
 
   const loadAddresses = async (signedInCustomer: Customer) => {
     const saved = await getStorefront<SavedAddress[]>('/customer/addresses')
@@ -182,8 +182,8 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
 
   const productTotalPaise = quote ? Math.max(0, quote.subtotalPaise - quote.discountPaise) : Math.round(subtotal * 100)
   const freeShippingUnlocked = Boolean(quote && quote.shippingPaise === 0 && productTotalPaise >= 200000)
-  const shippingLabel = hasPendingPrice ? 'Price pending' : quoteLoading ? 'Calculating…' : quote?.serviceability === false ? 'Unavailable' : quote ? (quote.shippingPaise === 0 ? 'Free' : formatPaise(quote.shippingPaise)) : 'Enter delivery details'
-  const payableLabel = hasPendingPrice ? 'Price pending' : quote ? formatPaise(quote.totalPaise) : quoteLoading ? 'Calculating…' : 'Enter delivery details'
+  const shippingLabel = hasPendingPrice ? 'Price pending' : quoteLoading ? 'Calculating…' : quote?.serviceability === false ? 'Unavailable' : quote ? (quote.shippingPaise === 0 ? 'Free' : formatCheckoutPaise(quote.shippingPaise)) : 'Enter delivery details'
+  const payableLabel = hasPendingPrice ? 'Price pending' : quote ? formatCheckoutPaise(quote.totalPaise) : quoteLoading ? 'Calculating…' : 'Enter delivery details'
 
   return <ModalShell open={open} onClose={close} title="Secure SkinFox checkout" className="checkout-modal">
         {stage === 'complete' ? <div className="checkout-success" role="status"><span><Check size={26} /></span><p className="eyebrow">Payment confirmed</p><h2>Your order is confirmed.</h2><p>Your payment was received securely. Find the latest status in My orders.</p><button className="button button--dark" onClick={close}>Continue shopping</button></div> : <div className="checkout-grid">
@@ -218,7 +218,7 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
         </form>}
         {stage !== 'address' && stage !== 'auth' && error && <p className="form-error" role="alert">{error}</p>}
       </div>
-      <aside className="checkout-summary" aria-label="Order summary"><span className="eyebrow">Your selection</span><h3>Order summary</h3>{lines.map((line) => <div key={line.product.id}><span>{line.product.name} <i>× {line.quantity}</i></span><ProductPrice product={line.product} quantity={line.quantity} compact className="checkout-line-price" /></div>)}<hr /><div><span>Products subtotal</span><strong>{hasPendingPrice ? 'Price pending' : quote ? formatPaise(quote.subtotalPaise) : formatPrice(subtotal)}</strong></div>{quote && quote.discountPaise > 0 && <div><span>Launch savings</span><strong>−{formatPaise(quote.discountPaise)}</strong></div>}<div><span>GST</span><strong>Included</strong></div><div><span>Shipping</span><strong>{shippingLabel}</strong></div>{freeShippingUnlocked && <p className="checkout-summary__shipping-note">Free delivery unlocked on orders of ₹2,000 or more.</p>}<div className="checkout-total"><span>Amount due</span><strong>{payableLabel}</strong></div><p className="checkout-summary__note"><LockKeyhole size={14} aria-hidden="true" />GST is included in product prices. Secure online payment by Razorpay.</p></aside>
+      <aside className="checkout-summary" aria-label="Order summary"><span className="eyebrow">Your selection</span><h3>Order summary</h3>{lines.map((line) => <div key={line.product.id}><span>{line.product.name} <i>× {line.quantity}</i></span><ProductPrice product={line.product} quantity={line.quantity} compact className="checkout-line-price" /></div>)}<hr /><div><span>Products subtotal</span><strong>{hasPendingPrice ? 'Price pending' : quote ? formatCheckoutPaise(quote.subtotalPaise) : formatPrice(subtotal)}</strong></div>{quote && quote.discountPaise > 0 && <div><span>Launch savings</span><strong>−{formatCheckoutPaise(quote.discountPaise)}</strong></div>}<div><span>GST</span><strong>Included</strong></div><div><span>Shipping</span><strong>{shippingLabel}</strong></div>{freeShippingUnlocked && <p className="checkout-summary__shipping-note">Free delivery unlocked on orders of ₹2,000 or more.</p>}<div className="checkout-total"><span>Amount due</span><strong>{payableLabel}</strong></div><p className="checkout-summary__note"><LockKeyhole size={14} aria-hidden="true" />GST is included in product prices. Secure online payment by Razorpay.</p></aside>
     </div>}
   </ModalShell>
 }

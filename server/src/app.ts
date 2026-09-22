@@ -95,6 +95,17 @@ const redactSensitiveSettings = (value: unknown): unknown => {
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, sensitiveSettingPattern.test(key) ? '[configured in server environment]' : redactSensitiveSettings(item)]))
 }
 const maskCustomer = (customer: any) => customer ? { ...customer, email: typeof customer.email === 'string' ? customer.email.replace(/(^.).*(@.*$)/, '$1***$2') : customer.email, phone: typeof customer.phone === 'string' ? `${customer.phone.slice(0, 2)}******${customer.phone.slice(-2)}` : customer.phone } : customer
+const checkoutPaymentPrefill = (customer: any, shippingAddress: unknown) => {
+  const address = shippingAddress && typeof shippingAddress === 'object' && !Array.isArray(shippingAddress) ? shippingAddress as Record<string, unknown> : {}
+  const rawPhone = typeof address.phone === 'string' && address.phone ? address.phone : customer.phone
+  const digits = typeof rawPhone === 'string' ? rawPhone.replace(/\D/g, '') : ''
+  const localPhone = digits.length >= 10 ? digits.slice(-10) : ''
+  return {
+    name: typeof address.fullName === 'string' && address.fullName ? address.fullName : customer.fullName,
+    email: typeof address.email === 'string' && address.email ? address.email : customer.email ?? undefined,
+    contact: localPhone ? `+91${localPhone}` : undefined,
+  }
+}
 
 const MAX_PRODUCT_IMAGE_BYTES = 10_000_000
 const imageMimeFromBytes = (payload: Uint8Array): string | null => {
@@ -1212,17 +1223,18 @@ export function buildApp(): FastifyInstance {
     const session = await prisma.checkoutSession.findUnique({ where: { publicToken: request.params.id }, include: { order: true } })
     if (!session?.order || session.customerId !== customer.id) throw notFound('Checkout session not found.')
     if (session.paymentMethod !== 'razorpay' || session.status !== 'open') throw validationError('This checkout session cannot be paid online.')
+    const prefill = checkoutPaymentPrefill(customer, session.order.shippingAddress)
     const promotionSnapshot = (session.order.conversionSnapshot as any)?.promotion
     if (promotionSnapshot?.id === activeLaunchPromotion.id && await launchPromotionOrderCount() >= activeLaunchPromotion.maximumOrders) throw new ApiError(409, 'PROMOTION_COMPLETED', 'The SkinFox launch offer has ended. Please restart checkout to continue at the current price.')
     const existing = await prisma.payment.findFirst({ where: { orderId: session.order.id, provider: 'razorpay', status: PaymentStatus.pending, providerOrderId: { not: null } } })
     if (existing?.providerOrderId) {
-      const response = { orderNumber: session.order.orderNumber, amountPaise: existing.amountPaise, currency: session.order.currency, keyId: process.env.RAZORPAY_KEY_ID, orderId: existing.providerOrderId, name: 'SkinFox', description: 'SkinFox order', prefill: { name: customer.fullName, email: customer.email ?? undefined, contact: customer.phone ? `+91${customer.phone}` : undefined } }
+      const response = { orderNumber: session.order.orderNumber, amountPaise: existing.amountPaise, currency: session.order.currency, keyId: process.env.RAZORPAY_KEY_ID, orderId: existing.providerOrderId, name: 'SkinFox', description: 'SkinFox order', prefill }
       await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
       return data(reply, response)
     }
     const providerOrder = await payment.createOrder({ amountPaise: session.order.totalPaise, receipt: session.order.orderNumber, notes: { order: session.order.publicToken, purpose: 'storefront_purchase', promotion: promotionSnapshot?.id ?? '' } })
     const paymentRecord = await prisma.payment.create({ data: { orderId: session.order.id, provider: 'razorpay', providerOrderId: providerOrder.providerOrderId, amountPaise: session.order.totalPaise, status: PaymentStatus.pending } })
-    const response = { orderNumber: session.order.orderNumber, amountPaise: paymentRecord.amountPaise, currency: session.order.currency, keyId: process.env.RAZORPAY_KEY_ID, orderId: providerOrder.providerOrderId, name: 'SkinFox', description: 'SkinFox order', prefill: { name: customer.fullName, email: customer.email ?? undefined, contact: customer.phone ? `+91${customer.phone}` : undefined } }
+    const response = { orderNumber: session.order.orderNumber, amountPaise: paymentRecord.amountPaise, currency: session.order.currency, keyId: process.env.RAZORPAY_KEY_ID, orderId: providerOrder.providerOrderId, name: 'SkinFox', description: 'SkinFox order', prefill }
     await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
     return data(reply, response)
   })
