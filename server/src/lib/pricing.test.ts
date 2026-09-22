@@ -14,9 +14,16 @@ describe('pricing invariants', () => {
     const quote = calculateCart([{ quantity: 2, unitPricePaise: 60000 }], null, true, true)
     expect(quote.subtotalPaise).toBe(120000)
     expect(quote.taxPaise).toBe(18305)
-    expect(quote.shippingPaise).toBe(0)
+    expect(quote.shippingPaise).toBe(9900)
     expect(quote.codPaise).toBe(4900)
-    expect(quote.totalPaise).toBe(143205)
+    expect(quote.totalPaise).toBe(134800)
+  })
+
+  it('waives shipping at ₹2,000 while keeping GST inside the product total', () => {
+    const quote = calculateCart([{ quantity: 1, unitPricePaise: 200000 }])
+    expect(quote.taxPaise).toBe(30508)
+    expect(quote.shippingPaise).toBe(0)
+    expect(quote.totalPaise).toBe(200000)
   })
 
   it('caps coupon discounts and rejects inactive or below-minimum coupons', () => {

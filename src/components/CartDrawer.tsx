@@ -18,7 +18,7 @@ export function CartDrawer({ open, lines, onClose, onQuantity, onRemove, onCheck
   const hasPendingPrice = lines.some((line) => line.product.price === null)
   const totalQuantity = lines.reduce((sum, line) => sum + line.quantity, 0)
   const subtotal = lines.reduce((sum, line) => sum + (line.product.price ?? 0) * line.quantity, 0)
-  const threshold = 999
+  const threshold = 2000
   const progress = Math.min((subtotal / threshold) * 100, 100)
 
   return (
@@ -63,7 +63,7 @@ export function CartDrawer({ open, lines, onClose, onQuantity, onRemove, onCheck
           </div>
           <div className="cart-summary">
             <div><span>Subtotal</span><strong>{formatPrice(subtotal)}</strong></div>
-            <p>{hasPendingPrice ? 'Some items are not available for purchase yet. Remove them to continue.' : 'Taxes included. Shipping calculated at checkout.'}</p>
+            <p>{hasPendingPrice ? 'Some items are not available for purchase yet. Remove them to continue.' : subtotal >= threshold ? 'GST included. Complimentary delivery is unlocked.' : `GST included. Delivery is free on orders of ${formatPrice(threshold)} or more.`}</p>
             <button className="button button--copper" disabled={hasPendingPrice} onClick={() => { onClose(); onCheckout() }}>
               Secure checkout <ArrowRight size={17} />
             </button>

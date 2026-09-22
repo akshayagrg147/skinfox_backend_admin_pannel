@@ -17,7 +17,7 @@ import { ApiError, forbidden, notFound, validationError } from './lib/errors.js'
 import { decryptSecret, encryptSecret, hashPassword, hashToken, randomToken, safeEqual, signHmac, verifyPassword } from './lib/crypto.js'
 import { affiliateOtpConfig, affiliateStaticOtpIsConfigured, customerSessionTtlDays, hashAffiliateOtp, normalizeIndianPhone } from './lib/customerAuth.js'
 import { firebaseAdminIsConfigured, getFirebaseUserRecord, verifyFirebaseIdToken } from './lib/firebaseAdmin.js'
-import { calculateCart, isValidPincode } from './lib/pricing.js'
+import { calculateCart, FREE_SHIPPING_THRESHOLD_PAISE, isValidPincode, STANDARD_SHIPPING_PAISE } from './lib/pricing.js'
 import { affiliateCommissionPaise, affiliateReferralCode, isValidPan } from './lib/affiliate.js'
 import { productMrpPaise, productPricePaise, scoreCareFinderProducts, type CareFinderAnswer } from './lib/careFinder.js'
 import { analysePhoto, photoAnalysisConfigured, photoNote } from './lib/photoAnalysis.js'
@@ -379,11 +379,11 @@ export function buildApp(): FastifyInstance {
     const promotionBasePaise = launchPromotionEligibleSubtotal(lines.map((line: any) => ({ quantity: line.quantity, unitPricePaise: line.unitPricePaise, mrpPaise: line.product.mrpPaise })))
     const promotionDiscountPaise = !cart.coupon && eligibleByProduct && customerEligible ? launchPromotionDiscount(promotionBasePaise, activeLaunchPromotion, successfulOrders) : 0
     const combinedDiscount = Math.min(subtotalPaise, quote.discountPaise + promotionDiscountPaise)
-    const taxablePaise = Math.max(0, subtotalPaise - combinedDiscount)
-    const taxPaise = Math.floor(taxablePaise * 18 / 118)
-    const shippingPaise = !serviceable ? 0 : taxablePaise >= 99900 ? 0 : (taxablePaise > 0 ? 9900 : 0)
-    const codPaise = cod && taxablePaise > 0 ? 4900 : 0
-    const totalPaise = taxablePaise + taxPaise + shippingPaise + codPaise
+    const productTotalPaise = Math.max(0, subtotalPaise - combinedDiscount)
+    const taxPaise = Math.floor(productTotalPaise * 18 / 118)
+    const shippingPaise = !serviceable ? 0 : productTotalPaise >= FREE_SHIPPING_THRESHOLD_PAISE ? 0 : (productTotalPaise > 0 ? STANDARD_SHIPPING_PAISE : 0)
+    const codPaise = cod && productTotalPaise > 0 ? 4900 : 0
+    const totalPaise = productTotalPaise + shippingPaise + codPaise
     return { cartId: cart.publicToken ?? cart.id, lines, ...quote, discountPaise: combinedDiscount, taxPaise, shippingPaise, codPaise, totalPaise, promotion: promotionDiscountPaise > 0 ? { id: activeLaunchPromotion.id, discountPercent: activeLaunchPromotion.discountPercent, discountPaise: promotionDiscountPaise, successfulOrders, remainingOrders: Math.max(0, activeLaunchPromotion.maximumOrders - successfulOrders) } : null, appliedCoupon: cart.coupon ? { code: cart.coupon.code, promotion: cart.coupon.promotion } : null, currency: cart.currency, expiresAt: cart.expiresAt, priceHidden: false }
   }
   const idemReplay = async (request: any, scope: string) => { const key = request.headers['idempotency-key']; if (!key) return null; const record = await prisma.idempotencyRecord.findUnique({ where: { key_scope: { key: String(key), scope } } }); if (!record?.responseBody) return null; if (record.requestHash !== sha256Json(request.body ?? {})) throw new ApiError(409, 'IDEMPOTENCY_KEY_REUSED', 'This idempotency key was already used with a different request.'); return { status: record.responseStatus ?? 200, body: record.responseBody } }
@@ -394,7 +394,7 @@ export function buildApp(): FastifyInstance {
   routes.get('/api/v1/storefront/bootstrap', async (_, reply) => {
     const settings = await prisma.storeSetting.findMany({ where: { key: { in: ['storefront', 'seo'] } } })
     const values = Object.fromEntries(settings.map((setting) => [setting.key, setting.value])) as any
-    return data(reply, { storeName: 'SkinFox', logo: '/brand/skinfox-logo.png', currency: 'INR', announcement: values.storefront?.announcement ?? 'The SkinFox collection is now available', navigation: [{ label: 'Shop', href: '#shop' }, { label: 'Care finder', href: '#care-finder' }], footerLinks: [{ label: 'FAQ', href: '#faq' }], socialLinks: [{ label: 'Instagram', href: '#story' }], freeShippingThresholdPaise: values.storefront?.freeShippingThresholdPaise ?? 99900, featureFlags: { customerOtp: false, firebaseAuth: firebaseAdminIsConfigured(), customerEmailAuth: firebaseAdminIsConfigured(), paymentMode: payment.configured() ? 'online' : 'unavailable' }, supportContact: { email: values.storefront?.supportEmail ?? 'contact@skinfox.in' }, enabledPaymentMethods: payment.configured() ? ['razorpay'] : [], promotion: await launchPromotionResponse(), seo: values.seo ?? {} })
+    return data(reply, { storeName: 'SkinFox', logo: '/brand/skinfox-logo.png', currency: 'INR', announcement: values.storefront?.announcement ?? 'The SkinFox collection is now available', navigation: [{ label: 'Shop', href: '#shop' }, { label: 'Care finder', href: '#care-finder' }], footerLinks: [{ label: 'FAQ', href: '#faq' }], socialLinks: [{ label: 'Instagram', href: '#story' }], freeShippingThresholdPaise: values.storefront?.freeShippingThresholdPaise ?? FREE_SHIPPING_THRESHOLD_PAISE, featureFlags: { customerOtp: false, firebaseAuth: firebaseAdminIsConfigured(), customerEmailAuth: firebaseAdminIsConfigured(), paymentMode: payment.configured() ? 'online' : 'unavailable' }, supportContact: { email: values.storefront?.supportEmail ?? 'contact@skinfox.in' }, enabledPaymentMethods: payment.configured() ? ['razorpay'] : [], promotion: await launchPromotionResponse(), seo: values.seo ?? {} })
   })
   routes.get('/api/v1/products', async (request, reply) => {
     const params = pageParams(request)
@@ -1146,7 +1146,11 @@ export function buildApp(): FastifyInstance {
     const base = await cartResponse(cart, false, serviceable, customer)
     const providerCharge = providerQuote?.couriers?.[0]?.ratePaise
     if (shipping === delhivery && serviceable && (providerCharge === null || providerCharge === undefined)) throw new ApiError(503, 'SHIPPING_RATE_UNAVAILABLE', 'Delhivery confirmed this pincode, but could not return a shipping rate. Please try again or contact support.')
-    const response = providerCharge === null || providerCharge === undefined ? base : { ...base, shippingPaise: providerCharge, totalPaise: Math.max(0, Number(base.subtotalPaise) - Number(base.discountPaise) + Number(base.taxPaise) + Number(providerCharge) + Number(base.codPaise)) }
+    const response = providerCharge === null || providerCharge === undefined ? base : (() => {
+      const productTotalPaise = Math.max(0, Number(base.subtotalPaise) - Number(base.discountPaise))
+      const shippingPaise = productTotalPaise >= FREE_SHIPPING_THRESHOLD_PAISE ? 0 : Number(providerCharge)
+      return { ...base, shippingPaise, totalPaise: productTotalPaise + shippingPaise + Number(base.codPaise) }
+    })()
     const estimate = providerQuote?.couriers?.[0]?.estimatedDays
     return { ...response, serviceability: serviceable, shippingProvider: shipping === delhivery ? 'delhivery' : 'manual', courierOptions: providerQuote?.couriers ?? [], estimatedDeliveryFrom: serviceable ? new Date(Date.now() + (estimate ?? 3) * 86400000).toISOString() : null, estimatedDeliveryTo: serviceable ? new Date(Date.now() + (estimate ? estimate + 2 : 7) * 86400000).toISOString() : null, quoteExpiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(), checkout: { ...parsed, email: parsed.email ?? customer.email ?? undefined } }
   }

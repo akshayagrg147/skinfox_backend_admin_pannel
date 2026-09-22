@@ -21,6 +21,7 @@ describe('CartDrawer pricing', () => {
 
     expect(screen.getByText('Subtotal')).toBeInTheDocument()
     expect(screen.getByText('₹3,800')).toBeInTheDocument()
+    expect(screen.getByText(/complimentary delivery is unlocked/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /secure checkout/i })).toBeEnabled()
     expect(onCheckout).not.toHaveBeenCalled()
 

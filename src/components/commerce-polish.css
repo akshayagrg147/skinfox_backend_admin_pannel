@@ -763,6 +763,17 @@
   flex: none;
 }
 
+.sf-dialog .checkout-summary__shipping-note {
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid #d7e4d9;
+  border-radius: 10px;
+  background: #f3f8f3;
+  color: #48624f;
+  font-size: .75rem;
+  line-height: 1.5;
+}
+
 .sf-dialog .checkout-success {
   min-height: 450px;
   padding: 64px 28px;

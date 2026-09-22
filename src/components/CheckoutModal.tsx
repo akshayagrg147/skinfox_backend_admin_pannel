@@ -13,8 +13,10 @@ type Customer = CustomerAuthResponse['customer']
 type PaymentMethod = 'razorpay'
 type SavedAddress = { id: string; label: string; fullName: string; phone: string; addressLine1: string; addressLine2?: string | null; landmark?: string | null; city: string; state: string; pincode: string; isDefault: boolean }
 type AddressForm = { fullName: string; email: string; phone: string; addressLine1: string; addressLine2: string; landmark: string; city: string; state: string; pincode: string; saveAddress: boolean; saveAsDefault: boolean }
+type CheckoutQuote = { subtotalPaise: number; discountPaise: number; taxPaise: number; shippingPaise: number; codPaise: number; totalPaise: number; serviceability?: boolean; purchaseEligible?: boolean }
 
 const emptyAddress: AddressForm = { fullName: '', email: '', phone: '', addressLine1: '', addressLine2: '', landmark: '', city: '', state: '', pincode: '', saveAddress: true, saveAsDefault: false }
+const checkoutPayload = (form: AddressForm, selectedAddressId: string, paymentMethod: PaymentMethod) => ({ ...form, phone: form.phone.replace(/\D/g, ''), addressId: selectedAddressId || undefined, paymentMethod, billingSameAsShipping: true })
 const customerCsrfHeaders = (): Record<string, string> => {
   const csrf = document.cookie.split('; ').find((entry) => entry.startsWith('sf_customer_csrf='))?.split('=').slice(1).join('=')
   return csrf ? { 'x-customer-csrf-token': decodeURIComponent(csrf) } : {}
@@ -33,8 +35,11 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
   const [paymentMethod] = useState<PaymentMethod>('razorpay')
   const [pincodeLookup, setPincodeLookup] = useState<'idle' | 'loading' | 'found' | 'unavailable' | 'error'>('idle')
   const [pincodeMessage, setPincodeMessage] = useState('')
+  const [quote, setQuote] = useState<CheckoutQuote | null>(null)
+  const [quoteLoading, setQuoteLoading] = useState(false)
   const hasPendingPrice = lines.some((line) => line.product.price === null)
   const subtotal = lines.reduce((sum, line) => sum + (line.product.price ?? 0) * line.quantity, 0)
+  const formatPaise = (value: number) => formatPrice(Math.max(0, value) / 100)
 
   const loadAddresses = async (signedInCustomer: Customer) => {
     const saved = await getStorefront<SavedAddress[]>('/customer/addresses')
@@ -47,7 +52,7 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
   useEffect(() => {
     if (!open) return
     let active = true
-    setError(''); setNotice(''); setSubmitting(false); setSelectedAddressId(''); setForm(emptyAddress); setPincodeLookup('idle'); setPincodeMessage('')
+    setError(''); setNotice(''); setSubmitting(false); setSelectedAddressId(''); setForm(emptyAddress); setPincodeLookup('idle'); setPincodeMessage(''); setQuote(null); setQuoteLoading(false)
     setStage(hasPendingPrice ? 'address' : 'loading')
     if (hasPendingPrice || import.meta.env.MODE === 'test') return
     if (!apiAvailable) { setStage('auth'); return }
@@ -97,6 +102,25 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
     return () => { active = false; window.clearTimeout(timer) }
   }, [form.pincode, open, stage])
 
+  useEffect(() => {
+    const phone = form.phone.replace(/\D/g, '')
+    const ready = open && stage === 'address' && !hasPendingPrice && Boolean(customer?.emailVerified) && Boolean(cartToken) && /^[6-9]\d{9}$/.test(phone) && /^[1-9]\d{5}$/.test(form.pincode) && form.fullName.trim().length >= 2 && form.addressLine1.trim().length >= 5 && form.city.trim().length >= 2 && form.state.trim().length >= 2
+    if (!ready) {
+      setQuote(null)
+      setQuoteLoading(false)
+      return
+    }
+    let active = true
+    const timer = window.setTimeout(() => {
+      setQuoteLoading(true)
+      void postStorefront<CheckoutQuote>('/checkout/quote', checkoutPayload(form, selectedAddressId, paymentMethod), { 'x-cart-token': cartToken, ...customerCsrfHeaders() })
+        .then((nextQuote) => { if (active) setQuote(nextQuote) })
+        .catch(() => { if (active) setQuote(null) })
+        .finally(() => { if (active) setQuoteLoading(false) })
+    }, 350)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [cartToken, customer?.emailVerified, form, hasPendingPrice, open, paymentMethod, selectedAddressId, stage])
+
   const authenticated = async (response: CustomerAuthResponse) => {
     setCustomer(response.customer)
     onCustomerChange?.(response.customer)
@@ -139,7 +163,8 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
     setSubmitting(true); setError(''); setNotice('')
     try {
       const headers = { 'x-cart-token': cartToken, 'Idempotency-Key': `checkout-${Date.now()}`, ...customerCsrfHeaders() }
-      const session = await postStorefront<{ checkoutSessionId: string; orderNumber: string }>('/checkout/sessions', { ...form, phone: form.phone.replace(/\D/g, ''), addressId: selectedAddressId || undefined, paymentMethod, billingSameAsShipping: true }, headers)
+      const session = await postStorefront<{ checkoutSessionId: string; orderNumber: string; quote?: CheckoutQuote }>('/checkout/sessions', checkoutPayload(form, selectedAddressId, paymentMethod), headers)
+      if (session.quote) setQuote(session.quote)
       const paymentOrder = await postStorefront<{ orderNumber: string; amountPaise: number; currency: string; keyId: string; orderId: string; name: string; description: string; prefill?: { name?: string; email?: string; contact?: string } }>(`/checkout/sessions/${session.checkoutSessionId}/payment-order`, {}, { 'x-cart-token': cartToken, 'Idempotency-Key': `payment-order-${session.checkoutSessionId}`, ...customerCsrfHeaders() })
       const payment = await openRazorpayCheckout({ key: paymentOrder.keyId, amount: paymentOrder.amountPaise, currency: paymentOrder.currency, name: paymentOrder.name, description: paymentOrder.description, order_id: paymentOrder.orderId, prefill: paymentOrder.prefill, notes: { order: paymentOrder.orderNumber }, theme: { color: '#4e275e' } })
       await postStorefront('/payments/razorpay/verify', { razorpayOrderId: payment.razorpay_order_id, razorpayPaymentId: payment.razorpay_payment_id, razorpaySignature: payment.razorpay_signature }, { 'x-cart-token': cartToken, 'Idempotency-Key': `razorpay-verify-${payment.razorpay_payment_id}`, ...customerCsrfHeaders() })
@@ -147,13 +172,18 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to complete checkout. Please try again.') } finally { setSubmitting(false) }
   }
 
-  const close = () => { setError(''); setNotice(''); setSubmitting(false); setStage('loading'); onClose() }
+  const close = () => { setError(''); setNotice(''); setSubmitting(false); setQuote(null); setQuoteLoading(false); setStage('loading'); onClose() }
   const updateForm = (key: keyof AddressForm, value: string | boolean) => setForm((current) => ({ ...current, [key]: value }))
   const updatePincode = (value: string) => {
     setForm((current) => ({ ...current, pincode: value, ...(current.pincode === value ? {} : { city: '', state: '' }) }))
     setPincodeLookup('idle')
     setPincodeMessage('')
   }
+
+  const productTotalPaise = quote ? Math.max(0, quote.subtotalPaise - quote.discountPaise) : Math.round(subtotal * 100)
+  const freeShippingUnlocked = Boolean(quote && quote.shippingPaise === 0 && productTotalPaise >= 200000)
+  const shippingLabel = hasPendingPrice ? 'Price pending' : quoteLoading ? 'Calculating…' : quote?.serviceability === false ? 'Unavailable' : quote ? (quote.shippingPaise === 0 ? 'Free' : formatPaise(quote.shippingPaise)) : 'Enter delivery details'
+  const payableLabel = hasPendingPrice ? 'Price pending' : quote ? formatPaise(quote.totalPaise) : quoteLoading ? 'Calculating…' : 'Enter delivery details'
 
   return <ModalShell open={open} onClose={close} title="Secure SkinFox checkout" className="checkout-modal">
         {stage === 'complete' ? <div className="checkout-success" role="status"><span><Check size={26} /></span><p className="eyebrow">Payment confirmed</p><h2>Your order is confirmed.</h2><p>Your payment was received securely. Find the latest status in My orders.</p><button className="button button--dark" onClick={close}>Continue shopping</button></div> : <div className="checkout-grid">
@@ -188,7 +218,7 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
         </form>}
         {stage !== 'address' && stage !== 'auth' && error && <p className="form-error" role="alert">{error}</p>}
       </div>
-      <aside className="checkout-summary" aria-label="Order summary"><span className="eyebrow">Your selection</span><h3>Order summary</h3>{lines.map((line) => <div key={line.product.id}><span>{line.product.name} <i>× {line.quantity}</i></span><ProductPrice product={line.product} quantity={line.quantity} compact className="checkout-line-price" /></div>)}<hr /><div><span>Shipping</span><strong>{hasPendingPrice ? 'Price pending' : 'Calculated by pincode'}</strong></div><div className="checkout-total"><span>Items subtotal</span><strong>{hasPendingPrice ? 'Price pending' : formatPrice(subtotal)}</strong></div><p className="checkout-summary__note"><LockKeyhole size={14} aria-hidden="true" />Secure online payment by Razorpay</p></aside>
+      <aside className="checkout-summary" aria-label="Order summary"><span className="eyebrow">Your selection</span><h3>Order summary</h3>{lines.map((line) => <div key={line.product.id}><span>{line.product.name} <i>× {line.quantity}</i></span><ProductPrice product={line.product} quantity={line.quantity} compact className="checkout-line-price" /></div>)}<hr /><div><span>Products subtotal</span><strong>{hasPendingPrice ? 'Price pending' : quote ? formatPaise(quote.subtotalPaise) : formatPrice(subtotal)}</strong></div>{quote && quote.discountPaise > 0 && <div><span>Launch savings</span><strong>−{formatPaise(quote.discountPaise)}</strong></div>}<div><span>GST</span><strong>Included</strong></div><div><span>Shipping</span><strong>{shippingLabel}</strong></div>{freeShippingUnlocked && <p className="checkout-summary__shipping-note">Free delivery unlocked on orders of ₹2,000 or more.</p>}<div className="checkout-total"><span>Amount due</span><strong>{payableLabel}</strong></div><p className="checkout-summary__note"><LockKeyhole size={14} aria-hidden="true" />GST is included in product prices. Secure online payment by Razorpay.</p></aside>
     </div>}
   </ModalShell>
 }
