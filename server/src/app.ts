@@ -28,7 +28,7 @@ import { productImageSourceSchema, productMediaInputSchema } from './lib/product
 import { calculateWaitlistDepositPaise, createWaitlistId, parseStoredWaitlistSettings, waitlistDefaultsFromEnv, waitlistResetConfirmationSchema, waitlistSettingsSchema, type WaitlistSettings } from './lib/waitlistConfig.js'
 import { calculateWaitlistOrderPricing, type WaitlistPricingMode } from './lib/waitlistOrders.js'
 import { adjustInventory, inventoryHistory, inventoryWorkspace } from './lib/inventoryWorkspace.js'
-import { defaultLaunchPromotion, launchPromotionDiscount, launchPromotionStatus, parseLaunchPromotion, launchPromotionSchema, type LaunchPromotion } from './lib/launchPromotion.js'
+import { defaultLaunchPromotion, launchPromotionDiscount, launchPromotionEligibleSubtotal, launchPromotionStatus, parseLaunchPromotion, launchPromotionSchema, type LaunchPromotion } from './lib/launchPromotion.js'
 import { lookupPincode } from './lib/pincode.js'
 
 const secureCookies = () => process.env.COOKIE_SECURE === undefined ? process.env.NODE_ENV === 'production' : process.env.COOKIE_SECURE === 'true'
@@ -372,7 +372,12 @@ export function buildApp(): FastifyInstance {
     const eligibleByProduct = (!activeLaunchPromotion.eligibleProductIds.length && !activeLaunchPromotion.eligibleCategories.length) || lines.every((line: any) => (!activeLaunchPromotion.eligibleProductIds.length || activeLaunchPromotion.eligibleProductIds.includes(line.productId)) && (!activeLaunchPromotion.eligibleCategories.length || activeLaunchPromotion.eligibleCategories.includes(line.product.category)))
     const customerEligible = !customer || !(await customerHasLaunchPromotionOrder(customer.id))
     const successfulOrders = !cart.coupon && eligibleByProduct && customerEligible ? await launchPromotionOrderCount() : activeLaunchPromotion.maximumOrders
-    const promotionDiscountPaise = !cart.coupon && eligibleByProduct && customerEligible ? launchPromotionDiscount(subtotalPaise, activeLaunchPromotion, successfulOrders) : 0
+    // A product's catalogue `pricePaise` is already the customer-facing price.
+    // Do not apply the launch percentage again to lines that are already below
+    // MRP; only full-price lines can receive the additional launch promotion.
+    // This keeps the Razorpay amount aligned with the prices shown in the bag.
+    const promotionBasePaise = launchPromotionEligibleSubtotal(lines.map((line: any) => ({ quantity: line.quantity, unitPricePaise: line.unitPricePaise, mrpPaise: line.product.mrpPaise })))
+    const promotionDiscountPaise = !cart.coupon && eligibleByProduct && customerEligible ? launchPromotionDiscount(promotionBasePaise, activeLaunchPromotion, successfulOrders) : 0
     const combinedDiscount = Math.min(subtotalPaise, quote.discountPaise + promotionDiscountPaise)
     const taxablePaise = Math.max(0, subtotalPaise - combinedDiscount)
     const taxPaise = Math.floor(taxablePaise * 18 / 118)
