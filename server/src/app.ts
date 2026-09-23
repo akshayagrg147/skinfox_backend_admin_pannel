@@ -1948,7 +1948,7 @@ export function buildApp(): FastifyInstance {
     if (!delhivery.bookingEnabled()) throw new ApiError(409, 'SHIPMENT_BOOKING_DISABLED', 'Shipment booking is disabled. Set DELHIVERY_BOOKING_ENABLED=true only when you are ready to create live Delhivery shipments.')
     const input = z.object({ courierId: z.string().min(1), courierName: z.string().min(1).optional(), estimatedDeliveryFrom: z.string().datetime().optional(), estimatedDeliveryTo: z.string().datetime().optional(), estimatedDays: z.number().int().positive().max(30).optional(), etd: z.string().trim().optional(), paymentMethod: z.enum(['cod', 'prepaid']).default('prepaid'), package: shippingPackageSchema }).parse(request.body)
     if (input.courierId !== 'delhivery') throw validationError('Delhivery is the only active courier for this store.')
-    const order = await prisma.order.findUnique({ where: { id: request.params.id }, include: { items: true, customer: true, shipments: true } })
+    const order = await prisma.order.findUnique({ where: { id: request.params.id }, include: { items: true, customer: true, payments: true, shipments: true } })
     if (!order) throw notFound('Order not found.')
     if (order.shipments.some((shipment) => shipment.provider === 'delhivery' && shipment.status !== 'cancelled')) throw validationError('A Delhivery shipment is already attached to this order.')
     if (!['confirmed', 'processing', 'packed'].includes(order.status)) throw validationError('Only confirmed, processing, or packed orders can be booked.')
