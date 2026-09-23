@@ -1911,6 +1911,7 @@ export function buildApp(): FastifyInstance {
   const orderPackage = (input: z.infer<typeof shippingPackageSchema>): ShippingPackage => ({ weightKg: input.weightGrams / 1000, lengthCm: input.lengthCm, breadthCm: input.breadthCm, heightCm: input.heightCm, declaredValuePaise: input.declaredValuePaise })
   const providerStatus = (payload: any) => String(payload?.Shipment?.Status?.Status ?? payload?.Shipment?.StatusType ?? payload?.ShipmentData?.[0]?.Shipment?.Status?.Status ?? payload?.ShipmentData?.[0]?.Shipment?.StatusType ?? payload?.data?.status ?? payload?.data?.response?.data?.status ?? payload?.status ?? '').trim()
   const providerValue = (payload: any, keys: string[]) => { for (const key of keys) { const value = key.split('.').reduce((current, part) => current?.[part], payload); if (value !== undefined && value !== null && value !== '') return String(value) } return null }
+  const providerRejectionReason = (payload: any) => providerValue(payload, ['rmk', 'message', 'error', 'detail', 'data.rmk', 'data.message', 'data.error', 'data.detail'])
 
   routes.get('/api/v1/admin/shipping/status', async (request, reply) => {
     await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT, AdminRole.ANALYST])(request)
@@ -1957,7 +1958,10 @@ export function buildApp(): FastifyInstance {
     const paymentReady = order.payments.some((paymentRecord) => paymentRecord.status === PaymentStatus.captured || (paymentRecord.provider === 'cod' && paymentRecord.status === PaymentStatus.authorised))
     if (!paymentReady) throw validationError('A captured or COD-authorised payment is required before booking shipment.')
     const created = await delhivery.createOrder({ orderNumber: order.orderNumber, orderDate: order.createdAt.toISOString(), pickupLocation: process.env.DELHIVERY_PICKUP_LOCATION!, paymentMethod: input.paymentMethod, totalPaise: order.totalPaise, customer: { name: String(address.fullName ?? order.customer?.fullName ?? 'Customer'), email: order.customer?.email, phone: String(address.phone ?? order.customer?.phone ?? '') }, address: { line1: String(address.addressLine1), line2: address.addressLine2 ? String(address.addressLine2) : undefined, landmark: address.landmark ? String(address.landmark) : undefined, city: String(address.city), state: String(address.state), pincode: String(address.pincode) }, items: order.items.map((item) => ({ name: item.productName, sku: item.sku, quantity: item.quantity, sellingPricePaise: item.unitSellingPricePaise })), package: orderPackage(input.package) })
-    if (!created.providerShipmentId) throw new ApiError(502, 'DELHIVERY_ORDER_FAILED', 'Delhivery accepted no shipment ID; the shipment was not stored as booked.')
+    if (!created.providerShipmentId) {
+      const reason = providerRejectionReason(created.raw)
+      throw new ApiError(502, 'DELHIVERY_ORDER_FAILED', reason ? `Delhivery did not create the shipment: ${reason}` : 'Delhivery did not create the shipment; no shipment ID was returned. The shipment was not stored as booked.')
+    }
     const assigned = await delhivery.assignAwb(created.providerShipmentId, input.courierId)
     const awb = providerValue(assigned, ['data.response.data.awb_code', 'response.data.awb_code', 'data.awb_code', 'awb_code'])
     const providerEtd = input.etd ? new Date(input.etd) : null
