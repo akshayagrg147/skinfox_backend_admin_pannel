@@ -27,14 +27,15 @@ describe('Header mobile menu', () => {
     expect(within(mobileNavigation).getByRole('link', { name: 'Shop the edit' })).toHaveAttribute('href', '#shop')
     expect(within(mobileNavigation).getByRole('button', { name: 'My account' })).toBeInTheDocument()
     expect(within(mobileNavigation).getByRole('button', { name: 'Find my care' })).toBeInTheDocument()
-    expect(within(mobileNavigation).getByRole('link', { name: 'Explore the range' })).toHaveAttribute('href', '#range')
-    expect(within(mobileNavigation).getByRole('link', { name: 'Our story' })).toHaveAttribute('href', '#story')
-    expect(within(mobileNavigation).getByRole('link', { name: 'Care & support' })).toHaveAttribute('href', '#faq')
+    expect(within(mobileNavigation).getByRole('link', { name: 'Skin care' })).toHaveAttribute('href', '/skin-care')
+    expect(within(mobileNavigation).getByRole('link', { name: 'Hair care' })).toHaveAttribute('href', '/hair-care')
+    expect(within(mobileNavigation).getByRole('link', { name: 'About SkinFox' })).toHaveAttribute('href', '/about')
+    expect(within(mobileNavigation).getByRole('link', { name: 'Care & support' })).toHaveAttribute('href', '/faq')
 
     const desktopNavigation = screen.getByRole('navigation', { name: 'Main navigation' })
     const desktopLinks = within(desktopNavigation).getAllByRole('link')
-    expect(desktopLinks.map((link) => link.getAttribute('href'))).toEqual(['#shop', '#range', '#story', '#faq'])
-    expect(desktopLinks.map((link) => link.textContent)).toEqual(['Shop the edit', 'Explore the range', 'Our story', 'Care & support'])
+    expect(desktopLinks.map((link) => link.getAttribute('href'))).toEqual(['#shop', '/skin-care', '/hair-care', '/faq'])
+    expect(desktopLinks.map((link) => link.textContent)).toEqual(['Shop the edit', 'Skin care', 'Hair care', 'Care & support'])
 
     fireEvent.keyDown(window, { key: 'Escape' })
 

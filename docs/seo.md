@@ -1,11 +1,13 @@
 # Public storefront SEO
 
-`npm run build` now generates initial HTML for the homepage, the two legal pages and the seven supplied product pages. The browser then mounts the existing storefront and loads live catalogue, bag and account data. No authentication or checkout behavior is duplicated in the public-page layer.
+`npm run build` now generates initial HTML for the homepage, the two legal pages, seven supplied product pages, three care-range pages and the About, FAQ and Guides pages (16 public pages in total). The browser then mounts the existing storefront and loads live catalogue, bag and account data. No authentication or checkout behavior is duplicated in the public-page layer.
 
 ## URLs and metadata
 
 - `/` — homepage, OnlineStore, WebSite and the FAQ text rendered on the page.
 - `/products/:slug` — product details, breadcrumbs and Product data. Offers use an actual positive selling price returned by the catalogue, never MRP. Stock is not inferred from price.
+- `/skin-care`, `/hair-care`, `/body-care` — crawlable category landing pages with product links and label-led category copy.
+- `/about`, `/faq`, `/guides` — trust, support and evergreen care content with their own metadata and structured data where appropriate.
 - `/privacy-policy` and `/terms-and-conditions` — full readable policies and breadcrumbs. Existing `#privacy-policy` and `#terms-and-conditions` links still work.
 - `/sitemap.xml` — generated again from the public page list during each build.
 - `/robots.txt` — exposes the sitemap and excludes API, admin, affiliate, account and checkout paths on the storefront host. This is a crawl preference, not access control.
@@ -15,6 +17,8 @@ All public pages have an individual title, description, canonical URL, Open Grap
 ## Catalogue content
 
 Initial HTML uses `src/data/products.ts`, which is the supplied collection. Selling prices are pending in that source, so static output has no invented offer or availability data. Runtime metadata uses the same current API product displayed by the page. Admin-added product slugs still work through the existing API, but to include them in initial HTML and the build-generated sitemap, synchronize the source catalogue before rebuilding. This is build-time rendering, not a new live server-rendering service.
+
+Product pages now lead with category search phrases in their title, subtitle and opening copy, then expose use guidance, suitability, transparent ingredient notes and four product FAQs. The ingredient sections deliberately only name ingredients visible on supplied artwork and clearly defer to the approved production label for the complete INCI list; reviews and regulated claims are not invented. The AI comparison module is no longer rendered on the public homepage until real customer imagery is available.
 
 ## Verification and follow-up
 

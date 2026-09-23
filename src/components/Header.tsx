@@ -96,9 +96,9 @@ export function Header({ cartCount, onCart, onQuiz, onSearch, onAccount, onLogou
           </a>
           <nav className="desktop-nav" aria-label="Main navigation">
             <a href={homeAnchor('shop')}>Shop the edit</a>
-            <a href={homeAnchor('range')}>Explore the range</a>
-            <a href={homeAnchor('story')}>Our story</a>
-            <a href={homeAnchor('faq')}>Care &amp; support</a>
+            <a href="/skin-care">Skin care</a>
+            <a href="/hair-care">Hair care</a>
+            <a href="/faq">Care &amp; support</a>
           </nav>
           <div className="header-actions">
             <button className="header-quiz" onClick={onQuiz}>
@@ -136,9 +136,10 @@ export function Header({ cartCount, onCart, onQuiz, onSearch, onAccount, onLogou
                 <button onClick={() => { navigate(); onAccount() }}>My account</button>
                 <button onClick={() => { navigate(); onQuiz() }}>Find my care</button>
                 <button onClick={() => { navigate(); onSearch() }}>Search products</button>
-                <a href={homeAnchor('range')} onClick={navigate}>Explore the range</a>
-                <a href={homeAnchor('story')} onClick={navigate}>Our story</a>
-                <a href={homeAnchor('faq')} onClick={navigate}>Care &amp; support</a>
+                <a href="/skin-care" onClick={navigate}>Skin care</a>
+                <a href="/hair-care" onClick={navigate}>Hair care</a>
+                <a href="/about" onClick={navigate}>About SkinFox</a>
+                <a href="/faq" onClick={navigate}>Care &amp; support</a>
               </nav>
               <p>Beautiful care from root to skin.</p>
             </motion.div>

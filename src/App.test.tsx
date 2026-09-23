@@ -22,15 +22,10 @@ describe('SkinFox storefront', () => {
     expect(document.querySelector('.site-footer__wordmark')).toHaveAttribute('src', '/brand/skinfox-logo.png')
   })
 
-  it('shows a sliding launch promotion banner using the configured order capacity', () => {
+  it('keeps the launch promotion banner hidden while every product is still coming soon', () => {
     render(<App />)
 
-    const banner = screen.getByRole('link', { name: /exclusive launch access.*50% off.*first 500 orders/i })
-    expect(banner).toHaveAttribute('href', '/#shop')
-    expect(banner).toHaveTextContent('Launch offer · 50% off')
-    expect(banner).toHaveTextContent('For the first 500 completed orders')
-    expect(banner).not.toHaveTextContent(/waitlist|priority|reservation|founder/i)
-    expect(banner.querySelector('.announcement__track')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /exclusive launch access.*50% off.*first 500 orders/i })).not.toBeInTheDocument()
   })
 
   it('keeps the footer concise and presents contact and affiliate actions', () => {
@@ -90,6 +85,7 @@ describe('SkinFox storefront', () => {
     expect(storyProducts[0]).toHaveAttribute('data-product-id', 'hydrelle-dry-skin-specialist')
     expect(screen.getByText(/hydrelle · one continuous journey/i)).toBeInTheDocument()
     expect(screen.queryByText(/rooted in six botanicals/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /before the ritual.*after the ritual/i })).not.toBeInTheDocument()
   })
 
   it('keeps the campaign film poster offscreen and cycles through landscape images', async () => {

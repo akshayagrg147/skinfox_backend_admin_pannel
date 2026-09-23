@@ -32,7 +32,7 @@ const descriptions: Record<string, { original: string; revised: string }> = {
 }
 
 const defaultHighlightCopy: Record<string, Record<string, string>> = {
-  'rayyvia-sun-protect': { 'MRP ₹700 shown in supplied artwork': 'Compact daily-care format' },
+  'rayyvia-sun-protect': { 'SPF 50+++ shown on pack': 'SPF 50 shown on supplied artwork', 'MRP ₹700 shown in supplied artwork': 'Compact daily-care format' },
   'acnfin-soft-face-wash': { 'MRP ₹760 visible on the supplied pack': 'For an acne-prone skin routine' },
   'hydrelle-dry-skin-specialist': { 'MRP ₹750 shown in supplied artwork': 'Dry-skin moisture care' },
 }

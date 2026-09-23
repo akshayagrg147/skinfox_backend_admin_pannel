@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { products } from '../data/products'
-import { homeSeo, productSeo, serializeSchema } from './metadata'
+import { categorySeo, faqSeo, homeSeo, productSeo, serializeSchema } from './metadata'
 
 describe('public page SEO', () => {
   it('uses the selling price for product offers, never the MRP or a guessed price', () => {
@@ -23,5 +23,14 @@ describe('public page SEO', () => {
     const serialized = serializeSchema([{ name: '</script><img src=x onerror=alert(1)>' }])
     expect(serialized).not.toContain('<')
     expect(JSON.parse(serialized)['@graph'][0].name).toBe('</script><img src=x onerror=alert(1)>')
+  })
+
+  it('uses search-led page titles and FAQ schema for crawlable landing pages', () => {
+    const product = productSeo(products[0])
+    expect(product.title).toMatch(/SPF 50 sunscreen for face/i)
+    expect(product.description).toMatch(/sunscreen/i)
+    expect(product.structuredData?.some((item) => item['@type'] === 'FAQPage')).toBe(true)
+    expect(categorySeo('hair-care').title).toMatch(/hair care/i)
+    expect(faqSeo().structuredData?.find((item) => item['@type'] === 'FAQPage')).toBeTruthy()
   })
 })

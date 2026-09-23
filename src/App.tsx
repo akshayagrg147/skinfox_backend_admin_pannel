@@ -26,7 +26,9 @@ import { CareGuide } from './components/CareGuide'
 import { ProductPage } from './seo/ProductPage'
 import { SiteSeo } from './seo/SiteSeo'
 import { defaultFaqs } from './seo/content'
-import { HydrelleRoutineComparison } from './components/HydrelleRoutineComparison'
+import { CategoryPage } from './seo/CategoryPage'
+import { EditorialPage } from './seo/EditorialPage'
+import type { CategorySlug } from './seo/content'
 import { LegalPage, type LegalPageKind } from './components/LegalPage'
 import { ProductCard } from './components/ProductCard'
 import { RoutineQuiz } from './components/RoutineQuiz'
@@ -83,7 +85,9 @@ function readLegalPageFromHash(): LegalPageKind | null {
   return null
 }
 
-export default function App({ productSlug }: { productSlug?: string } = {}) {
+type PublicPageSlug = CategorySlug | 'about' | 'faq' | 'guides'
+
+export default function App({ productSlug, pageSlug }: { productSlug?: string; pageSlug?: PublicPageSlug } = {}) {
   const storefront = useStorefront()
   const collectionProducts = storefront.products.length ? storefront.products : (import.meta.env.MODE === 'test' ? products : [])
   const productById = (id: string) => collectionProducts.find((item) => item.id === id) ?? getProductById(id)
@@ -185,6 +189,7 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
     : collectionProducts.filter((product) => product.concerns.includes(activeFilter))
   const customFaqs = storefront.faqs.filter((item) => !legacyFaqQuestions.has(item.question))
   const visibleFaqs = (customFaqs.length ? customFaqs : defaultFaqs).map((item) => [item.question, item.answer] as [string, string])
+  const showAnnouncement = collectionProducts.some((product) => product.price !== null) && storefront.promotion.enabled
 
   const applyCartResponse = (response: any) => setCart((response.lines ?? []).map((line: any) => ({ product: mapProduct(line.product), quantity: line.quantity })))
   const trackAffiliateReferral = async (token: string) => {
@@ -297,10 +302,10 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
 
   return (
     <div id="top" className="app-shell">
-      {!productSlug && <SiteSeo faqs={visibleFaqs.map(([question, answer]) => ({ question, answer }))} />}
+      {!productSlug && !pageSlug && <SiteSeo faqs={visibleFaqs.map(([question, answer]) => ({ question, answer }))} />}
       <a className="skip-link" href="#main-content">Skip to content</a>
       <motion.div className="scroll-progress" style={{ scaleX: progress }} />
-      <a className="announcement" href="/#shop" aria-label={storefront.promotion.message}>
+      {showAnnouncement && <a className="announcement" href="/#shop" aria-label={storefront.promotion.message}>
         <div className="announcement__viewport">
           <div className="announcement__track" aria-hidden="true">
             {[0, 1].map((copy) => <div className="announcement__group" key={copy}>
@@ -314,7 +319,7 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
             </div>)}
           </div>
         </div>
-      </a>
+      </a>}
       {storefront.error && (
         <div className="api-error-banner" role="alert">
           <span>We’re having trouble loading the collection. Please try again.</span>
@@ -324,7 +329,7 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
       <Header cartCount={cartCount} onCart={() => setCartOpen(true)} onQuiz={() => setQuizOpen(true)} onSearch={() => setSearchOpen(true)} onAccount={openAccount} onLogout={() => void logoutCustomer()} customerName={customer?.fullName} />
 
       <main id="main-content" tabIndex={-1}>
-        {productSlug ? <ProductPage product={collectionProducts.find((product) => product.id === productSlug)} productSlug={productSlug} catalogProducts={collectionProducts} loading={storefront.loading} error={storefront.error} onAdd={(product, quantity) => addToCart(product, quantity)} onFindCare={() => setQuizOpen(true)} /> : <>
+        {productSlug ? <ProductPage product={collectionProducts.find((product) => product.id === productSlug)} productSlug={productSlug} catalogProducts={collectionProducts} loading={storefront.loading} error={storefront.error} onAdd={(product, quantity) => addToCart(product, quantity)} onFindCare={() => setQuizOpen(true)} /> : pageSlug ? (pageSlug === 'about' || pageSlug === 'faq' || pageSlug === 'guides' ? <EditorialPage kind={pageSlug} faqs={pageSlug === 'faq' ? visibleFaqs.map(([question, answer]) => ({ question, answer })) : undefined} /> : <CategoryPage slug={pageSlug} products={collectionProducts} loading={storefront.loading} onAdd={(product) => addToCart(product, 1)} />) : <>
         <section className="hero" aria-labelledby="hero-title">
           <div className="hero__wash" aria-hidden="true" />
           <div className="hero__copy">
@@ -381,8 +386,6 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
         </section>
 
         <ScrollProductStory product={activeHydrelle} />
-
-        <HydrelleRoutineComparison product={activeHydrelle} />
 
         <section id="range" className="range-section section-pad" aria-labelledby="range-title">
           <div className="shell">
@@ -491,8 +494,8 @@ export default function App({ productSlug }: { productSlug?: string } = {}) {
               <a className="site-footer__email" href="mailto:contact@skinfox.in"><Mail size={17} aria-hidden="true" /> contact@skinfox.in</a>
             </div>
           </div>
-          <div><span>Explore</span><a href="/#shop">Shop all products</a><button onClick={() => setQuizOpen(true)}>Find my care</button><a href="/#range">Explore the range</a></div>
-          <div><span>Good to know</span><a href="/privacy-policy">Privacy policy</a><a href="/terms-and-conditions">Terms & conditions</a><a href="/terms-and-conditions#delivery">Shipping & returns</a></div>
+          <div><span>Explore</span><a href="/#shop">Shop all products</a><a href="/skin-care">Skin care</a><a href="/hair-care">Hair care</a><a href="/guides">Care guides</a><button onClick={() => setQuizOpen(true)}>Find my care</button></div>
+          <div><span>Good to know</span><a href="/about">About SkinFox</a><a href="/faq">FAQs</a><a href="/privacy-policy">Privacy policy</a><a href="/terms-and-conditions">Terms & conditions</a><a href="/terms-and-conditions#delivery">Shipping & returns</a></div>
           <div className="site-footer__affiliate">
             <span>Become an affiliate</span>
             <strong>Grow with SkinFox.</strong>

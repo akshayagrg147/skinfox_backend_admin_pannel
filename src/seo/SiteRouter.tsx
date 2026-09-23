@@ -21,6 +21,7 @@ export function SiteRouter() {
   if (path === '/privacy-policy' || path === '/terms-and-conditions') return <LegalPage kind={path === '/privacy-policy' ? 'privacy' : 'terms'} onBack={() => { window.location.href = '/#top' }} />
   const match = path.match(/^\/products\/([a-zA-Z0-9-]+)$/)
   if (match) return <App key={match[1]} productSlug={match[1]} />
+  if (['/skin-care', '/hair-care', '/body-care', '/about', '/faq', '/guides'].includes(path)) return <App key={path} pageSlug={path.slice(1) as 'skin-care' | 'hair-care' | 'body-care' | 'about' | 'faq' | 'guides'} />
   if (path !== '/') return <main className="product-page shell product-page--message"><SiteSeo page={{ title: 'Page not found | SkinFox', description: 'Return to the SkinFox collection for skin, body, hair and scalp care.', path, noindex: true }} /><h1>This page has moved.</h1><p>Let’s get you back to your care essentials.</p><a className="button button--dark" href="/">Return to SkinFox</a></main>
   return <App />
 }
