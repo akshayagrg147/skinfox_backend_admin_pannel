@@ -49,7 +49,21 @@ const productSnapshotFields = ['slug', 'name', 'subtitle', 'type', 'packaging', 
 const mediaSnapshotFields = ['type', 'src', 'mobileSrc', 'poster', 'alt', 'sortOrder', 'width', 'height', 'aspectRatio', 'fitMode', 'objectPosition', 'imageScale', 'focalPointX', 'focalPointY', 'mediaAssetId'] as const
 const productSnapshot = (product: any) => ({ ...Object.fromEntries(productSnapshotFields.filter((key) => product[key] !== undefined).map((key) => [key, product[key]])), media: Array.isArray(product.media) ? product.media.map((media: any) => Object.fromEntries(mediaSnapshotFields.filter((key) => media[key] !== undefined).map((key) => [key, media[key]]))) : [] })
 const deliveryPhoneSchema = z.string().trim().regex(/^[6-9]\d{9}$/)
-const checkoutSchema = z.object({ fullName: z.string().min(2), email: z.union([z.string().email(), z.literal('')]).optional().transform((value) => value || undefined), phone: deliveryPhoneSchema, addressId: z.string().optional(), addressLine1: z.string().min(5), addressLine2: z.string().optional(), landmark: z.string().optional(), city: z.string().min(2), state: z.string().min(2), pincode: z.string().regex(/^[1-9]\d{5}$/), saveAddress: z.boolean().default(true), saveAsDefault: z.boolean().default(false), billingSameAsShipping: z.boolean().default(true), marketingConsent: z.boolean().default(false), paymentMethod: z.literal('razorpay').default('razorpay'), couponCode: z.string().optional() })
+const checkoutSchema = z.object({ fullName: z.string().min(2), email: z.union([z.string().email(), z.literal('')]).optional().transform((value) => value || undefined), phone: deliveryPhoneSchema, addressId: z.string().optional(), addressLine1: z.string().min(5), addressLine2: z.string().optional(), landmark: z.string().optional(), city: z.string().min(2), state: z.string().min(2), pincode: z.string().regex(/^[1-9]\d{5}$/), saveAddress: z.boolean().default(true), saveAsDefault: z.boolean().default(false), billingSameAsShipping: z.boolean().default(true), marketingConsent: z.boolean().default(false), paymentMethod: z.literal('razorpay').default('razorpay') })
+const couponCodeSchema = z.string().trim().min(3).max(32).transform((value) => value.toUpperCase()).refine((value) => /^[A-Z0-9][A-Z0-9_-]*$/.test(value), 'Use only letters, numbers, hyphens and underscores.')
+const couponCampaignInputSchema = z.object({
+  code: couponCodeSchema,
+  name: z.string().trim().min(2).max(80),
+  discountPercent: z.number().int().min(1).max(100),
+  minSpendPaise: z.number().int().nonnegative().max(10_000_000).default(0),
+  startsAt: z.coerce.date(),
+  endsAt: z.coerce.date(),
+  usageLimit: z.number().int().positive().max(1_000_000).nullable().optional(),
+  perCustomerLimit: z.number().int().positive().max(100).nullable().optional(),
+  active: z.boolean().default(false),
+}).superRefine((value, ctx) => {
+  if (value.endsAt <= value.startsAt) ctx.addIssue({ code: 'custom', path: ['endsAt'], message: 'The end date must be after the start date.' })
+})
 const shippingPackageSchema = z.object({ weightGrams: z.number().int().min(1).max(30_000), lengthCm: z.number().positive().max(200).optional(), breadthCm: z.number().positive().max(200).optional(), heightCm: z.number().positive().max(200).optional(), declaredValuePaise: z.number().int().nonnegative().optional() })
 const defaultShippingPackage = (): ShippingPackage => ({ weightKg: Number(process.env.SHIPPING_DEFAULT_WEIGHT_KG ?? 0.5), lengthCm: process.env.SHIPPING_DEFAULT_LENGTH_CM ? Number(process.env.SHIPPING_DEFAULT_LENGTH_CM) : undefined, breadthCm: process.env.SHIPPING_DEFAULT_BREADTH_CM ? Number(process.env.SHIPPING_DEFAULT_BREADTH_CM) : undefined, heightCm: process.env.SHIPPING_DEFAULT_HEIGHT_CM ? Number(process.env.SHIPPING_DEFAULT_HEIGHT_CM) : undefined })
 const addressSchema = z.object({ label: z.string().trim().min(2).max(30).default('Home'), fullName: z.string().trim().min(2).max(120), phone: deliveryPhoneSchema, addressLine1: z.string().trim().min(5).max(200), addressLine2: z.string().trim().max(200).optional(), landmark: z.string().trim().max(120).optional(), city: z.string().trim().min(2).max(80), state: z.string().trim().min(2).max(80), pincode: z.string().regex(/^[1-9]\d{5}$/), isDefault: z.boolean().default(false) })
@@ -368,8 +382,7 @@ export function buildApp(): FastifyInstance {
     ;(cart as any).publicToken = String(token)
     return cart
   }
-  const cartResponse = async (cart: any, cod = false, serviceable = true, customer?: any) => {
-    const lines = cart.items.map((item: any) => {
+  const cartLines = (cart: any) => cart.items.map((item: any) => {
       // Prefer the fully hydrated product variant (with inventory) over the
       // lightweight CartItem relation so availability is never reported as zero
       // merely because the cart item relation omitted inventory rows.
@@ -378,7 +391,54 @@ export function buildApp(): FastifyInstance {
       const publicItem = publicProduct(item.product)
       return { id: item.id, productId: item.product.id, variantId: variant?.id, quantity: item.quantity, product: publicItem, unitPricePaise: variant?.pricePaise ?? item.product.pricePaise, availableQuantity: inv, purchaseState: variant?.purchaseState ?? item.product.purchaseState }
     })
-    const quote = calculateCart(lines, cart.coupon?.promotion as any, serviceable, cod)
+  const couponEligibility = async (coupon: any, subtotalPaise: number, customerId?: string | null, client: any = prisma) => {
+    if (!coupon) return { valid: false, message: null, redemptionsUsed: 0 }
+    const promotion = coupon.promotion
+    const now = new Date()
+    if (!promotion?.active) return { valid: false, message: 'This coupon is not active.', redemptionsUsed: 0 }
+    if (promotion.startsAt > now) return { valid: false, message: 'This coupon is not available yet.', redemptionsUsed: 0 }
+    if (promotion.endsAt <= now) return { valid: false, message: 'This coupon has expired.', redemptionsUsed: 0 }
+    if (subtotalPaise < promotion.minSpendPaise) return { valid: false, message: `This coupon requires a product subtotal of ₹${(promotion.minSpendPaise / 100).toLocaleString('en-IN')} or more.`, redemptionsUsed: 0 }
+    const redemptionsUsed = promotion.usageLimit ? await client.promotionRedemption.count({ where: { couponId: coupon.id } }) : 0
+    if (promotion.usageLimit && redemptionsUsed >= promotion.usageLimit) return { valid: false, message: 'This coupon has reached its usage limit.', redemptionsUsed }
+    if (promotion.perCustomerLimit && customerId) {
+      const customerRedemptions = await client.promotionRedemption.count({ where: { couponId: coupon.id, customerId } })
+      if (customerRedemptions >= promotion.perCustomerLimit) return { valid: false, message: 'You have already used this coupon the maximum number of times.', redemptionsUsed }
+    }
+    return { valid: true, message: null, redemptionsUsed }
+  }
+  const couponRedemptionEligibility = async (couponId: string, customerId: string, client: any) => {
+    const coupon = await client.coupon.findUnique({ where: { id: couponId }, include: { promotion: true } })
+    if (!coupon) return { valid: false, message: 'This coupon is no longer available.', coupon: null }
+    if (!coupon.promotion.active) return { valid: false, message: 'This coupon is no longer active.', coupon }
+    const redemptionsUsed = coupon.promotion.usageLimit ? await client.promotionRedemption.count({ where: { couponId } }) : 0
+    if (coupon.promotion.usageLimit && redemptionsUsed >= coupon.promotion.usageLimit) return { valid: false, message: 'This coupon reached its usage limit before payment was confirmed.', coupon }
+    if (coupon.promotion.perCustomerLimit) {
+      const customerRedemptions = await client.promotionRedemption.count({ where: { couponId, customerId } })
+      if (customerRedemptions >= coupon.promotion.perCustomerLimit) return { valid: false, message: 'You have already used this coupon the maximum number of times.', coupon }
+    }
+    return { valid: true, message: null, coupon }
+  }
+  const publicCoupon = (coupon: any, status: { valid: boolean; message: string | null; redemptionsUsed: number }) => coupon ? {
+    code: coupon.code,
+    status: status.valid ? 'applied' : 'unavailable',
+    message: status.message,
+    promotion: {
+      name: coupon.promotion.name,
+      type: coupon.promotion.type,
+      value: coupon.promotion.value,
+      minSpendPaise: coupon.promotion.minSpendPaise,
+      startsAt: coupon.promotion.startsAt,
+      endsAt: coupon.promotion.endsAt,
+      usageLimit: coupon.promotion.usageLimit,
+      perCustomerLimit: coupon.promotion.perCustomerLimit,
+    },
+  } : null
+  const cartResponse = async (cart: any, cod = false, serviceable = true, customer?: any) => {
+    const lines = cartLines(cart)
+    const subtotalBeforeCoupon = lines.reduce((total: number, line: any) => total + (line.unitPricePaise ?? 0) * line.quantity, 0)
+    const couponStatus = await couponEligibility(cart.coupon, subtotalBeforeCoupon, customer?.id)
+    const quote = calculateCart(lines, couponStatus.valid ? cart.coupon?.promotion as any : null, serviceable, cod)
     const subtotalPaise = quote.subtotalPaise
     const eligibleByProduct = (!activeLaunchPromotion.eligibleProductIds.length && !activeLaunchPromotion.eligibleCategories.length) || lines.every((line: any) => (!activeLaunchPromotion.eligibleProductIds.length || activeLaunchPromotion.eligibleProductIds.includes(line.productId)) && (!activeLaunchPromotion.eligibleCategories.length || activeLaunchPromotion.eligibleCategories.includes(line.product.category)))
     const customerEligible = !customer || !(await customerHasLaunchPromotionOrder(customer.id))
@@ -389,13 +449,14 @@ export function buildApp(): FastifyInstance {
     // This keeps the Razorpay amount aligned with the prices shown in the bag.
     const promotionBasePaise = launchPromotionEligibleSubtotal(lines.map((line: any) => ({ quantity: line.quantity, unitPricePaise: line.unitPricePaise, mrpPaise: line.product.mrpPaise })))
     const promotionDiscountPaise = !cart.coupon && eligibleByProduct && customerEligible ? launchPromotionDiscount(promotionBasePaise, activeLaunchPromotion, successfulOrders) : 0
-    const combinedDiscount = Math.min(subtotalPaise, quote.discountPaise + promotionDiscountPaise)
+    const couponDiscountPaise = couponStatus.valid ? quote.discountPaise : 0
+    const combinedDiscount = Math.min(subtotalPaise, couponDiscountPaise + promotionDiscountPaise)
     const productTotalPaise = Math.max(0, subtotalPaise - combinedDiscount)
     const taxBreakdown = inclusiveTaxBreakdown(productTotalPaise)
     const shippingPaise = !serviceable ? 0 : productTotalPaise >= FREE_SHIPPING_THRESHOLD_PAISE ? 0 : (productTotalPaise > 0 ? STANDARD_SHIPPING_PAISE : 0)
     const codPaise = cod && productTotalPaise > 0 ? 4900 : 0
     const totalPaise = productTotalPaise + shippingPaise + codPaise
-    return { cartId: cart.publicToken ?? cart.id, lines, ...quote, discountPaise: combinedDiscount, productTotalPaise, taxBasePaise: taxBreakdown.basePaise, taxPaise: taxBreakdown.taxPaise, shippingPaise, codPaise, totalPaise, promotion: promotionDiscountPaise > 0 ? { id: activeLaunchPromotion.id, discountPercent: activeLaunchPromotion.discountPercent, discountPaise: promotionDiscountPaise, successfulOrders, remainingOrders: Math.max(0, activeLaunchPromotion.maximumOrders - successfulOrders) } : null, appliedCoupon: cart.coupon ? { code: cart.coupon.code, promotion: cart.coupon.promotion } : null, currency: cart.currency, expiresAt: cart.expiresAt, priceHidden: false }
+    return { cartId: cart.publicToken ?? cart.id, lines, ...quote, discountPaise: combinedDiscount, couponDiscountPaise, launchDiscountPaise: promotionDiscountPaise, productTotalPaise, taxBasePaise: taxBreakdown.basePaise, taxPaise: taxBreakdown.taxPaise, shippingPaise, codPaise, totalPaise, promotion: promotionDiscountPaise > 0 ? { id: activeLaunchPromotion.id, discountPercent: activeLaunchPromotion.discountPercent, discountPaise: promotionDiscountPaise, successfulOrders, remainingOrders: Math.max(0, activeLaunchPromotion.maximumOrders - successfulOrders) } : null, appliedCoupon: publicCoupon(cart.coupon, couponStatus), currency: cart.currency, expiresAt: cart.expiresAt, priceHidden: false }
   }
   const idemReplay = async (request: any, scope: string) => { const key = request.headers['idempotency-key']; if (!key) return null; const record = await prisma.idempotencyRecord.findUnique({ where: { key_scope: { key: String(key), scope } } }); if (!record?.responseBody) return null; if (record.requestHash !== sha256Json(request.body ?? {})) throw new ApiError(409, 'IDEMPOTENCY_KEY_REUSED', 'This idempotency key was already used with a different request.'); return { status: record.responseStatus ?? 200, body: record.responseBody } }
   const idemStore = async (request: any, scope: string, status: number, responseBody: unknown) => { const key = request.headers['idempotency-key']; if (!key) return; await prisma.idempotencyRecord.create({ data: { key: String(key), scope, requestHash: sha256Json(request.body ?? {}), responseStatus: status, responseBody: responseBody as Prisma.InputJsonValue, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) } }).catch(() => undefined) }
@@ -1106,7 +1167,21 @@ export function buildApp(): FastifyInstance {
   routes.patch('/api/v1/carts/:cartId/items/:itemId', async (request, reply) => { const quantity = z.number().int().min(0).max(50).parse(request.body?.quantity); const cart = await getCart(request); const item = cart.items.find((line: any) => line.id === request.params.itemId || line.product.id === request.params.itemId || line.product.slug === request.params.itemId); if (!item) throw notFound('Cart item not found.'); if (!quantity) await prisma.cartItem.delete({ where: { id: item.id } }); else await prisma.cartItem.update({ where: { id: item.id }, data: { quantity } }); return data(reply, await cartResponse(await getCart(request), false, true, await currentCustomer(request, false))) })
   routes.delete('/api/v1/carts/:cartId/items/:itemId', async (request, reply) => { const cart = await getCart(request); const item = cart.items.find((line: any) => line.id === request.params.itemId || line.product.id === request.params.itemId || line.product.slug === request.params.itemId); if (!item) throw notFound('Cart item not found.'); await prisma.cartItem.delete({ where: { id: item.id } }); return data(reply, await cartResponse(await getCart(request), false, true, await currentCustomer(request, false))) })
   routes.delete('/api/v1/carts/:cartId', async (request, reply) => { const cart = await getCart(request); await prisma.cart.delete({ where: { id: cart.id } }); return data(reply, { deleted: true }) })
-  routes.post('/api/v1/carts/:cartId/apply-coupon', async (request, reply) => { const code = z.string().min(2).parse(request.body?.code); const cart = await getCart(request); const coupon = await prisma.coupon.findUnique({ where: { code: code.toUpperCase() }, include: { promotion: true } }); if (!coupon || !coupon.promotion.active || coupon.promotion.startsAt > new Date() || coupon.promotion.endsAt < new Date()) throw validationError('This coupon is not active or has expired.'); await prisma.cart.update({ where: { id: cart.id }, data: { couponId: coupon.id } }); return data(reply, await cartResponse(await getCart(request))) })
+  routes.post('/api/v1/carts/:cartId/apply-coupon', { config: { rateLimit: { max: 20, timeWindow: '15 minutes' } } }, async (request, reply) => {
+    const code = couponCodeSchema.parse(request.body?.code)
+    const cart = await getCart(request)
+    const customer = await currentCustomer(request, false)
+    const coupon = await prisma.coupon.findUnique({ where: { code }, include: { promotion: true } })
+    if (!coupon) throw validationError('Enter a valid coupon code.', { code: 'We could not find that coupon.' })
+    const subtotalPaise = cartLines(cart).reduce((total: number, line: any) => total + (line.unitPricePaise ?? 0) * line.quantity, 0)
+    const eligibility = await couponEligibility(coupon, subtotalPaise, customer?.id)
+    if (!eligibility.valid) throw validationError(eligibility.message ?? 'This coupon cannot be applied to this order.', { code: eligibility.message ?? 'Coupon unavailable.' })
+    const automaticOffer = await cartResponse(cart, false, true, customer)
+    const couponDiscountPaise = calculateCart(cartLines(cart), coupon.promotion as any).discountPaise
+    if (automaticOffer.launchDiscountPaise >= couponDiscountPaise && automaticOffer.launchDiscountPaise > 0) throw validationError('A better SkinFox offer is already applied to this cart. This coupon would not reduce your total further.', { code: 'A better automatic offer is already active.' })
+    await prisma.cart.update({ where: { id: cart.id }, data: { couponId: coupon.id } })
+    return data(reply, await cartResponse(await getCart(request), false, true, customer))
+  })
   routes.delete('/api/v1/carts/:cartId/coupon', async (request, reply) => { const cart = await getCart(request); await prisma.cart.update({ where: { id: cart.id }, data: { couponId: null } }); return data(reply, await cartResponse(await getCart(request))) })
 
   routes.get('/api/v1/shipping/pincode/:pincode', async (request, reply) => {
@@ -1157,6 +1232,9 @@ export function buildApp(): FastifyInstance {
       serviceable = providerQuote.serviceable
     } else serviceable = await shipping.serviceable(parsed.pincode)
     const base = await cartResponse(cart, false, serviceable, customer)
+    if (base.appliedCoupon?.status === 'unavailable') {
+      throw validationError(base.appliedCoupon.message ?? 'The applied coupon can no longer be used. Remove it and try again.', { coupon: base.appliedCoupon.message ?? 'Coupon unavailable.' })
+    }
     const providerCharge = providerQuote?.couriers?.[0]?.ratePaise
     if (shipping === delhivery && serviceable && (providerCharge === null || providerCharge === undefined)) throw new ApiError(503, 'SHIPPING_RATE_UNAVAILABLE', 'Delhivery confirmed this pincode, but could not return a shipping rate. Please try again or contact support.')
     const response = providerCharge === null || providerCharge === undefined ? base : (() => {
@@ -1205,7 +1283,19 @@ export function buildApp(): FastifyInstance {
         await tx.shippingQuote.create({ data: { checkoutSessionId: session.id, pincode: String(shippingAddress.pincode), serviceable: Boolean(quote.serviceability), chargePaise: Number(quote.shippingPaise ?? 0), provider: String(quote.shippingProvider), courierId: firstCourier?.id ? String(firstCourier.id) : undefined, courierName: firstCourier?.name ? String(firstCourier.name) : undefined, metadata: { couriers: quote.courierOptions ?? [], expiresAt: quote.quoteExpiresAt } as any, expiresAt: new Date(String(quote.quoteExpiresAt)) } })
       }
       const promotionSnapshot = quote.promotion ? { ...quote.promotion, originalSubtotalPaise: quote.subtotalPaise, finalSubtotalPaise: Math.max(0, quote.subtotalPaise - quote.promotion.discountPaise), appliedDiscountPaise: quote.promotion.discountPaise, appliedAt: new Date().toISOString() } : null
-      const order = await tx.order.create({ data: { publicToken: randomToken(24), orderNumber: `SF-${new Date().getFullYear()}-${randomToken(4).toUpperCase()}`, checkoutSessionId: session.id, customerId: customer.id, status: OrderStatus.pending_payment, subtotalPaise: quote.subtotalPaise, discountPaise: quote.discountPaise, taxPaise: quote.taxPaise, shippingPaise: quote.shippingPaise, codPaise: quote.codPaise, totalPaise: quote.totalPaise, shippingAddress: shippingAddress as any, conversionSnapshot: promotionSnapshot ? { promotion: promotionSnapshot } as any : undefined, items: { create: quote.lines.map((line: any) => { const lineTotalPaise = (line.unitPricePaise ?? 0) * line.quantity; return { productId: line.productId, variantId: line.variantId, productName: line.product.name, variantName: line.product.size, sku: line.variantId ?? line.product.slug, size: line.product.size, primaryImage: line.product.image, unitSellingPricePaise: line.unitPricePaise ?? 0, mrpPaise: line.product.mrpPaise, discountPaise: 0, taxRateBps: 1800, taxPaise: inclusiveTaxBreakdown(lineTotalPaise).taxPaise, finalLineTotalPaise: lineTotalPaise, quantity: line.quantity } }) } } })
+      const couponSnapshot = cart.coupon && quote.appliedCoupon?.status === 'applied' && quote.couponDiscountPaise > 0 ? {
+        couponId: cart.coupon.id,
+        promotionId: cart.coupon.promotionId,
+        code: cart.coupon.code,
+        name: cart.coupon.promotion.name,
+        type: cart.coupon.promotion.type,
+        value: cart.coupon.promotion.value,
+        minSpendPaise: cart.coupon.promotion.minSpendPaise,
+        discountPaise: quote.couponDiscountPaise,
+        appliedAt: new Date().toISOString(),
+      } : null
+      const pricingSnapshot = promotionSnapshot || couponSnapshot ? { ...(promotionSnapshot ? { promotion: promotionSnapshot } : {}), ...(couponSnapshot ? { coupon: couponSnapshot } : {}) } : undefined
+      const order = await tx.order.create({ data: { publicToken: randomToken(24), orderNumber: `SF-${new Date().getFullYear()}-${randomToken(4).toUpperCase()}`, checkoutSessionId: session.id, customerId: customer.id, status: OrderStatus.pending_payment, subtotalPaise: quote.subtotalPaise, discountPaise: quote.discountPaise, taxPaise: quote.taxPaise, shippingPaise: quote.shippingPaise, codPaise: quote.codPaise, totalPaise: quote.totalPaise, shippingAddress: shippingAddress as any, conversionSnapshot: pricingSnapshot as any, items: { create: quote.lines.map((line: any) => { const lineTotalPaise = (line.unitPricePaise ?? 0) * line.quantity; return { productId: line.productId, variantId: line.variantId, productName: line.product.name, variantName: line.product.size, sku: line.variantId ?? line.product.slug, size: line.product.size, primaryImage: line.product.image, unitSellingPricePaise: line.unitPricePaise ?? 0, mrpPaise: line.product.mrpPaise, discountPaise: 0, taxRateBps: 1800, taxPaise: inclusiveTaxBreakdown(lineTotalPaise).taxPaise, finalLineTotalPaise: lineTotalPaise, quantity: line.quantity } }) } } })
       for (const line of quote.lines) {
         if (!line.variantId) continue
         const inventory = await tx.inventoryItem.findFirst({ where: { variantId: line.variantId }, orderBy: { availableQty: 'desc' } })
@@ -1233,13 +1323,15 @@ export function buildApp(): FastifyInstance {
     const prefill = checkoutPaymentPrefill(customer, session.order.shippingAddress)
     const promotionSnapshot = (session.order.conversionSnapshot as any)?.promotion
     if (promotionSnapshot?.id === activeLaunchPromotion.id && await launchPromotionOrderCount() >= activeLaunchPromotion.maximumOrders) throw new ApiError(409, 'PROMOTION_COMPLETED', 'The SkinFox launch offer has ended. Please restart checkout to continue at the current price.')
+    if (session.order.totalPaise <= 0) throw validationError('This order has no amount due. Contact SkinFox support to complete a fully discounted order.')
     const existing = await prisma.payment.findFirst({ where: { orderId: session.order.id, provider: 'razorpay', status: PaymentStatus.pending, providerOrderId: { not: null } } })
     if (existing?.providerOrderId) {
       const response = { orderNumber: session.order.orderNumber, amountPaise: existing.amountPaise, currency: session.order.currency, keyId: process.env.RAZORPAY_KEY_ID, orderId: existing.providerOrderId, name: 'SkinFox', description: 'SkinFox order', prefill }
       await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
       return data(reply, response)
     }
-    const providerOrder = await payment.createOrder({ amountPaise: session.order.totalPaise, receipt: session.order.orderNumber, notes: { order: session.order.publicToken, purpose: 'storefront_purchase', promotion: promotionSnapshot?.id ?? '' } })
+    const couponSnapshot = (session.order.conversionSnapshot as any)?.coupon
+    const providerOrder = await payment.createOrder({ amountPaise: session.order.totalPaise, receipt: session.order.orderNumber, notes: { order: session.order.publicToken, purpose: 'storefront_purchase', promotion: promotionSnapshot?.id ?? '', coupon: couponSnapshot?.code ?? '' } })
     const paymentRecord = await prisma.payment.create({ data: { orderId: session.order.id, provider: 'razorpay', providerOrderId: providerOrder.providerOrderId, amountPaise: session.order.totalPaise, status: PaymentStatus.pending } })
     const response = { orderNumber: session.order.orderNumber, amountPaise: paymentRecord.amountPaise, currency: session.order.currency, keyId: process.env.RAZORPAY_KEY_ID, orderId: providerOrder.providerOrderId, name: 'SkinFox', description: 'SkinFox order', prefill }
     await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
@@ -1259,6 +1351,7 @@ export function buildApp(): FastifyInstance {
     const paymentRecord = await prisma.payment.findFirst({ where: { provider: 'razorpay', providerOrderId: input.razorpayOrderId }, include: { order: { include: { checkoutSession: true } } } })
     if (!paymentRecord?.order || paymentRecord.order.customerId !== customer.id) throw notFound('Payment session not found.')
     if (paymentRecord.status === PaymentStatus.captured && paymentRecord.providerPaymentId === input.razorpayPaymentId) return data(reply, { confirmed: true, orderPublicToken: paymentRecord.order.publicToken, orderNumber: paymentRecord.order.orderNumber, status: paymentRecord.order.status })
+    if (paymentRecord.status === PaymentStatus.refunded) throw new ApiError(409, 'PAYMENT_REFUNDED', 'This payment was refunded and cannot be confirmed again.')
     if (!payment.verifyPayment({ orderId: input.razorpayOrderId, paymentId: input.razorpayPaymentId, signature: input.razorpaySignature })) throw new ApiError(400, 'PAYMENT_SIGNATURE_INVALID', 'Payment verification failed. Your order has not been confirmed.')
     let providerPayment
     try { providerPayment = await payment.fetchPayment(input.razorpayPaymentId) } catch (cause) { request.log.error({ err: cause, orderId: paymentRecord.order.id, paymentId: input.razorpayPaymentId }, 'razorpay payment status fetch failed'); return data(reply, { confirmed: false, pending: true, message: 'Payment received; confirmation is still pending. Please do not pay again.' }) }
@@ -1277,14 +1370,26 @@ export function buildApp(): FastifyInstance {
       return data(reply, response)
     }
     const promotionSnapshot = (paymentRecord.order.conversionSnapshot as any)?.promotion
+    const couponSnapshot = (paymentRecord.order.conversionSnapshot as any)?.coupon
     const result = await prisma.$transaction(async (tx) => {
       if (promotionSnapshot?.id === activeLaunchPromotion.id) {
         await tx.$queryRaw`SELECT "id" FROM "StoreSetting" WHERE "key" = 'launch-promotion' FOR UPDATE`
-        if (await launchPromotionOrderCount(tx) >= activeLaunchPromotion.maximumOrders) return { limited: true as const }
+        if (await launchPromotionOrderCount(tx) >= activeLaunchPromotion.maximumOrders) return { limited: true as const, couponRejected: null }
+      }
+      let couponToRedeem: any = null
+      if (couponSnapshot?.couponId) {
+        await tx.$queryRaw`SELECT "id" FROM "Coupon" WHERE "id" = ${String(couponSnapshot.couponId)} FOR UPDATE`
+        const existingRedemption = await tx.promotionRedemption.findFirst({ where: { couponId: String(couponSnapshot.couponId), orderId: paymentRecord.order.id } })
+        if (!existingRedemption) {
+          const couponCheck = await couponRedemptionEligibility(String(couponSnapshot.couponId), customer.id, tx)
+          if (!couponCheck.valid) return { limited: false as const, couponRejected: couponCheck.message }
+          couponToRedeem = couponCheck.coupon
+        }
       }
       const updatedPayment = await tx.payment.update({ where: { id: paymentRecord.id }, data: { providerPaymentId: providerPayment.providerPaymentId, status: PaymentStatus.captured, capturedPaise: providerPayment.amountPaise } })
       await tx.paymentEvent.upsert({ where: { paymentId_externalId: { paymentId: paymentRecord.id, externalId: providerPayment.providerPaymentId } }, update: { type: 'payment.captured', payload: providerPayment as any }, create: { paymentId: paymentRecord.id, externalId: providerPayment.providerPaymentId, type: 'payment.captured', payload: providerPayment as any } })
       const order = await tx.order.update({ where: { id: paymentRecord.order.id }, data: { status: OrderStatus.confirmed, statusEvents: { create: { fromStatus: OrderStatus.pending_payment, toStatus: OrderStatus.confirmed, reason: 'Razorpay payment confirmed' } } } })
+      if (couponToRedeem) await tx.promotionRedemption.create({ data: { couponId: couponToRedeem.id, customerId: customer.id, orderId: order.id } })
       if (paymentRecord.order.checkoutSessionId) await tx.checkoutSession.update({ where: { id: paymentRecord.order.checkoutSessionId }, data: { status: 'confirmed' } })
       const session = paymentRecord.order.checkoutSession
       if (session) {
@@ -1298,18 +1403,21 @@ export function buildApp(): FastifyInstance {
           }
         }
       }
-      return { limited: false as const, order, updatedPayment }
+      return { limited: false as const, couponRejected: null, order, updatedPayment }
     })
-    if (result.limited) {
+    if (result.limited || result.couponRejected) {
+      const rejection = result.limited
+        ? { code: 'PROMOTION_COMPLETED', message: 'The SkinFox launch offer ended before this payment was confirmed. Your payment has been refunded.', reason: 'Launch promotion capacity reached; payment refunded', refundKey: 'promotion-capacity' }
+        : { code: 'COUPON_UNAVAILABLE', message: `${result.couponRejected} Your payment has been refunded.`, reason: `Coupon redemption rejected; payment refunded (${result.couponRejected})`, refundKey: 'coupon-redemption' }
       let refund
-      try { refund = await payment.refund({ paymentId: providerPayment.providerPaymentId, amountPaise: providerPayment.amountPaise, idempotencyKey: `promotion-capacity-${paymentRecord.id}` }) } catch (cause) { request.log.error({ err: cause, orderId: paymentRecord.order.id, paymentId: providerPayment.providerPaymentId }, 'promotion capacity refund failed'); throw new ApiError(502, 'PAYMENT_REFUND_PENDING', 'Payment was received, but this promotion has ended. Please contact SkinFox support before trying again.') }
+      try { refund = await payment.refund({ paymentId: providerPayment.providerPaymentId, amountPaise: providerPayment.amountPaise, idempotencyKey: `${rejection.refundKey}-${paymentRecord.id}` }) } catch (cause) { request.log.error({ err: cause, orderId: paymentRecord.order.id, paymentId: providerPayment.providerPaymentId }, 'post-capture promotion refund failed'); throw new ApiError(502, 'PAYMENT_REFUND_PENDING', 'Payment was received, but the offer could not be confirmed. Please contact SkinFox support before trying again.') }
       await prisma.$transaction([
         prisma.payment.update({ where: { id: paymentRecord.id }, data: { providerPaymentId: providerPayment.providerPaymentId, status: PaymentStatus.refunded, capturedPaise: providerPayment.amountPaise } }),
         prisma.paymentEvent.upsert({ where: { paymentId_externalId: { paymentId: paymentRecord.id, externalId: `refund:${refund.providerRefundId}` } }, update: { type: 'refund.processed', payload: refund as any }, create: { paymentId: paymentRecord.id, externalId: `refund:${refund.providerRefundId}`, type: 'refund.processed', payload: refund as any } }),
-        prisma.order.update({ where: { id: paymentRecord.order.id }, data: { status: OrderStatus.cancelled, statusEvents: { create: { fromStatus: OrderStatus.pending_payment, toStatus: OrderStatus.cancelled, reason: 'Launch promotion capacity reached; payment refunded' } } } }),
+        prisma.order.update({ where: { id: paymentRecord.order.id }, data: { status: OrderStatus.cancelled, statusEvents: { create: { fromStatus: OrderStatus.pending_payment, toStatus: OrderStatus.cancelled, reason: rejection.reason } } } }),
         ...(paymentRecord.order.checkoutSessionId ? [prisma.checkoutSession.update({ where: { id: paymentRecord.order.checkoutSessionId }, data: { status: 'cancelled' } })] : []),
       ])
-      throw new ApiError(409, 'PROMOTION_COMPLETED', 'The SkinFox launch offer ended before this payment was confirmed. Your payment has been refunded.')
+      throw new ApiError(409, rejection.code, rejection.message)
     }
     if (result.order.customerId) await prisma.customerNotification.create({ data: { customerId: result.order.customerId, orderId: result.order.id, type: 'order_confirmed', title: `Order ${result.order.orderNumber} is confirmed`, body: 'Your payment was received. Shipment tracking will appear in My orders once the courier is booked.' } }).catch(() => undefined)
     const response = { confirmed: true, orderPublicToken: result.order.publicToken, orderNumber: result.order.orderNumber, status: result.order.status }
@@ -1357,14 +1465,59 @@ export function buildApp(): FastifyInstance {
     const paymentEntity = payload.payload?.payment?.entity
     if (paymentEntity?.order_id) {
       const providerOrderId = String(paymentEntity.order_id)
-      const paymentRecord = await prisma.payment.findFirst({ where: { providerOrderId } })
+      const paymentRecord = await prisma.payment.findFirst({ where: { providerOrderId }, include: { order: true } })
       if (paymentRecord) {
         const captured = payload.event === 'payment.captured'
-        await prisma.$transaction([
-          prisma.payment.update({ where: { id: paymentRecord.id }, data: { providerPaymentId: paymentEntity.id, status: captured ? PaymentStatus.captured : payload.event === 'payment.failed' ? PaymentStatus.failed : PaymentStatus.authorised, capturedPaise: captured ? paymentEntity.amount ?? paymentRecord.capturedPaise : paymentRecord.capturedPaise } }),
-          prisma.paymentEvent.upsert({ where: { paymentId_externalId: { paymentId: paymentRecord.id, externalId: eventId } }, update: { type: String(payload.event ?? 'unknown'), payload }, create: { paymentId: paymentRecord.id, externalId: eventId, type: String(payload.event ?? 'unknown'), payload } }),
-          prisma.order.update({ where: { id: paymentRecord.orderId }, data: paymentRecord.provider === 'razorpay_waitlist_balance' && captured ? { status: OrderStatus.confirmed, balancePaidAt: new Date(), remainingBalancePaise: 0, totalPaise: 0 } : { status: captured ? OrderStatus.confirmed : payload.event === 'payment.failed' ? OrderStatus.payment_failed : OrderStatus.pending_payment } }),
-        ])
+        const capturedPaise = Number(paymentEntity.amount ?? paymentRecord.amountPaise)
+        const isStorefrontOrder = paymentRecord.provider === 'razorpay'
+
+        // A webhook can reach us before the browser's verification request. Apply
+        // the same coupon-capacity check here so a captured payment never bypasses
+        // a campaign's total or per-customer redemption limits.
+        if (captured && isStorefrontOrder && paymentRecord.status !== PaymentStatus.refunded) {
+          const couponSnapshot = (paymentRecord.order.conversionSnapshot as any)?.coupon
+          const result = await prisma.$transaction(async (tx) => {
+            let couponToRedeem: any = null
+            if (couponSnapshot?.couponId) {
+              await tx.$queryRaw`SELECT "id" FROM "Coupon" WHERE "id" = ${String(couponSnapshot.couponId)} FOR UPDATE`
+              const existingRedemption = await tx.promotionRedemption.findFirst({ where: { couponId: String(couponSnapshot.couponId), orderId: paymentRecord.order.id } })
+              if (!existingRedemption) {
+                if (!paymentRecord.order.customerId) return { couponRejected: 'This coupon order is missing its customer record.' }
+                const couponCheck = await couponRedemptionEligibility(String(couponSnapshot.couponId), paymentRecord.order.customerId, tx)
+                if (!couponCheck.valid) return { couponRejected: couponCheck.message }
+                couponToRedeem = couponCheck.coupon
+              }
+            }
+            await tx.payment.update({ where: { id: paymentRecord.id }, data: { providerPaymentId: String(paymentEntity.id), status: PaymentStatus.captured, capturedPaise } })
+            await tx.paymentEvent.upsert({ where: { paymentId_externalId: { paymentId: paymentRecord.id, externalId: eventId } }, update: { type: String(payload.event ?? 'payment.captured'), payload }, create: { paymentId: paymentRecord.id, externalId: eventId, type: String(payload.event ?? 'payment.captured'), payload } })
+            const order = await tx.order.update({ where: { id: paymentRecord.order.id }, data: { status: OrderStatus.confirmed, ...(paymentRecord.order.status === OrderStatus.confirmed ? {} : { statusEvents: { create: { fromStatus: paymentRecord.order.status, toStatus: OrderStatus.confirmed, reason: 'Razorpay payment confirmed by webhook' } } }) } })
+            if (couponToRedeem) await tx.promotionRedemption.create({ data: { couponId: couponToRedeem.id, customerId: paymentRecord.order.customerId, orderId: order.id } })
+            if (paymentRecord.order.checkoutSessionId) await tx.checkoutSession.update({ where: { id: paymentRecord.order.checkoutSessionId }, data: { status: 'confirmed' } })
+            return { couponRejected: null as string | null, order }
+          })
+
+          if (result.couponRejected) {
+            let refund
+            try {
+              refund = await payment.refund({ paymentId: String(paymentEntity.id), amountPaise: capturedPaise, idempotencyKey: `coupon-webhook-redemption-${paymentRecord.id}` })
+            } catch (cause) {
+              request.log.error({ err: cause, orderId: paymentRecord.order.id, paymentId: paymentEntity.id }, 'coupon redemption refund from Razorpay webhook failed')
+              throw new ApiError(502, 'PAYMENT_REFUND_PENDING', 'Payment was received, but the coupon could not be confirmed. Please contact SkinFox support.')
+            }
+            await prisma.$transaction([
+              prisma.payment.update({ where: { id: paymentRecord.id }, data: { providerPaymentId: String(paymentEntity.id), status: PaymentStatus.refunded, capturedPaise } }),
+              prisma.paymentEvent.upsert({ where: { paymentId_externalId: { paymentId: paymentRecord.id, externalId: `refund:${refund.providerRefundId}` } }, update: { type: 'refund.processed', payload: refund as any }, create: { paymentId: paymentRecord.id, externalId: `refund:${refund.providerRefundId}`, type: 'refund.processed', payload: refund as any } }),
+              prisma.order.update({ where: { id: paymentRecord.order.id }, data: { status: OrderStatus.cancelled, statusEvents: { create: { fromStatus: paymentRecord.order.status, toStatus: OrderStatus.cancelled, reason: `Coupon redemption rejected after capture: ${result.couponRejected}` } } } }),
+              ...(paymentRecord.order.checkoutSessionId ? [prisma.checkoutSession.update({ where: { id: paymentRecord.order.checkoutSessionId }, data: { status: 'cancelled' } })] : []),
+            ])
+          }
+        } else if (paymentRecord.status !== PaymentStatus.refunded) {
+          await prisma.$transaction([
+            prisma.payment.update({ where: { id: paymentRecord.id }, data: { providerPaymentId: paymentEntity.id, status: captured ? PaymentStatus.captured : payload.event === 'payment.failed' ? PaymentStatus.failed : PaymentStatus.authorised, capturedPaise: captured ? paymentEntity.amount ?? paymentRecord.capturedPaise : paymentRecord.capturedPaise } }),
+            prisma.paymentEvent.upsert({ where: { paymentId_externalId: { paymentId: paymentRecord.id, externalId: eventId } }, update: { type: String(payload.event ?? 'unknown'), payload }, create: { paymentId: paymentRecord.id, externalId: eventId, type: String(payload.event ?? 'unknown'), payload } }),
+            prisma.order.update({ where: { id: paymentRecord.orderId }, data: paymentRecord.provider === 'razorpay_waitlist_balance' && captured ? { status: OrderStatus.confirmed, balancePaidAt: new Date(), remainingBalancePaise: 0, totalPaise: 0 } : { status: captured ? OrderStatus.confirmed : payload.event === 'payment.failed' ? OrderStatus.payment_failed : OrderStatus.pending_payment } }),
+          ])
+        }
       }
       const waitlist = await prisma.waitlistReservation.findUnique({ where: { providerOrderId } })
       if (waitlist && Number(paymentEntity.amount) === waitlist.depositPaise) {
@@ -2035,6 +2188,52 @@ export function buildApp(): FastifyInstance {
   adminCrud('ingredients', 'ingredient', [AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])
   adminCrud('product-claims', 'productClaim', [AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])
   adminCrud('related-products', 'relatedProduct', [AdminRole.SUPER_ADMIN, AdminRole.CATALOG_MANAGER])
+  const couponCampaignResponse = (coupon: any) => ({
+    id: coupon.id,
+    promotionId: coupon.promotionId,
+    code: coupon.code,
+    name: coupon.promotion.name,
+    discountPercent: coupon.promotion.value,
+    minSpendPaise: coupon.promotion.minSpendPaise,
+    startsAt: coupon.promotion.startsAt,
+    endsAt: coupon.promotion.endsAt,
+    usageLimit: coupon.promotion.usageLimit,
+    perCustomerLimit: coupon.promotion.perCustomerLimit,
+    active: coupon.promotion.active,
+    redemptionsUsed: coupon._count?.redemptions ?? 0,
+    createdAt: coupon.createdAt,
+    updatedAt: coupon.promotion.updatedAt,
+  })
+  routes.get('/api/v1/admin/coupon-campaigns', async (request, reply) => {
+    await requireAdmin([AdminRole.SUPER_ADMIN])(request)
+    const coupons = await prisma.coupon.findMany({ include: { promotion: true, _count: { select: { redemptions: true } } }, orderBy: { createdAt: 'desc' } })
+    return data(reply, coupons.map(couponCampaignResponse))
+  })
+  routes.post('/api/v1/admin/coupon-campaigns', async (request, reply) => {
+    const user = await requireAdmin([AdminRole.SUPER_ADMIN])(request)
+    const input = couponCampaignInputSchema.parse(request.body)
+    if (await prisma.coupon.findUnique({ where: { code: input.code }, select: { id: true } })) throw validationError('That coupon code is already in use. Choose a different code.')
+    const created = await prisma.$transaction(async (tx) => {
+      const promotion = await tx.promotion.create({ data: { name: input.name, type: 'percentage', value: input.discountPercent, minSpendPaise: input.minSpendPaise, startsAt: input.startsAt, endsAt: input.endsAt, usageLimit: input.usageLimit ?? null, perCustomerLimit: input.perCustomerLimit ?? null, combinable: false, active: input.active } })
+      return tx.coupon.create({ data: { code: input.code, promotionId: promotion.id }, include: { promotion: true, _count: { select: { redemptions: true } } } })
+    })
+    await audit(user, request, 'create', 'CouponCampaign', created.id, null, couponCampaignResponse(created), `Created coupon ${created.code}`)
+    return reply.status(201).send({ data: couponCampaignResponse(created), meta: { requestId: request.id } })
+  })
+  routes.patch('/api/v1/admin/coupon-campaigns/:id', async (request, reply) => {
+    const user = await requireAdmin([AdminRole.SUPER_ADMIN])(request)
+    const input = couponCampaignInputSchema.parse(request.body)
+    const before = await prisma.coupon.findUnique({ where: { id: request.params.id }, include: { promotion: true, _count: { select: { redemptions: true } } } })
+    if (!before) throw notFound('Coupon campaign not found.')
+    const duplicate = await prisma.coupon.findUnique({ where: { code: input.code }, select: { id: true } })
+    if (duplicate && duplicate.id !== before.id) throw validationError('That coupon code is already in use. Choose a different code.')
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.promotion.update({ where: { id: before.promotionId }, data: { name: input.name, type: 'percentage', value: input.discountPercent, minSpendPaise: input.minSpendPaise, startsAt: input.startsAt, endsAt: input.endsAt, usageLimit: input.usageLimit ?? null, perCustomerLimit: input.perCustomerLimit ?? null, combinable: false, active: input.active } })
+      return tx.coupon.update({ where: { id: before.id }, data: { code: input.code }, include: { promotion: true, _count: { select: { redemptions: true } } } })
+    })
+    await audit(user, request, 'update', 'CouponCampaign', updated.id, couponCampaignResponse(before), couponCampaignResponse(updated), `Updated coupon ${updated.code}`)
+    return data(reply, couponCampaignResponse(updated))
+  })
   adminCrud('promotions', 'promotion', [AdminRole.SUPER_ADMIN])
   adminCrud('coupons', 'coupon', [AdminRole.SUPER_ADMIN])
   adminCrud('shipping-zones', 'shippingZone', [AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER])

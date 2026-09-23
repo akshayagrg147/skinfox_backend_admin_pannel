@@ -711,6 +711,110 @@
   font-weight: 500;
 }
 
+.sf-dialog .checkout-coupon {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0 8px;
+  padding: 14px;
+  border: 1px solid #ded4e1;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .58);
+}
+
+.sf-dialog .checkout-coupon > label {
+  color: #5e4767;
+  font-size: .6875rem;
+  font-weight: 750;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.sf-dialog .checkout-coupon__entry {
+  display: flex;
+  gap: 8px;
+}
+
+.sf-dialog .checkout-coupon__entry input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid #d4c8d8;
+  border-radius: 8px;
+  padding: 9px 10px;
+  color: #30243a;
+  background: #fff;
+  font-size: .8125rem;
+  font-weight: 650;
+  letter-spacing: .035em;
+  text-transform: uppercase;
+}
+
+.sf-dialog .checkout-coupon button {
+  flex: none;
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 11px;
+  color: #fff;
+  background: #59386b;
+  font-size: .75rem;
+  font-weight: 750;
+}
+
+.sf-dialog .checkout-coupon button:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.sf-dialog .checkout-coupon > small {
+  color: #786d7c;
+  font-size: .6875rem;
+  line-height: 1.45;
+}
+
+.sf-dialog .checkout-coupon__applied {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sf-dialog .checkout-coupon__applied span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.sf-dialog .checkout-coupon__applied strong {
+  color: #3c2748;
+  font-size: .8125rem;
+  letter-spacing: .05em;
+}
+
+.sf-dialog .checkout-coupon__applied small {
+  overflow: hidden;
+  color: #6f6475;
+  font-size: .6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sf-dialog .checkout-coupon__applied button {
+  color: #694074;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px #cfbfda;
+}
+
+.sf-dialog .checkout-coupon__error {
+  color: #ad3e48 !important;
+}
+
+.sf-dialog .checkout-summary__discount > span {
+  color: #5c436c;
+}
+
+.sf-dialog .checkout-summary__discount > strong {
+  color: #2e7356;
+}
+
 .sf-dialog .checkout-summary > div {
   padding-block: 15px;
   align-items: flex-start;
@@ -1305,6 +1409,14 @@
 
   .sf-dialog .checkout-summary > div {
     font-size: .8125rem;
+  }
+
+  .sf-dialog .checkout-coupon {
+    padding: 12px;
+  }
+
+  .sf-dialog .checkout-coupon__entry {
+    gap: 6px;
   }
 
   .sf-dialog .checkout-steps {

@@ -100,6 +100,7 @@ export default function App({ productSlug, pageSlug }: { productSlug?: string; p
   const filters = ['All', ...Array.from(new Set(collectionProducts.flatMap((product) => product.concerns.filter((concern) => !['Skin', 'Hair'].includes(concern)))))]
   const [cart, setCart] = useState<CartLine[]>(readInitialCart)
   const [cartToken, setCartToken] = useState(() => import.meta.env.MODE === 'test' ? '' : browserStorage()?.getItem('skinfox-cart-token') ?? '')
+  const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; status?: 'applied' | 'unavailable'; message?: string | null; promotion?: { name?: string; type?: string; value?: number; minSpendPaise?: number } } | null>(null)
   const [cartOpen, setCartOpen] = useState(false)
   const [quizOpen, setQuizOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -117,7 +118,10 @@ export default function App({ productSlug, pageSlug }: { productSlug?: string; p
   useEffect(() => {
     if (!storefront.apiMode || !cartToken) return
     getStorefront<any>(`/carts/${cartToken}`)
-      .then((response) => setCart((response.lines ?? []).map((line: any) => ({ product: mapProduct(line.product), quantity: line.quantity }))))
+      .then((response) => {
+        setCart((response.lines ?? []).map((line: any) => ({ product: mapProduct(line.product), quantity: line.quantity })))
+        setAppliedCoupon(response.appliedCoupon ?? null)
+      })
       .catch((cause: unknown) => {
         // A cart token is persisted for convenience, but the API can expire or
         // replace it (for example after a database reset). Clear it so the
@@ -129,6 +133,7 @@ export default function App({ productSlug, pageSlug }: { productSlug?: string; p
         browserStorage()?.removeItem('skinfox-cart-token')
         setCartToken('')
         setCart([])
+        setAppliedCoupon(null)
       })
   }, [cartToken, storefront.apiMode])
 
@@ -193,7 +198,10 @@ export default function App({ productSlug, pageSlug }: { productSlug?: string; p
   const visibleFaqs = (customFaqs.length ? customFaqs : defaultFaqs).map((item) => [item.question, item.answer] as [string, string])
   const showAnnouncement = collectionProducts.some((product) => product.price !== null) && storefront.promotion.enabled
 
-  const applyCartResponse = (response: any) => setCart((response.lines ?? []).map((line: any) => ({ product: mapProduct(line.product), quantity: line.quantity })))
+  const applyCartResponse = (response: any) => {
+    setCart((response.lines ?? []).map((line: any) => ({ product: mapProduct(line.product), quantity: line.quantity })))
+    setAppliedCoupon(response.appliedCoupon ?? null)
+  }
   const trackAffiliateReferral = async (token: string) => {
     const storage = browserStorage()
     const referralCode = storage?.getItem('skinfox-affiliate-referral')
@@ -513,7 +521,7 @@ export default function App({ productSlug, pageSlug }: { productSlug?: string; p
       <CartDrawer open={cartOpen} lines={cart} onClose={() => setCartOpen(false)} onQuantity={updateQuantity} onRemove={(id) => updateQuantity(id, 0)} onCheckout={() => { setCartOpen(false); setCheckoutOpen(true) }} />
       <RoutineQuiz open={quizOpen} onClose={() => setQuizOpen(false)} onAdd={(product) => addToCart(product)} catalogue={collectionProducts} finder={storefront.careFinder ?? undefined} />
       <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} catalogue={collectionProducts} apiMode={storefront.apiMode} />
-      <CheckoutModal open={checkoutOpen} lines={cart} cartToken={cartToken} apiAvailable={storefront.apiMode} enabledPaymentMethods={storefront.enabledPaymentMethods} onCustomerChange={setCustomer} onClose={() => setCheckoutOpen(false)} onComplete={() => { setCart([]); if (cartToken) browserStorage()?.removeItem('skinfox-cart-token'); setCartToken('') }} />
+      <CheckoutModal open={checkoutOpen} lines={cart} cartToken={cartToken} appliedCoupon={appliedCoupon} onCartResponse={applyCartResponse} apiAvailable={storefront.apiMode} enabledPaymentMethods={storefront.enabledPaymentMethods} onCustomerChange={setCustomer} onClose={() => setCheckoutOpen(false)} onComplete={() => { setCart([]); setAppliedCoupon(null); if (cartToken) browserStorage()?.removeItem('skinfox-cart-token'); setCartToken('') }} />
       <CustomerAccount open={accountOpen} onClose={() => setAccountOpen(false)} apiAvailable={storefront.apiMode} onCustomerChange={setCustomer} initialSection={accountSection} />
 
       <AnimatePresence>

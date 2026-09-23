@@ -36,6 +36,18 @@ describe('pricing invariants', () => {
     expect(calculateDiscount(20000, { ...coupon, value: 200 })).toBe(20000)
   })
 
+  it('applies a valid percentage coupon once, then recalculates inclusive GST and shipping', () => {
+    const now = new Date()
+    const coupon = { type: 'percentage' as const, value: 25, minSpendPaise: 0, active: true, startsAt: new Date(now.getTime() - 1_000), endsAt: new Date(now.getTime() + 1_000) }
+    const quote = calculateCart([{ quantity: 1, unitPricePaise: 210000 }], coupon)
+    expect(quote.subtotalPaise).toBe(210000)
+    expect(quote.discountPaise).toBe(52500)
+    expect(quote.productTotalPaise).toBe(157500)
+    expect(quote.shippingPaise).toBe(9900)
+    expect(quote.totalPaise).toBe(167400)
+    expect(quote.taxBasePaise + quote.taxPaise).toBe(quote.productTotalPaise)
+  })
+
   it('validates six-digit Indian pincodes', () => {
     expect(isValidPincode('560001')).toBe(true)
     expect(isValidPincode('56001')).toBe(false)

@@ -2,7 +2,7 @@ import { Check, LoaderCircle, LockKeyhole, MailCheck } from 'lucide-react'
 import { FormEvent, useEffect, useState } from 'react'
 import { formatPrice } from '../data/products'
 import type { CartLine } from '../types'
-import { getStorefront, postStorefront } from '../lib/storefrontApi'
+import { deleteStorefront, getStorefront, postStorefront } from '../lib/storefrontApi'
 import { formatCheckoutPaise } from '../lib/currency'
 import { exchangeFirebaseUser, firebaseAuthErrorMessage, refreshFirebaseUser, resendEmailVerification } from '../lib/firebaseAuth'
 import { openRazorpayCheckout } from '../lib/razorpay'
@@ -14,7 +14,8 @@ type Customer = CustomerAuthResponse['customer']
 type PaymentMethod = 'razorpay'
 type SavedAddress = { id: string; label: string; fullName: string; phone: string; addressLine1: string; addressLine2?: string | null; landmark?: string | null; city: string; state: string; pincode: string; isDefault: boolean }
 type AddressForm = { fullName: string; email: string; phone: string; addressLine1: string; addressLine2: string; landmark: string; city: string; state: string; pincode: string; saveAddress: boolean; saveAsDefault: boolean }
-type CheckoutQuote = { subtotalPaise: number; discountPaise: number; productTotalPaise?: number; taxBasePaise?: number; taxPaise: number; shippingPaise: number; codPaise: number; totalPaise: number; serviceability?: boolean; purchaseEligible?: boolean }
+type AppliedCoupon = { code: string; status?: 'applied' | 'unavailable'; message?: string | null; promotion?: { name?: string; type?: string; value?: number; minSpendPaise?: number } }
+type CheckoutQuote = { subtotalPaise: number; discountPaise: number; couponDiscountPaise?: number; launchDiscountPaise?: number; productTotalPaise?: number; taxBasePaise?: number; taxPaise: number; shippingPaise: number; codPaise: number; totalPaise: number; serviceability?: boolean; purchaseEligible?: boolean; appliedCoupon?: AppliedCoupon | null; promotion?: { discountPercent?: number; discountPaise?: number } | null }
 
 const emptyAddress: AddressForm = { fullName: '', email: '', phone: '', addressLine1: '', addressLine2: '', landmark: '', city: '', state: '', pincode: '', saveAddress: true, saveAsDefault: false }
 const checkoutPayload = (form: AddressForm, selectedAddressId: string, paymentMethod: PaymentMethod) => ({ ...form, phone: form.phone.replace(/\D/g, ''), addressId: selectedAddressId || undefined, paymentMethod, billingSameAsShipping: true })
@@ -23,7 +24,7 @@ const customerCsrfHeaders = (): Record<string, string> => {
   return csrf ? { 'x-customer-csrf-token': decodeURIComponent(csrf) } : {}
 }
 
-export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChange, cartToken = '', apiAvailable = true, enabledPaymentMethods = ['razorpay'] }: { open: boolean; lines: CartLine[]; onClose: () => void; onComplete: () => void; onCustomerChange?: (customer: Customer | null) => void; cartToken?: string; apiAvailable?: boolean; enabledPaymentMethods?: PaymentMethod[] }) {
+export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChange, onCartResponse, appliedCoupon = null, cartToken = '', apiAvailable = true, enabledPaymentMethods = ['razorpay'] }: { open: boolean; lines: CartLine[]; onClose: () => void; onComplete: () => void; onCustomerChange?: (customer: Customer | null) => void; onCartResponse?: (response: unknown) => void; appliedCoupon?: AppliedCoupon | null; cartToken?: string; apiAvailable?: boolean; enabledPaymentMethods?: PaymentMethod[] }) {
   const [stage, setStage] = useState<'loading' | 'auth' | 'address' | 'complete'>('loading')
   const [customer, setCustomer] = useState<Customer | null>(null)
   const [addresses, setAddresses] = useState<SavedAddress[]>([])
@@ -38,6 +39,10 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
   const [pincodeMessage, setPincodeMessage] = useState('')
   const [quote, setQuote] = useState<CheckoutQuote | null>(null)
   const [quoteLoading, setQuoteLoading] = useState(false)
+  const [couponCode, setCouponCode] = useState('')
+  const [couponError, setCouponError] = useState('')
+  const [couponBusy, setCouponBusy] = useState(false)
+  const [couponRevision, setCouponRevision] = useState(0)
   const hasPendingPrice = lines.some((line) => line.product.price === null)
   const subtotal = lines.reduce((sum, line) => sum + (line.product.price ?? 0) * line.quantity, 0)
 
@@ -52,7 +57,7 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
   useEffect(() => {
     if (!open) return
     let active = true
-    setError(''); setNotice(''); setSubmitting(false); setSelectedAddressId(''); setForm(emptyAddress); setPincodeLookup('idle'); setPincodeMessage(''); setQuote(null); setQuoteLoading(false)
+    setError(''); setNotice(''); setSubmitting(false); setSelectedAddressId(''); setForm(emptyAddress); setPincodeLookup('idle'); setPincodeMessage(''); setQuote(null); setQuoteLoading(false); setCouponError(''); setCouponBusy(false)
     setStage(hasPendingPrice ? 'address' : 'loading')
     if (hasPendingPrice || import.meta.env.MODE === 'test') return
     if (!apiAvailable) { setStage('auth'); return }
@@ -66,6 +71,8 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
     }).catch(() => { if (active) setStage('auth') })
     return () => { active = false }
   }, [apiAvailable, open, hasPendingPrice, onCustomerChange, razorpayEnabled])
+
+  useEffect(() => { if (open) setCouponCode(appliedCoupon?.code ?? '') }, [appliedCoupon?.code, open])
 
   useEffect(() => {
     if (!open || stage !== 'address') return
@@ -119,7 +126,7 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
         .finally(() => { if (active) setQuoteLoading(false) })
     }, 350)
     return () => { active = false; window.clearTimeout(timer) }
-  }, [cartToken, customer?.emailVerified, form, hasPendingPrice, open, paymentMethod, selectedAddressId, stage])
+  }, [cartToken, couponRevision, customer?.emailVerified, form, hasPendingPrice, open, paymentMethod, selectedAddressId, stage])
 
   const authenticated = async (response: CustomerAuthResponse) => {
     setCustomer(response.customer)
@@ -179,8 +186,34 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
     setPincodeLookup('idle')
     setPincodeMessage('')
   }
+  const applyCoupon = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const code = couponCode.trim().toUpperCase()
+    if (!code) { setCouponError('Enter a coupon code.'); return }
+    if (!apiAvailable || !cartToken) { setCouponError('Coupons are checked through the secure checkout service. Please try again when it is available.'); return }
+    setCouponBusy(true); setCouponError(''); setError('')
+    try {
+      const response = await postStorefront<unknown>(`/carts/${cartToken}/apply-coupon`, { code }, { 'x-cart-token': cartToken })
+      onCartResponse?.(response)
+      setCouponCode(code)
+      setCouponRevision((current) => current + 1)
+    } catch (cause) { setCouponError(cause instanceof Error ? cause.message : 'We could not apply that coupon. Please try again.') } finally { setCouponBusy(false) }
+  }
+  const removeCoupon = async () => {
+    if (!apiAvailable || !cartToken) return
+    setCouponBusy(true); setCouponError(''); setError('')
+    try {
+      const response = await deleteStorefront<unknown>(`/carts/${cartToken}/coupon`, { 'x-cart-token': cartToken })
+      onCartResponse?.(response)
+      setCouponCode('')
+      setCouponRevision((current) => current + 1)
+    } catch (cause) { setCouponError(cause instanceof Error ? cause.message : 'We could not remove that coupon. Please try again.') } finally { setCouponBusy(false) }
+  }
 
   const productTotalPaise = quote ? Math.max(0, quote.subtotalPaise - quote.discountPaise) : Math.round(subtotal * 100)
+  const visibleCoupon = quote?.appliedCoupon ?? appliedCoupon
+  const couponDiscountPaise = quote?.couponDiscountPaise ?? 0
+  const couponLabel = visibleCoupon?.promotion?.value ? `${visibleCoupon.code} · ${visibleCoupon.promotion.value}% off` : visibleCoupon?.code ?? ''
   const freeShippingUnlocked = Boolean(quote && quote.shippingPaise === 0 && productTotalPaise >= 200000)
   const shippingLabel = hasPendingPrice ? 'Price pending' : quoteLoading ? 'Calculating…' : quote?.serviceability === false ? 'Unavailable' : quote ? (quote.shippingPaise === 0 ? 'Free' : formatCheckoutPaise(quote.shippingPaise)) : 'Enter delivery details'
   const payableLabel = hasPendingPrice ? 'Price pending' : quote ? formatCheckoutPaise(quote.totalPaise) : quoteLoading ? 'Calculating…' : 'Enter delivery details'
@@ -218,7 +251,26 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
         </form>}
         {stage !== 'address' && stage !== 'auth' && error && <p className="form-error" role="alert">{error}</p>}
       </div>
-      <aside className="checkout-summary" aria-label="Order summary"><span className="eyebrow">Your selection</span><h3>Order summary</h3>{lines.map((line) => <div key={line.product.id}><span>{line.product.name} <i>× {line.quantity}</i></span><ProductPrice product={line.product} quantity={line.quantity} compact className="checkout-line-price" /></div>)}<hr /><div><span>Products subtotal</span><strong>{hasPendingPrice ? 'Price pending' : quote ? formatCheckoutPaise(quote.subtotalPaise) : formatPrice(subtotal)}</strong></div>{quote && quote.discountPaise > 0 && <div><span>Launch savings</span><strong>−{formatCheckoutPaise(quote.discountPaise)}</strong></div>}{quote && <><div><span>Products total (incl. GST)</span><strong>{formatCheckoutPaise(quote.productTotalPaise ?? Math.max(0, quote.subtotalPaise - quote.discountPaise))}</strong></div><div><span>Base price (excl. GST)</span><strong>{formatCheckoutPaise(quote.taxBasePaise ?? Math.max(0, (quote.productTotalPaise ?? quote.subtotalPaise) - quote.taxPaise))}</strong></div><div><span>GST included (18%)</span><strong>{formatCheckoutPaise(quote.taxPaise)}</strong></div></>}<div><span>Shipping</span><strong>{shippingLabel}</strong></div>{freeShippingUnlocked && <p className="checkout-summary__shipping-note">Free delivery unlocked on orders of ₹2,000 or more.</p>}<div className="checkout-total"><span>Amount due</span><strong>{payableLabel}</strong></div><p className="checkout-summary__note"><LockKeyhole size={14} aria-hidden="true" />GST is already included in product prices and is not added again. Secure online payment by Razorpay.</p></aside>
+      <aside className="checkout-summary" aria-label="Order summary">
+        <span className="eyebrow">Your selection</span>
+        <h3>Order summary</h3>
+        {lines.map((line) => <div key={line.product.id}><span>{line.product.name} <i>× {line.quantity}</i></span><ProductPrice product={line.product} quantity={line.quantity} compact className="checkout-line-price" /></div>)}
+        <hr />
+        <form className="checkout-coupon" onSubmit={applyCoupon} noValidate>
+          <label htmlFor="checkout-coupon-code">Coupon code</label>
+          {visibleCoupon ? <div className="checkout-coupon__applied"><span><strong>{visibleCoupon.code}</strong><small>{visibleCoupon.status === 'applied' ? visibleCoupon.promotion?.name ?? 'Coupon applied to this order' : visibleCoupon.message ?? 'Coupon unavailable'}</small></span><button type="button" onClick={() => void removeCoupon()} disabled={couponBusy}>Remove</button></div> : <div className="checkout-coupon__entry"><input id="checkout-coupon-code" value={couponCode} onChange={(event) => setCouponCode(event.target.value.toUpperCase())} maxLength={32} autoCapitalize="characters" placeholder="Enter coupon code" disabled={couponBusy || !apiAvailable} /><button type="submit" disabled={couponBusy || !apiAvailable || !couponCode.trim()}>{couponBusy ? 'Checking…' : 'Apply'}</button></div>}
+          {couponError && <small className="checkout-coupon__error" role="alert">{couponError}</small>}
+          {!visibleCoupon && !couponError && <small>Coupon savings apply to products only. Delivery is calculated separately.</small>}
+        </form>
+        <div><span>Products subtotal</span><strong>{hasPendingPrice ? 'Price pending' : quote ? formatCheckoutPaise(quote.subtotalPaise) : formatPrice(subtotal)}</strong></div>
+        {quote && couponDiscountPaise > 0 && <div className="checkout-summary__discount"><span>Coupon savings {couponLabel ? `(${couponLabel})` : ''}</span><strong>−{formatCheckoutPaise(couponDiscountPaise)}</strong></div>}
+        {quote && couponDiscountPaise === 0 && quote.launchDiscountPaise && quote.launchDiscountPaise > 0 && <div className="checkout-summary__discount"><span>SkinFox offer</span><strong>−{formatCheckoutPaise(quote.launchDiscountPaise)}</strong></div>}
+        {quote && <><div><span>Products total (incl. GST)</span><strong>{formatCheckoutPaise(quote.productTotalPaise ?? Math.max(0, quote.subtotalPaise - quote.discountPaise))}</strong></div><div><span>Base price (excl. GST)</span><strong>{formatCheckoutPaise(quote.taxBasePaise ?? Math.max(0, (quote.productTotalPaise ?? quote.subtotalPaise) - quote.taxPaise))}</strong></div><div><span>GST included (18%)</span><strong>{formatCheckoutPaise(quote.taxPaise)}</strong></div></>}
+        <div><span>Shipping</span><strong>{shippingLabel}</strong></div>
+        {freeShippingUnlocked && <p className="checkout-summary__shipping-note">Free delivery unlocked on orders of ₹2,000 or more.</p>}
+        <div className="checkout-total"><span>Amount due</span><strong>{payableLabel}</strong></div>
+        <p className="checkout-summary__note"><LockKeyhole size={14} aria-hidden="true" />GST is already included in product prices and is not added again. Secure online payment by Razorpay.</p>
+      </aside>
     </div>}
   </ModalShell>
 }

@@ -87,7 +87,7 @@ function ShippingWorkspace() {
   return <><div className="page-intro"><div><span className="kicker">Shipping / Delhivery</span><h2>Shipping operations</h2><p className="muted">Serviceability and booking controls stay behind the authenticated API.</p></div><button className="secondary-button" onClick={() => status.refetch()}><Activity size={16} />Refresh status</button></div><div className="metric-grid"><article className="metric-card"><span>Provider</span><strong>{String(status.data?.provider ?? 'manual')}</strong><small>{status.data?.configured ? 'Credentials configured' : 'Credentials not configured'}</small></article><article className="metric-card"><span>Booking</span><strong>{status.data?.bookingEnabled ? 'Enabled' : 'Disabled'}</strong><small>Live shipment safety switch</small></article><article className="metric-card"><span>Pickup</span><strong>{String(status.data?.pickupLocation ?? 'Not set')}</strong><small>{String(status.data?.pickupPincode ?? 'Pickup pincode not set')}</small></article></div><section className="panel shipping-test-panel"><div className="panel-heading"><div><span className="kicker">Pre-flight check</span><h3>Test delivery serviceability</h3></div><Truck size={18} /></div><div className="form-grid"><label>Delivery pincode<input inputMode="numeric" maxLength={6} value={pincode} onChange={(event) => setPincode(event.target.value.replace(/\D/g, ''))} placeholder="400001" /></label><label>Packed weight (g)<input type="number" min="1" value={weight} onChange={(event) => setWeight(event.target.value)} /></label></div><button className="primary-button" onClick={() => mutation.mutate()} disabled={mutation.isPending || pincode.length !== 6}>{mutation.isPending ? 'Checking…' : 'Check serviceability'}</button>{result && <div className="shipping-test-result"><strong>{result.serviceable ? 'Serviceable' : 'Not serviceable'}</strong><span>{Array.isArray(result.couriers) ? `${result.couriers.length} courier option(s) returned` : 'No courier options returned'}</span></div>}{mutation.isError && <div className="alert alert--error" role="alert">{mutation.error instanceof Error ? mutation.error.message : 'Unable to check serviceability.'}</div>}{Array.isArray(status.data?.missingConfig) && status.data.missingConfig.length > 0 && <p className="fine-print">Missing Delhivery settings: {status.data.missingConfig.join(', ')}.</p>}<p className="fine-print">Set DELHIVERY_BOOKING_ENABLED=true only after confirming credentials, pickup location and measured packaging.</p></section></>
 }
 
-function View({ active, role }: { active: string; role: AdminRole }) { if (active === 'dashboard') return <DashboardOverview role={role} />; if (active === 'products') return <Products />; if (active === 'inventory') return <Inventory canManage={role === 'SUPER_ADMIN' || role === 'CATALOG_MANAGER'} />; if (active === 'orders') return <Orders canManage={role === 'SUPER_ADMIN' || role === 'ORDER_MANAGER'} />; if (active === 'customers') return <Customers canManage={role === 'SUPER_ADMIN' || role === 'SUPPORT_AGENT'} canAnonymize={role === 'SUPER_ADMIN'} />; if (active === 'affiliates') return <Affiliates />; if (active === 'users') return <UsersView />; if (active === 'care-finder') return <CareFinder />; if (active === 'shipping') return <ShippingWorkspace />; if (active === 'settings') return <SettingsView />; const config = resourceConfig[active]; return config ? <ResourceView {...config} /> : <DashboardOverview role={role} /> }
+function View({ active, role }: { active: string; role: AdminRole }) { if (active === 'dashboard') return <DashboardOverview role={role} />; if (active === 'products') return <Products />; if (active === 'inventory') return <Inventory canManage={role === 'SUPER_ADMIN' || role === 'CATALOG_MANAGER'} />; if (active === 'orders') return <Orders canManage={role === 'SUPER_ADMIN' || role === 'ORDER_MANAGER'} />; if (active === 'customers') return <Customers canManage={role === 'SUPER_ADMIN' || role === 'SUPPORT_AGENT'} canAnonymize={role === 'SUPER_ADMIN'} />; if (active === 'affiliates') return <Affiliates />; if (active === 'users') return <UsersView />; if (active === 'care-finder') return <CareFinder />; if (active === 'promotions') return <CouponCampaigns />; if (active === 'shipping') return <ShippingWorkspace />; if (active === 'settings') return <SettingsView />; const config = resourceConfig[active]; return config ? <ResourceView {...config} /> : <DashboardOverview role={role} /> }
 
 function useTableSearch() {
   const [search, setSearchState] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '')
@@ -732,6 +732,94 @@ function LaunchPromotionPanel() {
       <button className="primary-button" type="submit" disabled={!valid || mutation.isPending}>{mutation.isPending ? 'Saving…' : 'Save promotion'} <Check size={16} /></button>
     </form>
   </section>
+}
+
+type CouponCampaign = {
+  id: string
+  promotionId: string
+  code: string
+  name: string
+  discountPercent: number
+  minSpendPaise: number
+  startsAt: string
+  endsAt: string
+  usageLimit: number | null
+  perCustomerLimit: number | null
+  active: boolean
+  redemptionsUsed: number
+  createdAt: string
+  updatedAt: string
+}
+
+type CouponCampaignDraft = {
+  code: string
+  name: string
+  discountPercent: string
+  minOrderRupees: string
+  startsAt: string
+  endsAt: string
+  usageLimit: string
+  perCustomerLimit: string
+  active: boolean
+}
+
+const couponDate = (value: string) => {
+  const date = new Date(value)
+  return Number.isNaN(date.valueOf()) ? 'Date unavailable' : new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date)
+}
+
+const couponMoney = (value: number) => `₹${(Math.max(0, value) / 100).toLocaleString('en-IN')}`
+
+const couponCampaignDraft = (campaign?: CouponCampaign): CouponCampaignDraft => ({
+  code: campaign?.code ?? '',
+  name: campaign?.name ?? '',
+  discountPercent: String(campaign?.discountPercent ?? 10),
+  minOrderRupees: campaign?.minSpendPaise ? String(campaign.minSpendPaise / 100) : '',
+  startsAt: campaign ? toDateTimeLocal(campaign.startsAt) : toDateTimeLocal(new Date().toISOString()),
+  endsAt: campaign ? toDateTimeLocal(campaign.endsAt) : toDateTimeLocal(new Date(Date.now() + 30 * 86400000).toISOString()),
+  usageLimit: campaign?.usageLimit ? String(campaign.usageLimit) : '',
+  // Leave redemption limits blank by default. A limit is only enforced when
+  // an administrator intentionally enters one for this campaign.
+  perCustomerLimit: campaign?.perCustomerLimit ? String(campaign.perCustomerLimit) : '',
+  active: campaign?.active ?? true,
+})
+
+function CouponCampaigns() {
+  const queryClient = useQueryClient()
+  const query = useQuery({ queryKey: ['coupon-campaigns'], queryFn: () => get<CouponCampaign[]>('/admin/coupon-campaigns') })
+  const [editor, setEditor] = useState<CouponCampaign | 'new' | null>(null)
+  const campaigns = query.data ?? []
+  const now = Date.now()
+  const live = campaigns.filter((campaign) => campaign.active && new Date(campaign.startsAt).valueOf() <= now && new Date(campaign.endsAt).valueOf() > now)
+  const scheduled = campaigns.filter((campaign) => campaign.active && new Date(campaign.startsAt).valueOf() > now)
+  const used = campaigns.reduce((total, campaign) => total + campaign.redemptionsUsed, 0)
+  const refresh = () => void query.refetch()
+  if (editor) return <CouponCampaignEditor campaign={editor === 'new' ? undefined : editor} onBack={() => setEditor(null)} onSaved={() => { setEditor(null); void queryClient.invalidateQueries({ queryKey: ['coupon-campaigns'] }) }} />
+  return <div className="coupon-workspace">
+    <div className="page-intro"><div><span className="kicker">Pricing / checkout</span><h2>Promotions &amp; coupons</h2><p className="muted">Create time-bound percentage coupons. Checkout rechecks every rule and records a redemption only after payment is confirmed.</p></div><div className="page-actions"><button className="secondary-button" onClick={refresh} disabled={query.isFetching}><Activity size={16} />{query.isFetching ? 'Refreshing…' : 'Refresh'}</button><button className="primary-button" onClick={() => setEditor('new')}><Plus size={17} /> Create coupon</button></div></div>
+    <section className="coupon-metrics" aria-label="Coupon summary"><article><span>Active now</span><strong>{live.length}</strong><small>Available at checkout today</small></article><article><span>Scheduled</span><strong>{scheduled.length}</strong><small>Start date is still ahead</small></article><article><span>Confirmed uses</span><strong>{used.toLocaleString('en-IN')}</strong><small>Only paid orders count</small></article><article><span>Discount rule</span><strong>One offer</strong><small>A coupon replaces the launch offer; it never stacks.</small></article></section>
+    {query.isLoading ? <TableSkeleton /> : query.isError ? <ErrorPanel onRetry={refresh} /> : campaigns.length ? <section className="panel coupon-table-panel"><div className="coupon-table-head"><span>Coupon campaigns</span><small>Dates and limits are enforced by the server.</small></div><div className="table-wrap"><table className="coupon-table"><thead><tr><th>Code</th><th>Offer</th><th>Schedule</th><th>Use</th><th>Status</th><th>Updated</th><th aria-label="Actions" /></tr></thead><tbody>{campaigns.map((campaign) => {
+      const running = campaign.active && new Date(campaign.startsAt).valueOf() <= now && new Date(campaign.endsAt).valueOf() > now
+      const state = !campaign.active ? 'Paused' : running ? 'Live' : new Date(campaign.startsAt).valueOf() > now ? 'Scheduled' : 'Expired'
+      return <tr key={campaign.id}><td data-label="Code"><strong className="coupon-code">{campaign.code}</strong><small>{campaign.name}</small></td><td data-label="Offer"><strong>{campaign.discountPercent}% off</strong><small>{campaign.minSpendPaise ? `On orders from ${couponMoney(campaign.minSpendPaise)}` : 'No minimum order'}</small></td><td data-label="Schedule"><strong>{couponDate(campaign.startsAt)}</strong><small>Ends {couponDate(campaign.endsAt)}</small></td><td data-label="Use"><strong>{campaign.redemptionsUsed.toLocaleString('en-IN')}{campaign.usageLimit ? ` / ${campaign.usageLimit.toLocaleString('en-IN')}` : ''}</strong><small>{campaign.perCustomerLimit ? `${campaign.perCustomerLimit} per customer` : 'No per-customer limit'}</small></td><td data-label="Status"><span className={`coupon-status coupon-status--${state.toLowerCase()}`}>{state}</span></td><td data-label="Updated"><time dateTime={campaign.updatedAt}>{couponDate(campaign.updatedAt)}</time></td><td className="coupon-table__action"><button className="secondary-button" onClick={() => setEditor(campaign)}>Edit <ChevronRight size={15} /></button></td></tr>
+    })}</tbody></table></div></section> : <EmptyPanel title="No coupons created yet" action={<button className="primary-button" onClick={() => setEditor('new')}><Plus size={16} /> Create your first coupon</button>} />}
+  </div>
+}
+
+function CouponCampaignEditor({ campaign, onBack, onSaved }: { campaign?: CouponCampaign; onBack: () => void; onSaved: () => void }) {
+  const [draft, setDraft] = useState<CouponCampaignDraft>(() => couponCampaignDraft(campaign))
+  const mutation = useMutation({ mutationFn: () => {
+    const minOrder = draft.minOrderRupees.trim() ? Math.round(Number(draft.minOrderRupees) * 100) : 0
+    const usageLimit = draft.usageLimit.trim() ? Number(draft.usageLimit) : null
+    const perCustomerLimit = draft.perCustomerLimit.trim() ? Number(draft.perCustomerLimit) : null
+    if (!Number.isFinite(minOrder) || minOrder < 0) throw new Error('Enter a valid minimum order value.')
+    if (!Number.isInteger(Number(draft.discountPercent)) || Number(draft.discountPercent) < 1 || Number(draft.discountPercent) > 100) throw new Error('Discount percentage must be between 1 and 100.')
+    const payload = { code: draft.code.trim().toUpperCase(), name: draft.name.trim(), discountPercent: Number(draft.discountPercent), minSpendPaise: minOrder, startsAt: new Date(draft.startsAt).toISOString(), endsAt: new Date(draft.endsAt).toISOString(), usageLimit, perCustomerLimit, active: draft.active }
+    return campaign ? patch<CouponCampaign>(`/admin/coupon-campaigns/${campaign.id}`, payload) : post<CouponCampaign>('/admin/coupon-campaigns', payload)
+  }, onSuccess: onSaved })
+  const set = <Key extends keyof CouponCampaignDraft>(key: Key, value: CouponCampaignDraft[Key]) => setDraft((current) => ({ ...current, [key]: value }))
+  const validDate = draft.startsAt && draft.endsAt && new Date(draft.endsAt) > new Date(draft.startsAt)
+  return <div className="coupon-editor"><div className="editor-top"><button className="back-button" onClick={onBack}><ArrowLeft size={16} /> Promotions &amp; coupons</button><div><span className="kicker">{campaign ? 'Edit coupon' : 'New coupon'}</span><h2>{campaign ? campaign.code : 'Create a coupon'}</h2><p className="muted">The same coupon can be checked at cart, checkout and payment confirmation.</p></div><button className="primary-button" onClick={() => mutation.mutate()} disabled={mutation.isPending || !validDate}>{mutation.isPending ? 'Saving…' : campaign ? 'Save changes' : 'Create coupon'} <Check size={16} /></button></div><section className="panel coupon-editor-panel"><form className="coupon-editor-form" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}><fieldset><legend>Offer</legend><div className="form-grid"><label>Coupon code<input value={draft.code} onChange={(event) => set('code', event.target.value.toUpperCase().replace(/\s/g, ''))} maxLength={32} placeholder="WELCOME15" required /><small>Letters, numbers, hyphens and underscores only.</small></label><label>Internal name<input value={draft.name} onChange={(event) => set('name', event.target.value)} placeholder="Welcome offer" required /><small>Shown to your team when managing this campaign.</small></label><label>Discount percentage<input type="number" min="1" max="100" step="1" value={draft.discountPercent} onChange={(event) => set('discountPercent', event.target.value)} required /><small>Applied to product subtotal. GST remains included; shipping is separate.</small></label><label>Minimum order <span className="optional">optional</span><input type="number" min="0" step="1" value={draft.minOrderRupees} onChange={(event) => set('minOrderRupees', event.target.value)} placeholder="No minimum" inputMode="numeric" /><small>Enter the customer-facing rupee amount, before coupon savings.</small></label></div></fieldset><fieldset><legend>Availability</legend><div className="form-grid"><label>Starts at<input type="datetime-local" value={draft.startsAt} onChange={(event) => set('startsAt', event.target.value)} required /></label><label>Ends at<input type="datetime-local" value={draft.endsAt} onChange={(event) => set('endsAt', event.target.value)} required /></label><label>Total confirmed uses <span className="optional">optional</span><input type="number" min="1" step="1" value={draft.usageLimit} onChange={(event) => set('usageLimit', event.target.value)} placeholder="No total limit" inputMode="numeric" /><small>Abandoned carts do not use a coupon.</small></label><label>Uses per customer <span className="optional">optional</span><input type="number" min="1" max="100" step="1" value={draft.perCustomerLimit} onChange={(event) => set('perCustomerLimit', event.target.value)} placeholder="No per-customer limit" inputMode="numeric" /><small>Use 1 to make the coupon one-time per customer.</small></label></div></fieldset><label className="promotion-toggle coupon-editor-toggle"><span><strong>Coupon is active</strong><small>When paused, the code cannot be applied at checkout. Existing paid orders keep their recorded totals.</small></span><input type="checkbox" checked={draft.active} onChange={(event) => set('active', event.target.checked)} /><i aria-hidden="true" /></label><div className="coupon-editor-note"><strong>How it works</strong><span>A coupon replaces the automatic launch offer. It reduces products only, then shipping is recalculated. The final API quote is the amount sent to Razorpay.</span></div>{!validDate && <div className="alert alert--error" role="alert">Choose an end date after the start date.</div>}{mutation.isError && <div className="alert alert--error" role="alert">{mutation.error instanceof Error ? mutation.error.message : 'Unable to save this coupon.'}</div>}<button className="primary-button" type="submit" disabled={mutation.isPending || !validDate}>{mutation.isPending ? 'Saving…' : campaign ? 'Save changes' : 'Create coupon'} <Check size={16} /></button></form></section></div>
 }
 
 function toDateTimeLocal(value: string) {
