@@ -66,6 +66,19 @@ const couponCampaignInputSchema = z.object({
 })
 const shippingPackageSchema = z.object({ weightGrams: z.number().int().min(1).max(30_000), lengthCm: z.number().positive().max(200).optional(), breadthCm: z.number().positive().max(200).optional(), heightCm: z.number().positive().max(200).optional(), declaredValuePaise: z.number().int().nonnegative().optional() })
 const defaultShippingPackage = (): ShippingPackage => ({ weightKg: Number(process.env.SHIPPING_DEFAULT_WEIGHT_KG ?? 0.5), lengthCm: process.env.SHIPPING_DEFAULT_LENGTH_CM ? Number(process.env.SHIPPING_DEFAULT_LENGTH_CM) : undefined, breadthCm: process.env.SHIPPING_DEFAULT_BREADTH_CM ? Number(process.env.SHIPPING_DEFAULT_BREADTH_CM) : undefined, heightCm: process.env.SHIPPING_DEFAULT_HEIGHT_CM ? Number(process.env.SHIPPING_DEFAULT_HEIGHT_CM) : undefined })
+const deliveryEstimateWindow = (serviceable: boolean, courier?: any) => {
+  if (!serviceable) return { estimatedDeliveryFrom: null, estimatedDeliveryTo: null }
+  const explicitEtd = courier?.etd ? new Date(String(courier.etd)) : null
+  if (explicitEtd && !Number.isNaN(explicitEtd.valueOf())) {
+    return { estimatedDeliveryFrom: explicitEtd.toISOString(), estimatedDeliveryTo: explicitEtd.toISOString() }
+  }
+  const providerDays = Number(courier?.estimatedDays)
+  const minDays = Math.max(1, Number(process.env.SHIPPING_ESTIMATE_MIN_DAYS ?? 3))
+  const maxDays = Math.max(minDays, Number(process.env.SHIPPING_ESTIMATE_MAX_DAYS ?? 7))
+  const fromDays = Number.isFinite(providerDays) && providerDays > 0 ? providerDays : minDays
+  const toDays = Number.isFinite(providerDays) && providerDays > 0 ? providerDays + 2 : maxDays
+  return { estimatedDeliveryFrom: new Date(Date.now() + fromDays * 86400000).toISOString(), estimatedDeliveryTo: new Date(Date.now() + toDays * 86400000).toISOString() }
+}
 const addressSchema = z.object({ label: z.string().trim().min(2).max(30).default('Home'), fullName: z.string().trim().min(2).max(120), phone: deliveryPhoneSchema, addressLine1: z.string().trim().min(5).max(200), addressLine2: z.string().trim().max(200).optional(), landmark: z.string().trim().max(120).optional(), city: z.string().trim().min(2).max(80), state: z.string().trim().min(2).max(80), pincode: z.string().regex(/^[1-9]\d{5}$/), isDefault: z.boolean().default(false) })
 const customerProfileSchema = z.object({ fullName: z.string().trim().min(2).max(120), phone: deliveryPhoneSchema.nullable().optional() })
 const rolePermissions: Record<AdminRole, string[]> = {
@@ -1165,7 +1178,7 @@ export function buildApp(): FastifyInstance {
   routes.get('/api/v1/carts/:cartId', async (request, reply) => data(reply, await cartResponse(await getCart(request), false, true, await currentCustomer(request, false))))
   routes.post('/api/v1/carts/:cartId/items', async (request, reply) => { const input = cartItemSchema.parse(request.body); const cart = await getCart(request); const product = await prisma.product.findFirst({ where: { OR: [{ id: input.productId }, { slug: input.productId }], status: { in: [PublicationStatus.published, PublicationStatus.approved] } }, include: { variants: true } }); if (!product) throw notFound('Product is not available.'); const variantId = input.variantId ?? product.variants[0]?.id; const existing = await prisma.cartItem.findFirst({ where: { cartId: cart.id, productId: product.id, ...(variantId ? { variantId } : { variantId: null }) } }); if (existing) await prisma.cartItem.update({ where: { id: existing.id }, data: { quantity: Math.min(50, existing.quantity + input.quantity) } }); else await prisma.cartItem.create({ data: { cartId: cart.id, productId: product.id, variantId, quantity: input.quantity } }); return data(reply, await cartResponse(await getCart(request), false, true, await currentCustomer(request, false))) })
   routes.patch('/api/v1/carts/:cartId/items/:itemId', async (request, reply) => { const quantity = z.number().int().min(0).max(50).parse(request.body?.quantity); const cart = await getCart(request); const item = cart.items.find((line: any) => line.id === request.params.itemId || line.product.id === request.params.itemId || line.product.slug === request.params.itemId); if (!item) throw notFound('Cart item not found.'); if (!quantity) await prisma.cartItem.delete({ where: { id: item.id } }); else await prisma.cartItem.update({ where: { id: item.id }, data: { quantity } }); return data(reply, await cartResponse(await getCart(request), false, true, await currentCustomer(request, false))) })
-  routes.delete('/api/v1/carts/:cartId/items/:itemId', async (request, reply) => { const cart = await getCart(request); const item = cart.items.find((line: any) => line.id === request.params.itemId || line.product.id === request.params.itemId || line.product.slug === request.params.itemId); if (!item) throw notFound('Cart item not found.'); await prisma.cartItem.delete({ where: { id: item.id } }); return data(reply, await cartResponse(await getCart(request), false, true, await currentCustomer(request, false))) })
+  routes.delete('/api/v1/carts/:cartId/items/:itemId', async (request, reply) => { const cart = await getCart(request); const item = cart.items.find((line: any) => line.id === request.params.itemId || line.product.id === request.params.itemId || line.product.slug === request.params.itemId); if (!item) { /* DELETE is idempotent: a repeated click or stale tab should leave the current cart in sync. */ return data(reply, await cartResponse(cart, false, true, await currentCustomer(request, false))) } await prisma.cartItem.delete({ where: { id: item.id } }); return data(reply, await cartResponse(await getCart(request), false, true, await currentCustomer(request, false))) })
   routes.delete('/api/v1/carts/:cartId', async (request, reply) => { const cart = await getCart(request); await prisma.cart.delete({ where: { id: cart.id } }); return data(reply, { deleted: true }) })
   routes.post('/api/v1/carts/:cartId/apply-coupon', { config: { rateLimit: { max: 20, timeWindow: '15 minutes' } } }, async (request, reply) => {
     const code = couponCodeSchema.parse(request.body?.code)
@@ -1199,8 +1212,15 @@ export function buildApp(): FastifyInstance {
       }
     }
     let serviceable = false
-    try { serviceable = await shipping.serviceable(pincode) } catch { serviceable = false }
-    return data(reply, { pincode, ...location, provider: shipping === delhivery ? 'delhivery' : 'manual', serviceable })
+    let courier: any = null
+    try {
+      if (shipping === delhivery && process.env.DELHIVERY_PICKUP_PINCODE) {
+        const result = await delhivery.serviceability({ pickupPincode: process.env.DELHIVERY_PICKUP_PINCODE, deliveryPincode: pincode, paymentMethod: 'prepaid', ...defaultShippingPackage() })
+        serviceable = result.serviceable
+        courier = result.couriers?.[0] ?? null
+      } else serviceable = await shipping.serviceable(pincode)
+    } catch { serviceable = false }
+    return data(reply, { pincode, ...location, provider: shipping === delhivery ? 'delhivery' : 'manual', serviceable, ...deliveryEstimateWindow(serviceable, courier) })
   })
   routes.get('/api/v1/shipping/serviceability', async (request, reply) => {
     const pincode = String(request.query?.pincode ?? '')
@@ -1243,12 +1263,8 @@ export function buildApp(): FastifyInstance {
       return { ...base, shippingPaise, totalPaise: productTotalPaise + shippingPaise + Number(base.codPaise) }
     })()
     const firstCourier = providerQuote?.couriers?.[0]
-    const estimate = Number(firstCourier?.estimatedDays)
-    const explicitEtd = firstCourier?.etd ? new Date(String(firstCourier.etd)) : null
-    const hasExplicitEtd = explicitEtd && !Number.isNaN(explicitEtd.valueOf())
-    const estimatedDeliveryFrom = serviceable && hasExplicitEtd ? explicitEtd.toISOString() : serviceable && Number.isFinite(estimate) && estimate > 0 ? new Date(Date.now() + estimate * 86400000).toISOString() : null
-    const estimatedDeliveryTo = serviceable && hasExplicitEtd ? explicitEtd.toISOString() : serviceable && Number.isFinite(estimate) && estimate > 0 ? new Date(Date.now() + (estimate + 2) * 86400000).toISOString() : null
-    return { ...response, serviceability: serviceable, shippingProvider: shipping === delhivery ? 'delhivery' : 'manual', courierOptions: providerQuote?.couriers ?? [], estimatedDeliveryFrom, estimatedDeliveryTo, quoteExpiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(), checkout: { ...parsed, email: parsed.email ?? customer.email ?? undefined } }
+    const estimateWindow = deliveryEstimateWindow(serviceable, firstCourier)
+    return { ...response, serviceability: serviceable, shippingProvider: shipping === delhivery ? 'delhivery' : 'manual', courierOptions: providerQuote?.couriers ?? [], ...estimateWindow, quoteExpiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(), checkout: { ...parsed, email: parsed.email ?? customer.email ?? undefined } }
   }
   routes.post('/api/v1/checkout/quote', async (request, reply) => { const customer = await requireCustomer(request); return data(reply, await makeQuote(request, undefined, customer)) })
   routes.post('/api/v1/checkout/sessions', async (request, reply) => {

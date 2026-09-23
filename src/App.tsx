@@ -65,6 +65,14 @@ function isMissingCartError(cause: unknown): boolean {
   return cause instanceof Error && /cart not found or expired/i.test(cause.message)
 }
 
+function isMissingCartItemError(cause: unknown): boolean {
+  return cause instanceof Error && /cart item not found/i.test(cause.message)
+}
+
+function mapCartLines(lines: any[]): CartLine[] {
+  return lines.flatMap((line: any) => line?.product ? [{ id: line.id, product: mapProduct(line.product), quantity: line.quantity }] : [])
+}
+
 function readInitialCart(): CartLine[] {
   if (import.meta.env.MODE !== 'test') return []
   try {
@@ -119,7 +127,7 @@ export default function App({ productSlug, pageSlug }: { productSlug?: string; p
     if (!storefront.apiMode || !cartToken) return
     getStorefront<any>(`/carts/${cartToken}`)
       .then((response) => {
-        setCart((response.lines ?? []).map((line: any) => ({ product: mapProduct(line.product), quantity: line.quantity })))
+        setCart(mapCartLines(response.lines ?? []))
         setAppliedCoupon(response.appliedCoupon ?? null)
       })
       .catch((cause: unknown) => {
@@ -199,7 +207,7 @@ export default function App({ productSlug, pageSlug }: { productSlug?: string; p
   const showAnnouncement = collectionProducts.some((product) => product.price !== null) && storefront.promotion.enabled
 
   const applyCartResponse = (response: any) => {
-    setCart((response.lines ?? []).map((line: any) => ({ product: mapProduct(line.product), quantity: line.quantity })))
+    setCart(mapCartLines(response.lines ?? []))
     setAppliedCoupon(response.appliedCoupon ?? null)
   }
   const trackAffiliateReferral = async (token: string) => {
@@ -271,16 +279,41 @@ export default function App({ productSlug, pageSlug }: { productSlug?: string; p
 
   const updateQuantity = (id: string, quantity: number) => {
     if (storefront.apiMode && cartToken) {
-      const line = cart.find((item) => item.product.id === id)
+      const line = cart.find((item) => item.id === id || item.product.id === id)
       if (!line) return
-      void (quantity <= 0 ? deleteStorefront<any>(`/carts/${cartToken}/items/${id}`, { 'x-cart-token': cartToken }) : patchStorefront<any>(`/carts/${cartToken}/items/${id}`, { quantity }, { 'x-cart-token': cartToken })).then(applyCartResponse).catch((cause: unknown) => setToast(cause instanceof Error ? cause.message : 'Unable to update your bag'))
+      const lineId = line.id ?? line.product.id
+      const request = quantity <= 0
+        ? deleteStorefront<any>(`/carts/${cartToken}/items/${lineId}`, { 'x-cart-token': cartToken })
+        : patchStorefront<any>(`/carts/${cartToken}/items/${lineId}`, { quantity }, { 'x-cart-token': cartToken })
+      void request.then(applyCartResponse).catch(async (cause: unknown) => {
+        // A second click can arrive after the first delete already succeeded,
+        // or an old tab can hold a stale line id. Refresh the cart before
+        // showing an error so the drawer reflects the server's truth.
+        if (isMissingCartItemError(cause)) {
+          try {
+            const response = await getStorefront<any>(`/carts/${cartToken}`)
+            applyCartResponse(response)
+            const stillPresent = (response.lines ?? []).some((item: any) => item.id === lineId || item.product?.id === lineId || item.product?.slug === lineId)
+            if (!stillPresent) return
+          } catch (refreshCause) {
+            if (isMissingCartError(refreshCause)) {
+              browserStorage()?.removeItem('skinfox-cart-token')
+              setCartToken('')
+              setCart([])
+              setAppliedCoupon(null)
+              return
+            }
+          }
+        }
+        setToast(cause instanceof Error ? cause.message : 'Unable to update your bag')
+      })
       return
     }
     if (quantity <= 0) {
-      setCart((current) => current.filter((line) => line.product.id !== id))
+      setCart((current) => current.filter((line) => line.id !== id && line.product.id !== id))
       return
     }
-    setCart((current) => current.map((line) => (line.product.id === id ? { ...line, quantity: Math.min(8, quantity) } : line)))
+    setCart((current) => current.map((line) => (line.id === id || line.product.id === id ? { ...line, quantity: Math.min(8, quantity) } : line)))
   }
 
   const newsletter = (event: FormEvent<HTMLFormElement>) => {

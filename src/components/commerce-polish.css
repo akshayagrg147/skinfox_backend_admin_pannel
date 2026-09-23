@@ -106,6 +106,21 @@
   color: #a33d29;
 }
 
+.sf-dialog .delivery-estimate {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  color: #347354;
+  font-size: .72rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.sf-dialog .delivery-estimate svg {
+  flex: none;
+}
+
 .sf-dialog .payment-unavailable {
   margin: 0;
   padding: 13px;
@@ -876,6 +891,18 @@
   color: #48624f;
   font-size: .75rem;
   line-height: 1.5;
+}
+
+.sf-dialog .checkout-summary__delivery > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #5e4767;
+  font-weight: 650;
+}
+
+.sf-dialog .checkout-summary__delivery > span svg {
+  flex: none;
 }
 
 .sf-dialog .checkout-success {

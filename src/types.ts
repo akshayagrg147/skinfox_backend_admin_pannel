@@ -49,6 +49,8 @@ export type Product = {
 }
 
 export type CartLine = {
+  /** Opaque cart-item identifier returned by the API. Local carts do not have one. */
+  id?: string
   product: Product
   quantity: number
 }

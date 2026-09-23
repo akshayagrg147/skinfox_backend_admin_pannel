@@ -43,23 +43,29 @@ export function CartDrawer({ open, lines, onClose, onQuantity, onRemove, onCheck
             </div>
           ) : null}
           <div className="cart-lines">
-            {lines.map(({ product, quantity }) => (
-              <article className="cart-line" key={product.id}>
+            {lines.map((line) => {
+              const { product, quantity } = line
+              // API carts expose a stable cart-item id. Fall back to the
+              // product id for local/test carts created before that id exists.
+              const lineId = line.id ?? product.id
+              return (
+              <article className="cart-line" key={lineId}>
                 <div className="cart-line__visual" style={{ backgroundColor: product.tint }}><ProductVisual product={product} compact /></div>
                 <div className="cart-line__body">
                   <div><h3>{product.name}</h3><p>{product.subtitle} · {product.size}</p></div>
                   <div className="cart-line__bottom">
                     <div className="quantity-control quantity-control--small" role="group" aria-label={`${product.name} quantity`}>
-                      <button onClick={() => onQuantity(product.id, quantity - 1)} aria-label={`Decrease ${product.name} quantity`}><Minus size={13} /></button>
+                      <button onClick={() => onQuantity(lineId, quantity - 1)} aria-label={`Decrease ${product.name} quantity`}><Minus size={13} /></button>
                       <span>{quantity}</span>
-                      <button onClick={() => onQuantity(product.id, quantity + 1)} aria-label={`Increase ${product.name} quantity`}><Plus size={13} /></button>
+                      <button onClick={() => onQuantity(lineId, quantity + 1)} aria-label={`Increase ${product.name} quantity`}><Plus size={13} /></button>
                     </div>
                     <ProductPrice product={product} quantity={quantity} compact className="cart-line__price" />
-                    <button className="remove-line" onClick={() => onRemove(product.id)} aria-label={`Remove ${product.name}`}><Trash2 size={15} /></button>
+                    <button className="remove-line" onClick={() => onRemove(lineId)} aria-label={`Remove ${product.name}`}><Trash2 size={15} /></button>
                   </div>
               </div>
             </article>
-            ))}
+              )
+            })}
           </div>
           <div className="cart-summary">
             <div><span>Subtotal</span><strong>{formatPrice(subtotal)}</strong></div>

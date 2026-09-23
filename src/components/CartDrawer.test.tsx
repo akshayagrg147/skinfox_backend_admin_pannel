@@ -29,4 +29,24 @@ describe('CartDrawer pricing', () => {
     expect(onClose).toHaveBeenCalledOnce()
     expect(onCheckout).toHaveBeenCalledOnce()
   })
+
+  it('uses the API cart-line id for quantity and removal actions', () => {
+    const onQuantity = vi.fn()
+    const onRemove = vi.fn()
+    const rayyvia = { ...products[0], price: 700 }
+
+    render(<CartDrawer
+      open
+      lines={[{ id: 'cart-item-123', product: rayyvia, quantity: 2 }]}
+      onClose={vi.fn()}
+      onQuantity={onQuantity}
+      onRemove={onRemove}
+      onCheckout={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: /decrease rayyvia sun protect quantity/i }))
+    fireEvent.click(screen.getByRole('button', { name: /remove rayyvia sun protect/i }))
+    expect(onQuantity).toHaveBeenCalledWith('cart-item-123', 1)
+    expect(onRemove).toHaveBeenCalledWith('cart-item-123')
+  })
 })

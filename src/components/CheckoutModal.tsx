@@ -1,4 +1,4 @@
-import { Check, LoaderCircle, LockKeyhole, MailCheck } from 'lucide-react'
+import { Check, LoaderCircle, LockKeyhole, MailCheck, Truck } from 'lucide-react'
 import { FormEvent, useEffect, useState } from 'react'
 import { formatPrice } from '../data/products'
 import type { CartLine } from '../types'
@@ -15,13 +15,21 @@ type PaymentMethod = 'razorpay'
 type SavedAddress = { id: string; label: string; fullName: string; phone: string; addressLine1: string; addressLine2?: string | null; landmark?: string | null; city: string; state: string; pincode: string; isDefault: boolean }
 type AddressForm = { fullName: string; email: string; phone: string; addressLine1: string; addressLine2: string; landmark: string; city: string; state: string; pincode: string; saveAddress: boolean; saveAsDefault: boolean }
 type AppliedCoupon = { code: string; status?: 'applied' | 'unavailable'; message?: string | null; promotion?: { name?: string; type?: string; value?: number; minSpendPaise?: number } }
-type CheckoutQuote = { subtotalPaise: number; discountPaise: number; couponDiscountPaise?: number; launchDiscountPaise?: number; productTotalPaise?: number; taxBasePaise?: number; taxPaise: number; shippingPaise: number; codPaise: number; totalPaise: number; serviceability?: boolean; purchaseEligible?: boolean; appliedCoupon?: AppliedCoupon | null; promotion?: { discountPercent?: number; discountPaise?: number } | null }
+type DeliveryEstimate = { estimatedDeliveryFrom?: string | null; estimatedDeliveryTo?: string | null; serviceable?: boolean }
+type CheckoutQuote = DeliveryEstimate & { subtotalPaise: number; discountPaise: number; couponDiscountPaise?: number; launchDiscountPaise?: number; productTotalPaise?: number; taxBasePaise?: number; taxPaise: number; shippingPaise: number; codPaise: number; totalPaise: number; serviceability?: boolean; purchaseEligible?: boolean; appliedCoupon?: AppliedCoupon | null; promotion?: { discountPercent?: number; discountPaise?: number } | null }
 
 const emptyAddress: AddressForm = { fullName: '', email: '', phone: '', addressLine1: '', addressLine2: '', landmark: '', city: '', state: '', pincode: '', saveAddress: true, saveAsDefault: false }
 const checkoutPayload = (form: AddressForm, selectedAddressId: string, paymentMethod: PaymentMethod) => ({ ...form, phone: form.phone.replace(/\D/g, ''), addressId: selectedAddressId || undefined, paymentMethod, billingSameAsShipping: true })
 const customerCsrfHeaders = (): Record<string, string> => {
   const csrf = document.cookie.split('; ').find((entry) => entry.startsWith('sf_customer_csrf='))?.split('=').slice(1).join('=')
   return csrf ? { 'x-customer-csrf-token': decodeURIComponent(csrf) } : {}
+}
+const formatDeliveryEstimate = (from?: string | null, to?: string | null) => {
+  if (!from) return ''
+  const format = (value: string) => new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(value))
+  const start = format(from)
+  if (!to || new Date(to).toISOString() === new Date(from).toISOString()) return `By ${start}`
+  return `${start} – ${format(to)}`
 }
 
 export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChange, onCartResponse, appliedCoupon = null, cartToken = '', apiAvailable = true, enabledPaymentMethods = ['razorpay'] }: { open: boolean; lines: CartLine[]; onClose: () => void; onComplete: () => void; onCustomerChange?: (customer: Customer | null) => void; onCartResponse?: (response: unknown) => void; appliedCoupon?: AppliedCoupon | null; cartToken?: string; apiAvailable?: boolean; enabledPaymentMethods?: PaymentMethod[] }) {
@@ -37,6 +45,7 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
   const [paymentMethod] = useState<PaymentMethod>('razorpay')
   const [pincodeLookup, setPincodeLookup] = useState<'idle' | 'loading' | 'found' | 'unavailable' | 'error'>('idle')
   const [pincodeMessage, setPincodeMessage] = useState('')
+  const [deliveryEstimate, setDeliveryEstimate] = useState<DeliveryEstimate | null>(null)
   const [quote, setQuote] = useState<CheckoutQuote | null>(null)
   const [quoteLoading, setQuoteLoading] = useState(false)
   const [couponCode, setCouponCode] = useState('')
@@ -57,7 +66,7 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
   useEffect(() => {
     if (!open) return
     let active = true
-    setError(''); setNotice(''); setSubmitting(false); setSelectedAddressId(''); setForm(emptyAddress); setPincodeLookup('idle'); setPincodeMessage(''); setQuote(null); setQuoteLoading(false); setCouponError(''); setCouponBusy(false)
+    setError(''); setNotice(''); setSubmitting(false); setSelectedAddressId(''); setForm(emptyAddress); setPincodeLookup('idle'); setPincodeMessage(''); setDeliveryEstimate(null); setQuote(null); setQuoteLoading(false); setCouponError(''); setCouponBusy(false)
     setStage(hasPendingPrice ? 'address' : 'loading')
     if (hasPendingPrice || import.meta.env.MODE === 'test') return
     if (!apiAvailable) { setStage('auth'); return }
@@ -80,18 +89,20 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
     if (!/^[1-9]\d{5}$/.test(pincode)) {
       setPincodeLookup('idle')
       setPincodeMessage(pincode ? 'Enter all 6 digits to look up your location.' : '')
+      setDeliveryEstimate(null)
       return
     }
     let active = true
     const timer = window.setTimeout(() => {
       setPincodeLookup('loading')
       setPincodeMessage('Looking up city and state…')
-      void getStorefront<{ city?: string | null; state?: string | null; serviceable?: boolean }>(`/shipping/pincode/${pincode}`)
+      void getStorefront<{ city?: string | null; state?: string | null; serviceable?: boolean } & DeliveryEstimate>(`/shipping/pincode/${pincode}`)
         .then((location) => {
           if (!active) return
           const city = location.city ?? ''
           const state = location.state ?? ''
           setForm((current) => ({ ...current, city, state }))
+          setDeliveryEstimate(location.serviceable === false ? null : { estimatedDeliveryFrom: location.estimatedDeliveryFrom, estimatedDeliveryTo: location.estimatedDeliveryTo, serviceable: location.serviceable })
           if (city && state) {
             setPincodeLookup('found')
             setPincodeMessage(location.serviceable === false ? 'We do not deliver to this pincode yet.' : 'Location confirmed.')
@@ -104,6 +115,7 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
           if (!active) return
           setPincodeLookup('error')
           setPincodeMessage('Location lookup is temporarily unavailable. Try again shortly.')
+          setDeliveryEstimate(null)
         })
     }, 350)
     return () => { active = false; window.clearTimeout(timer) }
@@ -179,7 +191,7 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to complete checkout. Please try again.') } finally { setSubmitting(false) }
   }
 
-  const close = () => { setError(''); setNotice(''); setSubmitting(false); setQuote(null); setQuoteLoading(false); setStage('loading'); onClose() }
+  const close = () => { setError(''); setNotice(''); setSubmitting(false); setQuote(null); setQuoteLoading(false); setDeliveryEstimate(null); setStage('loading'); onClose() }
   const updateForm = (key: keyof AddressForm, value: string | boolean) => setForm((current) => ({ ...current, [key]: value }))
   const updatePincode = (value: string) => {
     setForm((current) => ({ ...current, pincode: value, ...(current.pincode === value ? {} : { city: '', state: '' }) }))
@@ -217,6 +229,7 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
   const freeShippingUnlocked = Boolean(quote && quote.shippingPaise === 0 && productTotalPaise >= 200000)
   const shippingLabel = hasPendingPrice ? 'Price pending' : quoteLoading ? 'Calculating…' : quote?.serviceability === false ? 'Unavailable' : quote ? (quote.shippingPaise === 0 ? 'Free' : formatCheckoutPaise(quote.shippingPaise)) : 'Enter delivery details'
   const payableLabel = hasPendingPrice ? 'Price pending' : quote ? formatCheckoutPaise(quote.totalPaise) : quoteLoading ? 'Calculating…' : 'Enter delivery details'
+  const deliveryEstimateLabel = formatDeliveryEstimate(quote?.estimatedDeliveryFrom ?? deliveryEstimate?.estimatedDeliveryFrom, quote?.estimatedDeliveryTo ?? deliveryEstimate?.estimatedDeliveryTo)
 
   return <ModalShell open={open} onClose={close} title="Secure SkinFox checkout" className="checkout-modal">
         {stage === 'complete' ? <div className="checkout-success" role="status"><span><Check size={26} /></span><p className="eyebrow">Payment confirmed</p><h2>Your order is confirmed.</h2><p>Your payment was received securely. Find the latest status in My orders.</p><button className="button button--dark" onClick={close}>Continue shopping</button></div> : <div className="checkout-grid">
@@ -235,7 +248,7 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
               <label><span>Full name</span><input value={form.fullName} onChange={(event) => updateForm('fullName', event.target.value)} autoComplete="name" required placeholder="Your name" /></label>
               <label><span>Email <small>(optional)</small></span><input value={form.email} onChange={(event) => updateForm('email', event.target.value)} type="email" autoComplete="email" placeholder="you@example.com" /></label>
               <label><span>Delivery phone</span><input value={form.phone} onChange={(event) => updateForm('phone', event.target.value.replace(/\D/g, '').slice(0, 10))} inputMode="tel" autoComplete="tel" required placeholder="9876543210" /></label>
-              <label><span>Pincode</span><input value={form.pincode} onChange={(event) => updatePincode(event.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="postal-code" maxLength={6} required placeholder="400001" aria-describedby="pincode-status" /><small id="pincode-status" className={`pincode-status pincode-status--${pincodeLookup}`} aria-live="polite">{pincodeMessage}</small></label>
+              <label><span>Pincode</span><input value={form.pincode} onChange={(event) => updatePincode(event.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="postal-code" maxLength={6} required placeholder="400001" aria-describedby="pincode-status" /><small id="pincode-status" className={`pincode-status pincode-status--${pincodeLookup}`} aria-live="polite">{pincodeMessage}</small>{deliveryEstimateLabel && pincodeLookup === 'found' && <small className="delivery-estimate" role="status"><Truck size={13} aria-hidden="true" /> Estimated delivery: {deliveryEstimateLabel}</small>}</label>
               <label className="field-grid__wide"><span>Address line 1</span><input value={form.addressLine1} onChange={(event) => updateForm('addressLine1', event.target.value)} autoComplete="street-address" required placeholder="Street and locality" /></label>
               <label className="field-grid__wide"><span>Address line 2 <small>(optional)</small></span><input value={form.addressLine2} onChange={(event) => updateForm('addressLine2', event.target.value)} placeholder="Apartment, suite, etc." /></label>
               <label className="field-grid__wide"><span>Landmark <small>(optional)</small></span><input value={form.landmark} onChange={(event) => updateForm('landmark', event.target.value)} placeholder="Nearby landmark" /></label>
@@ -267,6 +280,7 @@ export function CheckoutModal({ open, lines, onClose, onComplete, onCustomerChan
         {quote && couponDiscountPaise === 0 && quote.launchDiscountPaise && quote.launchDiscountPaise > 0 && <div className="checkout-summary__discount"><span>SkinFox offer</span><strong>−{formatCheckoutPaise(quote.launchDiscountPaise)}</strong></div>}
         {quote && <><div><span>Products total (incl. GST)</span><strong>{formatCheckoutPaise(quote.productTotalPaise ?? Math.max(0, quote.subtotalPaise - quote.discountPaise))}</strong></div><div><span>Base price (excl. GST)</span><strong>{formatCheckoutPaise(quote.taxBasePaise ?? Math.max(0, (quote.productTotalPaise ?? quote.subtotalPaise) - quote.taxPaise))}</strong></div><div><span>GST included (18%)</span><strong>{formatCheckoutPaise(quote.taxPaise)}</strong></div></>}
         <div><span>Shipping</span><strong>{shippingLabel}</strong></div>
+        {deliveryEstimateLabel && <div className="checkout-summary__delivery"><span><Truck size={15} aria-hidden="true" /> Estimated delivery</span><strong>{deliveryEstimateLabel}</strong></div>}
         {freeShippingUnlocked && <p className="checkout-summary__shipping-note">Free delivery unlocked on orders of ₹2,000 or more.</p>}
         <div className="checkout-total"><span>Amount due</span><strong>{payableLabel}</strong></div>
         <p className="checkout-summary__note"><LockKeyhole size={14} aria-hidden="true" />GST is already included in product prices and is not added again. Secure online payment by Razorpay.</p>
