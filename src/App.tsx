@@ -28,6 +28,8 @@ import { SiteSeo } from './seo/SiteSeo'
 import { defaultFaqs } from './seo/content'
 import { CategoryPage } from './seo/CategoryPage'
 import { EditorialPage } from './seo/EditorialPage'
+import { GuidePage } from './seo/GuidePage'
+import { ShopPage } from './seo/ShopPage'
 import type { CategorySlug } from './seo/content'
 import { LegalPage, type LegalPageKind } from './components/LegalPage'
 import { ProductCard } from './components/ProductCard'
@@ -85,7 +87,7 @@ function readLegalPageFromHash(): LegalPageKind | null {
   return null
 }
 
-type PublicPageSlug = CategorySlug | 'about' | 'faq' | 'guides'
+type PublicPageSlug = CategorySlug | 'about' | 'faq' | 'guides' | 'contact' | 'shipping-returns' | 'shop' | `guide:${string}`
 
 export default function App({ productSlug, pageSlug }: { productSlug?: string; pageSlug?: PublicPageSlug } = {}) {
   const storefront = useStorefront()
@@ -305,7 +307,7 @@ export default function App({ productSlug, pageSlug }: { productSlug?: string; p
       {!productSlug && !pageSlug && <SiteSeo faqs={visibleFaqs.map(([question, answer]) => ({ question, answer }))} />}
       <a className="skip-link" href="#main-content">Skip to content</a>
       <motion.div className="scroll-progress" style={{ scaleX: progress }} />
-      {showAnnouncement && <a className="announcement" href="/#shop" aria-label={storefront.promotion.message}>
+      {showAnnouncement && <a className="announcement" href="/shop" aria-label={storefront.promotion.message}>
         <div className="announcement__viewport">
           <div className="announcement__track" aria-hidden="true">
             {[0, 1].map((copy) => <div className="announcement__group" key={copy}>
@@ -329,12 +331,13 @@ export default function App({ productSlug, pageSlug }: { productSlug?: string; p
       <Header cartCount={cartCount} onCart={() => setCartOpen(true)} onQuiz={() => setQuizOpen(true)} onSearch={() => setSearchOpen(true)} onAccount={openAccount} onLogout={() => void logoutCustomer()} customerName={customer?.fullName} />
 
       <main id="main-content" tabIndex={-1}>
-        {productSlug ? <ProductPage product={collectionProducts.find((product) => product.id === productSlug)} productSlug={productSlug} catalogProducts={collectionProducts} loading={storefront.loading} error={storefront.error} onAdd={(product, quantity) => addToCart(product, quantity)} onFindCare={() => setQuizOpen(true)} /> : pageSlug ? (pageSlug === 'about' || pageSlug === 'faq' || pageSlug === 'guides' ? <EditorialPage kind={pageSlug} faqs={pageSlug === 'faq' ? visibleFaqs.map(([question, answer]) => ({ question, answer })) : undefined} /> : <CategoryPage slug={pageSlug} products={collectionProducts} loading={storefront.loading} onAdd={(product) => addToCart(product, 1)} />) : <>
+        {productSlug ? <ProductPage product={collectionProducts.find((product) => product.id === productSlug)} productSlug={productSlug} catalogProducts={collectionProducts} loading={storefront.loading} error={storefront.error} onAdd={(product, quantity) => addToCart(product, quantity)} onFindCare={() => setQuizOpen(true)} /> : pageSlug ? (pageSlug === 'shop' ? <ShopPage products={collectionProducts} loading={storefront.loading} onAdd={(product) => addToCart(product, 1)} /> : pageSlug.startsWith('guide:') ? <GuidePage slug={pageSlug.slice(6)} /> : pageSlug === 'about' || pageSlug === 'faq' || pageSlug === 'guides' || pageSlug === 'contact' || pageSlug === 'shipping-returns' ? <EditorialPage kind={pageSlug} faqs={pageSlug === 'faq' ? visibleFaqs.map(([question, answer]) => ({ question, answer })) : undefined} /> : <CategoryPage slug={pageSlug as CategorySlug} products={collectionProducts} loading={storefront.loading} onAdd={(product) => addToCart(product, 1)} />) : <>
         <section className="hero" aria-labelledby="hero-title">
           <div className="hero__wash" aria-hidden="true" />
           <div className="hero__copy">
             <span className="eyebrow hero__eyebrow"><Leaf size={16} /> Skin, body, hair & scalp</span>
-            <h1 id="hero-title">Thoughtful care.<br /><em>For every day.</em></h1>
+            <p className="hero__tagline">Thoughtful care. For every day.</p>
+            <h1 id="hero-title">Skin care &amp; hair care essentials<br /><em>for everyday routines.</em></h1>
             <p>Discover skincare, body care and hair essentials that fit your everyday routine. A little guidance. A simpler choice. Care that feels like you.</p>
             <div className="hero__actions">
               <a className="button button--copper" href="#shop">Shop the collection <ArrowDown size={16} /></a>
@@ -494,8 +497,8 @@ export default function App({ productSlug, pageSlug }: { productSlug?: string; p
               <a className="site-footer__email" href="mailto:contact@skinfox.in"><Mail size={17} aria-hidden="true" /> contact@skinfox.in</a>
             </div>
           </div>
-          <div><span>Explore</span><a href="/#shop">Shop all products</a><a href="/skin-care">Skin care</a><a href="/hair-care">Hair care</a><a href="/guides">Care guides</a><button onClick={() => setQuizOpen(true)}>Find my care</button></div>
-          <div><span>Good to know</span><a href="/about">About SkinFox</a><a href="/faq">FAQs</a><a href="/privacy-policy">Privacy policy</a><a href="/terms-and-conditions">Terms & conditions</a><a href="/terms-and-conditions#delivery">Shipping & returns</a></div>
+          <div><span>Explore</span><a href="/shop">Shop all products</a><a href="/skin-care">Skin care</a><a href="/hair-care">Hair care</a><a href="/body-care">Body care</a><a href="/guides">Care guides</a><button onClick={() => setQuizOpen(true)}>Find my care</button></div>
+          <div><span>Good to know</span><a href="/about">About SkinFox</a><a href="/faq">FAQs</a><a href="/contact">Contact</a><a href="/privacy-policy">Privacy policy</a><a href="/terms-and-conditions">Terms & conditions</a><a href="/shipping-returns">Shipping & returns</a></div>
           <div className="site-footer__affiliate">
             <span>Become an affiliate</span>
             <strong>Grow with SkinFox.</strong>

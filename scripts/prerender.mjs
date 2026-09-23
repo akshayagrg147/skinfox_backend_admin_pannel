@@ -25,7 +25,7 @@ for (const page of pages) {
   const image = absolute(page.metadata.image ?? '/brand/skinfox-logo.png')
   const meta = [
     ['name', 'description', page.metadata.description], ['name', 'robots', 'index,follow,max-image-preview:large'],
-    ['property', 'og:type', 'website'], ['property', 'og:site_name', 'SkinFox'], ['property', 'og:locale', 'en_IN'],
+    ['property', 'og:type', page.metadata.ogType ?? 'website'], ['property', 'og:site_name', 'SkinFox'], ['property', 'og:locale', 'en_IN'],
     ['property', 'og:title', page.metadata.title], ['property', 'og:description', page.metadata.description],
     ['property', 'og:url', absolute(page.path)], ['property', 'og:image', image],
     ['property', 'og:image:alt', page.metadata.imageAlt ?? 'SkinFox — skin, body, hair and scalp care'],

@@ -214,6 +214,10 @@
 .seo-guides__grid h3 { margin: 16px 0 6px; color: #3c2b45; font-size: 15px; }
 .seo-guides__grid div p { margin: 0; color: #756b78; font-size: 14px; line-height: 1.7; }
 .seo-guides__grid .text-link { margin-top: auto; padding-top: 24px; }
+.seo-guide__body { max-width: 850px; display: grid; gap: 30px; padding-bottom: 64px; }
+.seo-guide__body section { padding-top: 28px; border-top: 1px solid #e5dce2; }
+.seo-guide__body h2 { margin: 0 0 12px; font-family: var(--font-display); font-size: clamp(28px, 3vw, 42px); font-weight: 500; line-height: 1.15; }
+.seo-guide__body p { margin: 0; color: #625866; font-size: 17px; line-height: 1.85; }
 @media (max-width: 820px) {
   .seo-landing { padding-block: 110px 54px; }
   .seo-landing__hero { padding-bottom: 50px; }

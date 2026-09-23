@@ -645,6 +645,7 @@ model Customer {
   notes                CustomerNote[]
   carts                Cart[]
   sessions             CustomerSession[]
+  notifications        CustomerNotification[]
   // Legacy relation retained so existing customer records remain readable;
   // new customer authentication uses Firebase Google/email identities.
   otpChallenges        CustomerOtpChallenge[]
@@ -738,6 +739,22 @@ model CustomerNote {
   createdById String?
   customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   createdAt   DateTime @default(now())
+}
+
+model CustomerNotification {
+  id         String    @id @default(cuid())
+  customerId String
+  orderId    String?
+  shipmentId String?
+  type       String
+  title      String
+  body       String
+  readAt     DateTime?
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+
+  @@index([customerId, createdAt])
+  @@index([customerId, readAt])
 }
 
 model Order {
@@ -1012,6 +1029,8 @@ model Shipment {
   bookingError       String?
   bookedAt           DateTime?
   pickupScheduledAt  DateTime?
+  estimatedDeliveryFrom DateTime?
+  estimatedDeliveryTo   DateTime?
   lastSyncedAt       DateTime?
   packedWeightGrams  Int?
   lengthCm           Float?

@@ -24,7 +24,7 @@ describe('Header mobile menu', () => {
     expect(document.body).toHaveClass('is-locked')
     const mobileNavigation = screen.getByRole('navigation', { name: 'Mobile navigation' })
     expect(mobileNavigation).toBeInTheDocument()
-    expect(within(mobileNavigation).getByRole('link', { name: 'Shop the edit' })).toHaveAttribute('href', '#shop')
+    expect(within(mobileNavigation).getByRole('link', { name: 'Shop the edit' })).toHaveAttribute('href', '/shop')
     expect(within(mobileNavigation).getByRole('button', { name: 'My account' })).toBeInTheDocument()
     expect(within(mobileNavigation).getByRole('button', { name: 'Find my care' })).toBeInTheDocument()
     expect(within(mobileNavigation).getByRole('link', { name: 'Skin care' })).toHaveAttribute('href', '/skin-care')
@@ -34,7 +34,7 @@ describe('Header mobile menu', () => {
 
     const desktopNavigation = screen.getByRole('navigation', { name: 'Main navigation' })
     const desktopLinks = within(desktopNavigation).getAllByRole('link')
-    expect(desktopLinks.map((link) => link.getAttribute('href'))).toEqual(['#shop', '/skin-care', '/hair-care', '/faq'])
+    expect(desktopLinks.map((link) => link.getAttribute('href'))).toEqual(['/shop', '/skin-care', '/hair-care', '/faq'])
     expect(desktopLinks.map((link) => link.textContent)).toEqual(['Shop the edit', 'Skin care', 'Hair care', 'Care & support'])
 
     fireEvent.keyDown(window, { key: 'Escape' })

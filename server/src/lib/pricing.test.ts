@@ -14,6 +14,7 @@ describe('pricing invariants', () => {
     const quote = calculateCart([{ quantity: 2, unitPricePaise: 60000 }], null, true, true)
     expect(quote.subtotalPaise).toBe(120000)
     expect(quote.taxPaise).toBe(18305)
+    expect(quote.taxBasePaise + quote.taxPaise).toBe(quote.productTotalPaise)
     expect(quote.shippingPaise).toBe(9900)
     expect(quote.codPaise).toBe(4900)
     expect(quote.totalPaise).toBe(134800)
@@ -24,6 +25,7 @@ describe('pricing invariants', () => {
     expect(quote.taxPaise).toBe(30508)
     expect(quote.shippingPaise).toBe(0)
     expect(quote.totalPaise).toBe(200000)
+    expect(quote.taxBasePaise + quote.taxPaise).toBe(quote.productTotalPaise)
   })
 
   it('caps coupon discounts and rejects inactive or below-minimum coupons', () => {

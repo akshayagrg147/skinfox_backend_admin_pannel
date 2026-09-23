@@ -22,11 +22,17 @@ describe('public page routes', () => {
   })
 
   it('routes crawlable care and editorial pages to the storefront controller', async () => {
-    for (const [path, expected] of [['/skin-care', 'skin-care'], ['/about', 'about'], ['/faq', 'faq'], ['/guides', 'guides']]) {
+    for (const [path, expected] of [['/shop', 'shop'], ['/skin-care', 'skin-care'], ['/about', 'about'], ['/faq', 'faq'], ['/guides', 'guides'], ['/contact', 'contact'], ['/shipping-returns', 'shipping-returns']]) {
       window.history.replaceState(null, '', path)
       const { unmount } = render(<SiteRouter />)
       await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(expected))
       unmount()
     }
+  })
+
+  it('routes each care guide to its own crawlable page', () => {
+    window.history.replaceState(null, '', '/guides/how-much-sunscreen-on-face')
+    render(<SiteRouter />)
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('guide:how-much-sunscreen-on-face')
   })
 })

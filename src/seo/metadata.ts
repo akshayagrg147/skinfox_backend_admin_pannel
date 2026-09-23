@@ -2,18 +2,20 @@ import type { Product } from '../types'
 import { aboutPage, categoryPages, defaultFaqs, productSeoContent, type CategorySlug } from './content'
 
 export const SITE_URL = 'https://skinfox.in'
-export const HOME_TITLE = 'SkinFox – Skincare, Hair & Body Care Online in India'
-export const HOME_DESCRIPTION = 'Shop SkinFox skincare, hair and body care online in India, including SPF 50 sunscreen, onion hair oil, acne-prone skin cleanser and dry-skin moisturisers.'
+export const HOME_TITLE = 'SkinFox – Skin Care & Hair Care Products Online in India'
+export const HOME_DESCRIPTION = 'Shop SkinFox SPF 50 sunscreen, acne-prone face wash, dry-skin lotions, onion hair oil & onion shampoo. Launching soon – join the waitlist for 50% off.'
 export type FaqEntry = { question: string; answer: string }
-export type SeoPage = { title: string; description: string; path: string; image?: string; imageAlt?: string; noindex?: boolean; structuredData?: Record<string, unknown>[] }
+export type SeoPage = { title: string; description: string; path: string; image?: string; imageAlt?: string; ogType?: 'website' | 'product'; noindex?: boolean; structuredData?: Record<string, unknown>[] }
 
 export const productPath = (product: Pick<Product, 'id'>) => `/products/${encodeURIComponent(product.id)}`
 export const absoluteUrl = (path: string) => new URL(path, SITE_URL).href
 
 export const organizationSchema = {
-  '@type': 'OnlineStore', '@id': `${SITE_URL}/#organization`, name: 'SkinFox', url: `${SITE_URL}/`,
-  logo: `${SITE_URL}/brand/skinfox-logo.png`, email: 'contact@skinfox.in',
+  '@type': ['Organization', 'OnlineStore'], '@id': `${SITE_URL}/#organization`, name: 'SkinFox', legalName: 'VEDICSOLVE PRIVATE LIMITED', url: `${SITE_URL}/`,
+  logo: `${SITE_URL}/brand/skinfox-logo.png`, email: 'contact@skinfox.in', telephone: '+91 70820 48820',
   description: 'Skin, body, hair and scalp-care products.',
+  sameAs: ['https://www.instagram.com/skinfox_official/', 'https://www.facebook.com/profile.php?id=61593882756421'],
+  contactPoint: [{ '@type': 'ContactPoint', contactType: 'customer support', telephone: '+91 70820 48820', email: 'contact@skinfox.in', availableLanguage: ['English', 'Hindi'] }],
 }
 
 export function breadcrumbSchema(items: Array<{ name: string; path: string }>) {
@@ -46,10 +48,15 @@ export function productSeo(product: Product): SeoPage {
   // MRP is not the selling price. Never publish an offer for a price-pending item.
   if (typeof product.price === 'number' && Number.isFinite(product.price) && product.price > 0) {
     const purchaseState = (product as Product & { purchaseState?: string }).purchaseState
+    const availability = purchaseState === 'out_of_stock'
+      ? 'https://schema.org/OutOfStock'
+      : purchaseState === 'preorder' || purchaseState === 'coming_soon'
+        ? 'https://schema.org/PreOrder'
+        : 'https://schema.org/InStock'
     productSchema.offers = {
       '@type': 'Offer', url: absoluteUrl(path), priceCurrency: 'INR', price: product.price.toFixed(2),
       seller: { '@id': `${SITE_URL}/#organization` },
-      ...(purchaseState === 'out_of_stock' ? { availability: 'https://schema.org/OutOfStock' } : {}),
+      availability,
     }
   }
   const structuredData: Record<string, unknown>[] = [organizationSchema, productSchema, breadcrumbSchema([{ name: 'Home', path: '/' }, { name: content?.searchPhrase ?? product.category, path: categoryPathForProduct(product) }, { name: product.name, path }])]
@@ -57,7 +64,7 @@ export function productSeo(product: Product): SeoPage {
   return {
     title: content?.title ?? `${product.name} ${product.size} | ${product.category} Care | SkinFox`,
     description: content?.description ?? `${product.subtitle}. ${product.benefit} Explore ${product.size} pack details and current pricing at SkinFox.`,
-    path, image: product.image, imageAlt: product.imageAlt,
+    path, image: product.image, imageAlt: product.imageAlt, ogType: 'product',
     structuredData,
   }
 }
@@ -73,11 +80,28 @@ export function categorySeo(slug: CategorySlug): SeoPage {
 }
 
 export function aboutSeo(): SeoPage {
-  return { title: `${aboutPage.title}`, description: aboutPage.description, path: '/about', image: '/brand/skinfox-logo.png', structuredData: [organizationSchema, breadcrumbSchema([{ name: 'Home', path: '/' }, { name: 'About SkinFox', path: '/about' }])] }
+  return { title: `${aboutPage.title}`, description: aboutPage.description, path: '/about', image: '/products/hydrelle-campaign-new.webp', imageAlt: 'SkinFox Hydrelle moisturising lotion campaign', structuredData: [organizationSchema, breadcrumbSchema([{ name: 'Home', path: '/' }, { name: 'About SkinFox', path: '/about' }])] }
 }
 
 export function faqSeo(faqs: FaqEntry[] = defaultFaqs): SeoPage {
-  return { title: 'SkinFox FAQs | Product, Orders & Care Support', description: 'Read SkinFox answers about product use, prices, orders, delivery, accounts and cosmetic care guidance.', path: '/faq', structuredData: [organizationSchema, { '@type': 'FAQPage', '@id': `${SITE_URL}/faq#faq`, mainEntity: faqs.map((item) => ({ '@type': 'Question', name: item.question, acceptedAnswer: { '@type': 'Answer', text: item.answer } })) }, breadcrumbSchema([{ name: 'Home', path: '/' }, { name: 'FAQs', path: '/faq' }])] }
+  return { title: 'SkinFox FAQs | Product, Orders & Care Support', description: 'Read SkinFox answers about product use, prices, orders, delivery, accounts and cosmetic care guidance.', path: '/faq', image: '/products/rayyvia-sun-protect-primary.webp', imageAlt: 'SkinFox Rayyvia Sun Protect facial sunscreen', structuredData: [organizationSchema, { '@type': 'FAQPage', '@id': `${SITE_URL}/faq#faq`, mainEntity: faqs.map((item) => ({ '@type': 'Question', name: item.question, acceptedAnswer: { '@type': 'Answer', text: item.answer } })) }, breadcrumbSchema([{ name: 'Home', path: '/' }, { name: 'FAQs', path: '/faq' }])] }
+}
+
+export function shopSeo(): SeoPage {
+  return { title: 'Shop Skin Care & Hair Care Products | SkinFox', description: 'Shop SkinFox skin care, hair care and body care products online in India. Compare pack sizes, product details, current prices and label-led usage.', path: '/shop', image: '/products/rayyvia-sun-protect-primary.webp', imageAlt: 'SkinFox skin care and hair care product collection', structuredData: [organizationSchema, { '@type': 'CollectionPage', '@id': `${SITE_URL}/shop#collection`, name: 'Shop SkinFox products', description: 'Skin, hair and body care products from SkinFox.', url: absoluteUrl('/shop') }, breadcrumbSchema([{ name: 'Home', path: '/' }, { name: 'Shop', path: '/shop' }])] }
+}
+
+export function contactSeo(): SeoPage {
+  return { title: 'Contact SkinFox | Customer Support', description: 'Contact SkinFox customer support by email or phone for product, order and delivery help.', path: '/contact', image: '/products/rayyvia-sun-protect-primary.webp', imageAlt: 'SkinFox Rayyvia Sun Protect facial sunscreen', structuredData: [organizationSchema, breadcrumbSchema([{ name: 'Home', path: '/' }, { name: 'Contact', path: '/contact' }])] }
+}
+
+export function shippingReturnsSeo(): SeoPage {
+  return { title: 'Shipping & Returns | SkinFox', description: 'Read SkinFox delivery timelines, shipping charges, serviceability, payment and returns information before ordering.', path: '/shipping-returns', image: '/products/coco-kiss-lotion-primary.webp', imageAlt: 'SkinFox Coco Kiss moisturising lotion', structuredData: [organizationSchema, breadcrumbSchema([{ name: 'Home', path: '/' }, { name: 'Shipping & returns', path: '/shipping-returns' }])] }
+}
+
+export function guideSeo(slug: string, guide: { title: string; excerpt: string }): SeoPage {
+  const path = `/guides/${slug}`
+  return { title: `${guide.title} | SkinFox`, description: guide.excerpt, path, image: '/products/rayyvia-sun-protect-primary.webp', imageAlt: 'SkinFox everyday care guide', structuredData: [organizationSchema, { '@type': 'Article', '@id': `${absoluteUrl(path)}#article`, headline: guide.title, description: guide.excerpt, author: { '@id': `${SITE_URL}/#organization` }, publisher: { '@id': `${SITE_URL}/#organization` }, mainEntityOfPage: absoluteUrl(path) }, breadcrumbSchema([{ name: 'Home', path: '/' }, { name: 'Care guides', path: '/guides' }, { name: guide.title, path }])] }
 }
 
 export function guidesSeo(): SeoPage {
@@ -100,7 +124,7 @@ export function pageMetaEntries(page: SeoPage) {
   return [
     ['name', 'description', page.description],
     ['name', 'robots', page.noindex ? 'noindex,follow' : 'index,follow,max-image-preview:large'],
-    ['property', 'og:type', 'website'], ['property', 'og:site_name', 'SkinFox'], ['property', 'og:locale', 'en_IN'],
+    ['property', 'og:type', page.ogType ?? 'website'], ['property', 'og:site_name', 'SkinFox'], ['property', 'og:locale', 'en_IN'],
     ['property', 'og:title', page.title], ['property', 'og:description', page.description],
     ['property', 'og:url', absoluteUrl(page.path)], ['property', 'og:image', image],
     ['property', 'og:image:alt', page.imageAlt ?? 'SkinFox — skin, body, hair and scalp care'],

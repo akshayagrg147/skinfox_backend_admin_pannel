@@ -28,9 +28,9 @@ describe('ProductPage', () => {
     const photoButtons = Array.from(photographs.querySelectorAll('button'))
     expect(photoButtons).toHaveLength(3)
     fireEvent.click(photoButtons[1])
-    expect(screen.getByRole('img', { name: 'Coco Kiss moisturizing lotion lifestyle campaign artwork' })).toBeInTheDocument()
+    expect(screen.getAllByRole('img', { name: 'Coco Kiss moisturizing lotion lifestyle campaign artwork' })).toHaveLength(2)
     fireEvent.click(photoButtons[2])
-    expect(screen.getByRole('img', { name: 'Coco Kiss moisturizing lotion product detail artwork' })).toBeInTheDocument()
+    expect(screen.getAllByRole('img', { name: 'Coco Kiss moisturizing lotion product detail artwork' })).toHaveLength(2)
   })
 
   it('does not allow purchasing stale seed data while current details are loading', () => {
@@ -43,7 +43,7 @@ describe('ProductPage', () => {
   it('shows a helpful missing-product page after the catalogue finishes loading', () => {
     render(<ProductPage productSlug="unlisted-product" onAdd={vi.fn()} onFindCare={vi.fn()} />)
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('We couldn’t find this product.')
-    expect(screen.getByRole('link', { name: /explore the collection/i })).toHaveAttribute('href', '/#shop')
+    expect(screen.getByRole('link', { name: /explore the collection/i })).toHaveAttribute('href', '/shop')
     expect(document.head.querySelector('meta[name="robots"]')).toHaveAttribute('content', 'noindex,follow')
   })
 

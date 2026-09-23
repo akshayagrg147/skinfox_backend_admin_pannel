@@ -17,7 +17,7 @@ export function CategoryPage({ slug, products, loading = false, onAdd }: Categor
       <span className="eyebrow"><Leaf size={15} /> SkinFox care range</span>
       <h1>{page.name} products for everyday routines</h1>
       <p>{page.intro}</p>
-      <div className="seo-landing__actions"><a className="button button--dark" href="/#shop">Shop the full collection <ArrowRight size={17} /></a><a className="text-link" href="/guides">Read care guides <ArrowRight size={16} /></a></div>
+      <div className="seo-landing__actions"><a className="button button--dark" href="/shop">Shop the full collection <ArrowRight size={17} /></a><a className="text-link" href="/guides">Read care guides <ArrowRight size={16} /></a></div>
     </header>
     <section className="seo-category__products" aria-labelledby="category-products-title">
       <div className="seo-landing__section-heading"><div><span className="section-number">Explore the edit</span><h2 id="category-products-title">{page.name} essentials</h2></div><span>{loading ? 'Loading' : `${categoryProducts.length} ${categoryProducts.length === 1 ? 'product' : 'products'}`}</span></div>
