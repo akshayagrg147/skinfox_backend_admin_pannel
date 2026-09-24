@@ -59,6 +59,12 @@ export interface DelhiveryCreateResult {
   raw: unknown
 }
 
+export interface PickupRequestOptions {
+  pickupDate?: string
+  pickupTime?: string
+  packageCount?: number
+}
+
 type FetchLike = typeof fetch
 type ProviderPayload = Record<string, any>
 
@@ -243,10 +249,12 @@ export class DelhiveryAdapter {
    * second network call. */
   async assignAwb(waybill: string, courierId?: string) { void courierId; return { awb_code: waybill, courier_name: 'Delhivery', status: 'awb_assigned' } }
 
-  async requestPickup(shipmentId: string) {
+  async requestPickup(shipmentId: string, options: PickupRequestOptions = {}) {
     void shipmentId
-    const pickupDate = new Date().toISOString().slice(0, 10)
-    const body = new URLSearchParams({ pickup_time: process.env.DELHIVERY_PICKUP_TIME ?? '16:00:00', pickup_date: pickupDate, pickup_location: process.env.DELHIVERY_PICKUP_LOCATION ?? '', expected_package_count: '1' })
+    const pickupDate = options.pickupDate ?? new Date().toISOString().slice(0, 10)
+    const pickupTime = options.pickupTime ?? process.env.DELHIVERY_PICKUP_TIME ?? '16:00:00'
+    const packageCount = options.packageCount ?? 1
+    const body = new URLSearchParams({ pickup_time: pickupTime, pickup_date: pickupDate, pickup_location: process.env.DELHIVERY_PICKUP_LOCATION ?? '', expected_package_count: String(packageCount) })
     return this.request<ProviderPayload>('/fm/request/new/', { method: 'POST', body, headers: { 'content-type': 'application/x-www-form-urlencoded' } })
   }
 

@@ -44,4 +44,14 @@ describe('DelhiveryAdapter', () => {
     expect(result.serviceable).toBe(false)
     expect(result.codAvailable).toBe(false)
   })
+
+  it('sends an admin-selected pickup date, time, and package count', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(jsonResponse({ pickup_id: 'PU-123', status: 'success' }))
+    const client = new DelhiveryAdapter('token-1', 'https://delhivery.test', fetcher as unknown as typeof fetch)
+    await client.requestPickup('AWB123', { pickupDate: '2026-09-25', pickupTime: '17:30', packageCount: 3 })
+    const request = fetcher.mock.calls[0]?.[1]
+    expect(String(request?.body)).toContain('pickup_date=2026-09-25')
+    expect(String(request?.body)).toContain('pickup_time=17%3A30')
+    expect(String(request?.body)).toContain('expected_package_count=3')
+  })
 })

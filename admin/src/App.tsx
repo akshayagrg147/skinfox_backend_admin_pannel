@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, ArrowLeft, BarChart3, Boxes, Check, ChevronRight, CircleAlert, ClipboardList, FileImage, FileText, Gauge, HandCoins, ImageIcon, LayoutDashboard, LockKeyhole, LogOut, Menu, Package, Pencil, Plus, Search, Settings, Shield, ShoppingBag, Sparkles, Tags, Truck, Users, X } from 'lucide-react'
+import { Activity, ArrowLeft, BarChart3, Boxes, CalendarClock, Check, ChevronRight, CircleAlert, ClipboardList, Copy, ExternalLink, FileImage, FileText, Gauge, HandCoins, ImageIcon, LayoutDashboard, LockKeyhole, LogOut, Mail, MapPin, Menu, Package, Pencil, Phone, Plus, Search, Settings, Shield, ShoppingBag, Sparkles, Tags, Truck, Users, X } from 'lucide-react'
 import { DragEvent, FormEvent, KeyboardEvent, ReactNode, useCallback, useDeferredValue, useEffect, useRef, useState } from 'react'
 import { api, get, getWithMeta, patch, post, remove } from './api'
 import { availableScreens, canAccessScreen, defaultScreen, filterRows, formatAdminCell, type AdminRole, withSearch } from './admin-utils'
@@ -8,7 +8,7 @@ import { maxProductImages, uploadProductImage, type ProductMediaDraft } from './
 import { dateLabel, filterInventory, humanize, inventorySummary, loadInventory, movementLabel, numberLabel, stockFor, stockLabels, type InventoryMovement, type InventoryRecord, type InventorySnapshot } from './inventory/inventory-data'
 
 type AdminUser = { id: string; email: string; name: string; role: AdminRole; isActive?: boolean; mfaRequired?: boolean; mustChangePassword?: boolean }
-type Resource = { id: string; name?: string; title?: string; email?: string; status?: string; createdAt?: string; labelUrl?: string | null; manifestUrl?: string | null; trackingNumber?: string | null; courierName?: string | null; courierId?: string | null; provider?: string; events?: Resource[]; [key: string]: unknown }
+type Resource = { id: string; name?: string; title?: string; email?: string; status?: string; createdAt?: string; labelUrl?: string | null; manifestUrl?: string | null; trackingNumber?: string | null; trackingUrl?: string | null; courierName?: string | null; courierId?: string | null; provider?: string; events?: Resource[]; [key: string]: unknown }
 type ProductMetrics = { periodDays: number; salesDataAvailable: boolean; unitsSold: number; repeatOrders: number; orderCount: number; performance: 'new' | 'no_sales' | 'slow' | 'selling' | 'unavailable'; performanceLabel: string; stockState: 'untracked' | 'out_of_stock' | 'low_stock' | 'in_stock'; stockLabel: string; inventoryTracked: boolean; onHandQty: number; reservedQty: number; sellableQty: number; lowStockThreshold: number | null; variantCount: number; sku: string; slowMaxUnits?: number; sellingMinUnits?: number }
 type ProductListSummary = { total: number; live: number; liveBuyable: number; draft: number; outOfStock: number; noSales: number; archived: number }
 type AdminProduct = Resource & { concern?: string; concerns?: string[]; pricePaise?: number | null; mrpPaise?: number | null; productMetrics?: ProductMetrics; media?: Resource[]; variants?: Resource[]; categoryRef?: Resource }
@@ -618,7 +618,7 @@ function OrderShipmentPanel({ id, canManage }: { id: string; canManage: boolean 
   return <ShipmentOperations order={query.data} canManage={canManage} onRefresh={() => void query.refetch()} />
 }
 
-function ShipmentOperations({ order, canManage, onRefresh }: { order: AdminOrder; canManage: boolean; onRefresh: () => void }) {
+function LegacyShipmentOperations({ order, canManage, onRefresh }: { order: AdminOrder; canManage: boolean; onRefresh: () => void }) {
   const [weightGrams, setWeightGrams] = useState('500')
   const [lengthCm, setLengthCm] = useState('20')
   const [breadthCm, setBreadthCm] = useState('15')
@@ -637,9 +637,81 @@ function ShipmentOperations({ order, canManage, onRefresh }: { order: AdminOrder
   return <section className="panel order-detail-panel shipment-operations"><div className="panel-heading"><div><span className="kicker">Shipping provider</span><h3>{shipment ? 'Delhivery shipment' : 'Book a courier shipment'}</h3><p className="panel-subtitle">Quotes use the packed parcel details and delivery pincode saved on this order.</p></div><Truck size={18} /></div>{shipment ? <><div className="shipment-status-grid"><div><span>Status</span><strong>{String(shipment.status ?? 'pending').replaceAll('_', ' ')}</strong></div><div><span>Courier</span><strong>{String(shipment.courierName ?? shipment.courierId ?? 'Pending')}</strong></div><div><span>AWB</span><strong>{String(shipment.trackingNumber ?? 'Pending')}</strong></div><div><span>Estimated delivery</span><strong>{estimatedFrom ? `${estimatedFrom}${estimatedTo && estimatedTo !== estimatedFrom ? ` – ${estimatedTo}` : ''}` : 'Provider estimate pending'}</strong></div></div><div className="page-actions shipment-actions">{shipment.labelUrl && <a className="secondary-button" href={String(shipment.labelUrl)} target="_blank" rel="noreferrer">Open packing slip</a>}{canManage && <><button className="secondary-button" onClick={() => actionMutation.mutate('refresh')} disabled={actionMutation.isPending}>Refresh tracking</button><button className="secondary-button" onClick={() => actionMutation.mutate('pickup')} disabled={actionMutation.isPending}>Request pickup</button><button className="danger-button" onClick={() => { if (window.confirm('Cancel this Delhivery shipment?')) actionMutation.mutate('cancel') }} disabled={actionMutation.isPending}>Cancel shipment</button></>}</div>{Array.isArray(shipment.events) && shipment.events.length > 0 && <div className="shipment-events">{shipment.events.slice(-5).map((event) => <div key={String(event.id)}><strong>{String(event.status).replaceAll('_', ' ')}</strong><small>{event.createdAt ? new Date(String(event.createdAt)).toLocaleString('en-IN') : 'Recorded event'}</small></div>)}</div>}</> : canManage ? <><div className="form-grid shipment-package-form"><label>Weight (g)<input type="number" min="1" value={weightGrams} onChange={(event) => setWeightGrams(event.target.value)} /></label><label>Length (cm)<input type="number" min="1" value={lengthCm} onChange={(event) => setLengthCm(event.target.value)} /></label><label>Breadth (cm)<input type="number" min="1" value={breadthCm} onChange={(event) => setBreadthCm(event.target.value)} /></label><label>Height (cm)<input type="number" min="1" value={heightCm} onChange={(event) => setHeightCm(event.target.value)} /></label></div><button className="secondary-button" onClick={() => quoteMutation.mutate()} disabled={quoteMutation.isPending}>{quoteMutation.isPending ? 'Getting quotes…' : 'Get courier quotes'}</button>{quotes.length > 0 && <div className="shipment-quote-list">{quotes.map((courier) => <div className="shipment-quote-row" key={String(courier.id)}><span><strong>{String(courier.name)}</strong><small>{courier.estimatedDays ? `${String(courier.estimatedDays)} day estimate` : courier.etd ? `Estimated ${String(courier.etd)}` : 'ETA unavailable'} · {courier.codAvailable ? 'COD available' : 'Prepaid'}</small></span><strong>{money(courier.ratePaise)}<button className="primary-button" onClick={() => bookMutation.mutate(courier)} disabled={bookMutation.isPending}>{bookMutation.isPending ? 'Booking…' : 'Book'}</button></strong></div>)}</div>}{(quoteMutation.isError || bookMutation.isError || actionMutation.isError) && <div className="alert alert--error" role="alert">{String((quoteMutation.error ?? bookMutation.error ?? actionMutation.error) instanceof Error ? (quoteMutation.error ?? bookMutation.error ?? actionMutation.error) : 'Shipping action failed.')}</div>}<p className="fine-print">Live booking is protected by DELHIVERY_BOOKING_ENABLED. Keep it disabled while configuring credentials and package policy.</p></> : <p className="fine-print">Your role can view shipment status but cannot book or modify shipments.</p>}</section>
 }
 
+function ShipmentOperations({ order, canManage, onRefresh }: { order: AdminOrder; canManage: boolean; onRefresh: () => void }) {
+  const [weightGrams, setWeightGrams] = useState('500')
+  const [lengthCm, setLengthCm] = useState('20')
+  const [breadthCm, setBreadthCm] = useState('15')
+  const [heightCm, setHeightCm] = useState('8')
+  const [quotes, setQuotes] = useState<Resource[]>([])
+  const [pickupOpen, setPickupOpen] = useState(false)
+  const [pickupDate, setPickupDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [pickupTime, setPickupTime] = useState('16:00')
+  const [packageCount, setPackageCount] = useState('1')
+  const [copied, setCopied] = useState(false)
+  const shipment = (order.shipments ?? []).find((item) => String(item.provider ?? '') === 'delhivery' && String(item.status ?? '') !== 'cancelled')
+  const paymentMethod = (order.payments ?? []).some((payment) => String(payment.provider ?? '') === 'cod') ? 'cod' : 'prepaid'
+  const packagePayload = () => ({ weightGrams: Number(weightGrams), lengthCm: Number(lengthCm), breadthCm: Number(breadthCm), heightCm: Number(heightCm) })
+  const quoteMutation = useMutation({ mutationFn: () => post<Resource>('/admin/orders/' + order.id + '/shipment/quote', { paymentMethod, package: packagePayload() }), onSuccess: (result) => setQuotes(Array.isArray(result.couriers) ? result.couriers as Resource[] : []) })
+  const bookMutation = useMutation({ mutationFn: (courier: Resource) => api(`/admin/orders/${order.id}/shipment/book`, { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ courierId: String(courier.id), courierName: String(courier.name ?? 'Courier'), estimatedDays: courier.estimatedDays ? Number(courier.estimatedDays) : undefined, etd: courier.etd ? String(courier.etd) : undefined, paymentMethod, package: packagePayload() }) }), onSuccess: onRefresh })
+  const actionMutation = useMutation({ mutationFn: ({ action, body }: { action: string; body?: unknown }) => post<Resource>(`/admin/orders/${order.id}/shipment/${action}`, body ?? {}), onSuccess: onRefresh })
+  const money = (value: unknown) => value === null || value === undefined ? 'Rate unavailable' : formatPaise(value)
+  const formatDate = (value: unknown) => { const parsed = new Date(String(value ?? '')); return Number.isNaN(parsed.valueOf()) ? null : new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(parsed) }
+  const formatDateTime = (value: unknown) => { const parsed = new Date(String(value ?? '')); return Number.isNaN(parsed.valueOf()) ? null : new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(parsed) }
+  const estimatedFrom = formatDate(shipment?.estimatedDeliveryFrom)
+  const estimatedTo = formatDate(shipment?.estimatedDeliveryTo)
+  const awb = shipment?.trackingNumber ? String(shipment.trackingNumber) : ''
+  const trackingUrl = shipment?.trackingUrl ? String(shipment.trackingUrl) : awb ? `https://www.delhivery.com/track/package/${encodeURIComponent(awb)}` : ''
+  const copyAwb = async () => { if (!awb) return; try { await navigator.clipboard.writeText(awb); setCopied(true); window.setTimeout(() => setCopied(false), 1600) } catch { setCopied(false) } }
+  const actionError = quoteMutation.error ?? bookMutation.error ?? actionMutation.error
+  return <section className="panel order-detail-panel shipment-operations">
+    <div className="panel-heading"><div><span className="kicker">Shipping provider</span><h3>{shipment ? 'Delhivery shipment' : 'Book a courier shipment'}</h3><p className="panel-subtitle">Manage the shipment lifecycle here. Balance, account credentials, and pickup-location setup remain in Delhivery.</p></div><Truck size={18} /></div>
+    {shipment ? <>
+      <div className="shipment-status-grid">
+        <div><span>Shipment status</span><strong>{String(shipment.status ?? 'pending').replaceAll('_', ' ')}</strong><small>{shipment.providerStatus ? `Provider: ${String(shipment.providerStatus)}` : 'Provider status pending'}</small></div>
+        <div><span>Courier</span><strong>{String(shipment.courierName ?? shipment.courierId ?? 'Delhivery')}</strong><small>{shipment.bookedAt ? `Booked ${formatDateTime(shipment.bookedAt) ?? 'recently'}` : 'Booking time unavailable'}</small></div>
+        <div><span>AWB / tracking ID</span><strong>{awb || 'Pending from Delhivery'}</strong><small>{shipment.lastSyncedAt ? `Synced ${formatDateTime(shipment.lastSyncedAt) ?? 'recently'}` : 'Not synced yet'}</small></div>
+        <div><span>Estimated delivery</span><strong>{estimatedFrom ? `${estimatedFrom}${estimatedTo && estimatedTo !== estimatedFrom ? ` – ${estimatedTo}` : ''}` : 'Provider estimate pending'}</strong><small>{shipment.pickupScheduledAt ? `Pickup requested ${formatDateTime(shipment.pickupScheduledAt) ?? ''}` : 'Request pickup after packing'}</small></div>
+      </div>
+      <div className="page-actions shipment-actions">
+        {awb && <button className="secondary-button" onClick={copyAwb}><Copy size={15} />{copied ? 'Copied AWB' : 'Copy AWB'}</button>}
+        {trackingUrl && <a className="secondary-button" href={trackingUrl} target="_blank" rel="noreferrer"><ExternalLink size={15} />Track shipment</a>}
+        <button className="secondary-button" onClick={() => actionMutation.mutate({ action: 'label' })} disabled={actionMutation.isPending}>{shipment.labelUrl ? 'Refresh packing slip' : 'Generate packing slip'}</button>
+        {shipment.labelUrl && <a className="secondary-button" href={String(shipment.labelUrl)} target="_blank" rel="noreferrer"><FileText size={15} />Open packing slip</a>}
+        {canManage && <><button className="secondary-button" onClick={() => actionMutation.mutate({ action: 'refresh' })} disabled={actionMutation.isPending}><Activity size={15} />Refresh tracking</button><button className="secondary-button" onClick={() => setPickupOpen((open) => !open)} disabled={actionMutation.isPending}><CalendarClock size={15} />{pickupOpen ? 'Hide pickup form' : shipment.pickupId ? 'Pickup requested' : 'Request pickup'}</button><button className="danger-button" onClick={() => { if (window.confirm('Cancel this Delhivery shipment?')) actionMutation.mutate({ action: 'cancel' }) }} disabled={actionMutation.isPending}>Cancel shipment</button></>}
+      </div>
+      {canManage && pickupOpen && !shipment.pickupId && <div className="subpanel shipment-pickup-form"><div className="subpanel-heading"><div><span className="kicker">Pickup request</span><strong>Tell Delhivery when this parcel is ready</strong></div><Truck size={16} /></div><div className="form-grid"><label>Pickup date<input type="date" value={pickupDate} min={new Date().toISOString().slice(0, 10)} onChange={(event) => setPickupDate(event.target.value)} /></label><label>Pickup time<input type="time" value={pickupTime} onChange={(event) => setPickupTime(event.target.value)} /></label><label>Package count<input type="number" min="1" max="500" value={packageCount} onChange={(event) => setPackageCount(event.target.value)} /></label></div><button className="primary-button" onClick={() => actionMutation.mutate({ action: 'pickup', body: { pickupDate, pickupTime, packageCount: Number(packageCount) } })} disabled={actionMutation.isPending || !pickupDate || Number(packageCount) < 1}>{actionMutation.isPending ? 'Requesting…' : 'Confirm pickup request'}</button></div>}
+      {Array.isArray(shipment.events) && shipment.events.length > 0 && <div className="shipment-events"><div className="shipment-events-heading"><span className="kicker">Shipment timeline</span><small>{shipment.events.length} recorded updates</small></div>{shipment.events.slice().reverse().slice(0, 8).map((event) => <div key={String(event.id)}><span className="shipment-event-dot" /><span><strong>{String(event.status).replaceAll('_', ' ')}</strong><small>{event.createdAt ? new Date(String(event.createdAt)).toLocaleString('en-IN') : 'Recorded event'}</small></span></div>)}</div>}
+    </> : canManage ? <>
+      <div className="form-grid shipment-package-form"><label>Weight (g)<input type="number" min="1" value={weightGrams} onChange={(event) => setWeightGrams(event.target.value)} /></label><label>Length (cm)<input type="number" min="1" value={lengthCm} onChange={(event) => setLengthCm(event.target.value)} /></label><label>Breadth (cm)<input type="number" min="1" value={breadthCm} onChange={(event) => setBreadthCm(event.target.value)} /></label><label>Height (cm)<input type="number" min="1" value={heightCm} onChange={(event) => setHeightCm(event.target.value)} /></label></div><button className="secondary-button" onClick={() => quoteMutation.mutate()} disabled={quoteMutation.isPending}>{quoteMutation.isPending ? 'Getting quotes…' : 'Get courier quotes'}</button>{quotes.length > 0 && <div className="shipment-quote-list">{quotes.map((courier) => <div className="shipment-quote-row" key={String(courier.id)}><span><strong>{String(courier.name)}</strong><small>{courier.estimatedDays ? `${String(courier.estimatedDays)} day estimate` : courier.etd ? `Estimated ${String(courier.etd)}` : 'ETA unavailable'} · {courier.codAvailable ? 'COD available' : 'Prepaid'}</small></span><strong>{money(courier.ratePaise)}<button className="primary-button" onClick={() => bookMutation.mutate(courier)} disabled={bookMutation.isPending}>{bookMutation.isPending ? 'Booking…' : 'Book shipment'}</button></strong></div>)}</div>}{actionError && <div className="alert alert--error" role="alert">{actionError instanceof Error ? actionError.message : 'Shipping action failed.'}</div>}<p className="fine-print">Booking creates the Delhivery shipment and AWB. After it succeeds, generate the packing slip, request pickup, and refresh tracking from this panel.</p>
+    </> : <p className="fine-print">Your role can view shipment status but cannot book or modify shipments.</p>}
+    {(shipment && actionError) && <div className="alert alert--error" role="alert">{actionError instanceof Error ? actionError.message : 'Shipping action failed.'}</div>}
+  </section>
+}
+
+function OrderCustomerProfile({ order, loading }: { order?: AdminOrder; loading: boolean }) {
+  if (loading || !order) return null
+  const customer = (order.customer ?? {}) as Resource
+  const address: Record<string, unknown> = order.shippingAddress && typeof order.shippingAddress === 'object' ? order.shippingAddress : {}
+  const email = String(customer.email ?? address.email ?? '').trim()
+  const phone = String(customer.phone ?? address.phone ?? '').trim()
+  const name = String(customer.fullName ?? address.fullName ?? 'Customer').trim()
+  const addressLines = [address.addressLine1, address.addressLine2, address.landmark, [address.city, address.state, address.pincode].filter(Boolean).join(', ')].filter(Boolean).map(String)
+  const placedAt = order.createdAt ? new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(String(order.createdAt))) : 'Unavailable'
+  return <section className="panel order-detail-panel order-customer-profile">
+    <div className="panel-heading"><div><span className="kicker">Customer profile</span><h3>Contact this customer</h3><p className="panel-subtitle">Full contact details are visible here to authorised order-support roles.</p></div><Users size={18} /></div>
+    <div className="customer-profile-grid">
+      <div className="customer-profile-primary"><span className="avatar avatar--lilac">{name.slice(0, 1).toUpperCase()}</span><div><strong>{name}</strong><small>Order placed {placedAt}</small>{customer.id && <small>Customer ID · {String(customer.id)}</small>}</div></div>
+      <div className="customer-profile-field"><span><Mail size={15} /> Email</span>{email ? <a href={`mailto:${email}`}>{email}</a> : <strong>Not provided</strong>}</div>
+      <div className="customer-profile-field"><span><Phone size={15} /> Phone</span>{phone ? <a href={`tel:${phone}`}>{phone}</a> : <strong>Not provided</strong>}</div>
+      <div className="customer-profile-field customer-profile-address"><span><MapPin size={15} /> Delivery address</span>{addressLines.length ? <address>{addressLines.map((line) => <span key={line}>{line}</span>)}</address> : <strong>Address not provided</strong>}</div>
+    </div>
+    <div className="page-actions customer-profile-actions">{email && <a className="secondary-button" href={`mailto:${email}`}><Mail size={15} />Email customer</a>}{phone && <a className="secondary-button" href={`tel:${phone}`}><Phone size={15} />Call customer</a>}</div>
+  </section>
+}
+
 function OrderDetail({ id, onBack, canManage }: { id: string; onBack: () => void; canManage: boolean }) {
   const query = useQuery({ queryKey: ['order-tools', id], queryFn: () => get<Resource>(`/admin/orders/${id}`) })
-  return <><OrderLifecycleDetail id={id} onBack={onBack} canManage={canManage} /><OrderShipmentPanel id={id} canManage={canManage} /><OrderOperations order={query.data} canManage={canManage} loading={query.isLoading} /></>
+  return <><OrderLifecycleDetail id={id} onBack={onBack} canManage={canManage} /><OrderCustomerProfile order={query.data} loading={query.isLoading} /><OrderShipmentPanel id={id} canManage={canManage} /><OrderOperations order={query.data} canManage={canManage} loading={query.isLoading} /></>
 }
 
 function OrderOperations({ order, canManage, loading }: { order?: Resource; canManage: boolean; loading: boolean }) {
