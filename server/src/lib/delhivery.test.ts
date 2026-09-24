@@ -60,4 +60,10 @@ describe('DelhiveryAdapter', () => {
     const client = new DelhiveryAdapter('token-1', 'https://delhivery.test', fetcher as unknown as typeof fetch)
     await expect(client.requestPickup('AWB123', { pickupDate: '2026-09-25', pickupTime: '17:30' })).rejects.toMatchObject({ code: 'DELHIVERY_PROVIDER_ERROR', statusCode: 502, message: 'Invalid Pickup Location' })
   })
+
+  it('converts Delhivery encoded packing slips into an openable PDF data URL', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(jsonResponse({ packages: [{ wbn: 'AWB123', pdf_encoding: 'JVBERi0xLjQ=' }], packages_found: 1 }))
+    const client = new DelhiveryAdapter('token-1', 'https://delhivery.test', fetcher as unknown as typeof fetch)
+    await expect(client.generateLabel('AWB123')).resolves.toMatchObject({ label_url: 'data:application/pdf;base64,JVBERi0xLjQ=', content_type: 'application/pdf', packages_found: 1 })
+  })
 })

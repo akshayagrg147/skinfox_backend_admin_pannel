@@ -294,8 +294,18 @@ export class DelhiveryAdapter {
       headers: { accept: 'application/json, application/pdf', authorization: `Token ${this.token}` },
     })
     const contentType = response.headers.get('content-type') ?? ''
-    if (!response.ok) throw new Error(`DELHIVERY_HTTP_${response.status}:Unable to generate packing slip`)
-    if (contentType.includes('json')) return response.json() as Promise<ProviderPayload>
+    if (!response.ok) {
+      const payload = contentType.includes('json') ? await response.json().catch(() => ({})) : await response.text().catch(() => '')
+      throw new DelhiveryProviderError(response.status, providerMessage(payload) ?? 'Delhivery rejected the packing slip request.')
+    }
+    if (contentType.includes('json')) {
+      const payload = await response.json() as ProviderPayload
+      const encoded = Array.isArray(payload.packages)
+        ? payload.packages.find((item: any) => item && typeof item.pdf_encoding === 'string')?.pdf_encoding
+        : null
+      if (encoded) return { label_url: `data:application/pdf;base64,${encoded}`, content_type: 'application/pdf', packages_found: payload.packages_found }
+      return payload
+    }
     const bytes = Buffer.from(await response.arrayBuffer())
     return { label_url: `data:${contentType || 'application/pdf'};base64,${bytes.toString('base64')}`, content_type: contentType || 'application/pdf' }
   }
