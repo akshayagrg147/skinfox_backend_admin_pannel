@@ -70,7 +70,7 @@ function isMissingCartItemError(cause: unknown): boolean {
 }
 
 function mapCartLines(lines: any[]): CartLine[] {
-  return lines.flatMap((line: any) => line?.product ? [{ id: line.id, product: mapProduct(line.product), quantity: line.quantity }] : [])
+  return lines.flatMap((line: any) => line?.product ? [{ id: line.id, product: mapProduct(line.product), quantity: Math.max(1, Math.min(8, Number(line.quantity) || 1)) }] : [])
 }
 
 function readInitialCart(): CartLine[] {
