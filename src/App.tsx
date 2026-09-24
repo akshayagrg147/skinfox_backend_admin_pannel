@@ -100,6 +100,10 @@ type PublicPageSlug = CategorySlug | 'about' | 'faq' | 'guides' | 'contact' | 's
 export default function App({ productSlug, pageSlug }: { productSlug?: string; pageSlug?: PublicPageSlug } = {}) {
   const storefront = useStorefront()
   const collectionProducts = storefront.products.length ? storefront.products : (import.meta.env.MODE === 'test' ? products : [])
+  // Keep the pre-rendered hero catalogue visible while the live catalogue
+  // request is in flight. Without this fallback, hydration briefly replaces
+  // the server-rendered cards with an empty list before the API responds.
+  const heroProducts = collectionProducts.length ? collectionProducts : products
   const productById = (id: string) => collectionProducts.find((item) => item.id === id) ?? getProductById(id)
   const activeHydrelle = productById('hydrelle-dry-skin-specialist')
   const careRanges = careRangeDefinitions
@@ -386,7 +390,7 @@ export default function App({ productSlug, pageSlug }: { productSlug?: string; p
             </div>
             <div className="hero__reassurance"><span><Check size={15} /> Care for your routine</span><span><Check size={15} /> Clear product details</span></div>
           </div>
-          <HeroCollectionShowcase products={collectionProducts} loading={storefront.loading} />
+          <HeroCollectionShowcase products={heroProducts} loading={storefront.loading} />
         </section>
 
         <section className="proof-strip" aria-label="SkinFox principles">

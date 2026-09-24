@@ -21,7 +21,7 @@ export function HeroCollectionShowcase({ products, loading = false }: HeroCollec
     >
       <div className="hero-collection__halo" aria-hidden="true" />
       <div className={`hero-collection__grid ${visibleProducts.length > 4 || loading ? 'is-expanded' : ''}`}>
-        {loading && Array.from({ length: 6 }, (_, index) => <div className="hero-skeleton" aria-hidden="true" key={index} />)}
+        {loading && !visibleProducts.length && Array.from({ length: 6 }, (_, index) => <div className="hero-skeleton" aria-hidden="true" key={index} />)}
         {visibleProducts.map((product, index) => {
           const secondaryImage = product.media.filter((item) => item.type === 'image')[1]
           return <motion.figure

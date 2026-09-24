@@ -15,6 +15,13 @@ describe('product page navigation', () => {
     }
   })
 
+  it('keeps the product cards visible while the live catalogue is loading', () => {
+    render(<HeroCollectionShowcase products={products} loading />)
+
+    expect(screen.getByRole('link', { name: /view full details for rayyvia sun protect/i })).toBeInTheDocument()
+    expect(document.querySelectorAll('.hero-skeleton')).toHaveLength(0)
+  })
+
   it('links search results to the same dedicated product URLs', () => {
     render(<SearchOverlay open onClose={vi.fn()} catalogue={products} />)
 
