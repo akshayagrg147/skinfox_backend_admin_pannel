@@ -246,6 +246,7 @@ export function buildApp(): FastifyInstance {
       if (error.code === 'P2025') return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'The requested record was not found.', requestId } })
       if (error.code === 'P2003') return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'A referenced record does not exist or is still in use.', requestId } })
     }
+    if ((error as any).code === 'DELHIVERY_PROVIDER_ERROR') return reply.status(502).send({ error: { code: 'DELHIVERY_PROVIDER_ERROR', message: error.message, requestId } })
     if ((error as any).statusCode && (error as any).statusCode < 500) return reply.status((error as any).statusCode).send({ error: { code: 'REQUEST_ERROR', message: error.message, requestId } })
     request.log.error({ err: error, requestId }, 'request failed')
     return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Something went wrong. Please try again.', requestId } })

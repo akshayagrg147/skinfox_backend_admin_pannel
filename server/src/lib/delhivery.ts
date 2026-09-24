@@ -68,7 +68,34 @@ export interface PickupRequestOptions {
 type FetchLike = typeof fetch
 type ProviderPayload = Record<string, any>
 
+export class DelhiveryProviderError extends Error {
+  readonly statusCode = 502
+  readonly code = 'DELHIVERY_PROVIDER_ERROR'
+
+  constructor(readonly providerStatus: number, message: string) {
+    super(message)
+    this.name = 'DelhiveryProviderError'
+  }
+}
+
 const stringValue = (value: unknown) => typeof value === 'string' && value.trim() ? value.trim() : null
+const providerMessage = (payload: unknown): string | null => {
+  if (typeof payload === 'string') return stringValue(payload)?.slice(0, 240) ?? null
+  if (!payload || typeof payload !== 'object') return null
+  const record = payload as Record<string, unknown>
+  for (const key of ['error', 'message', 'detail', 'rmk', 'remarks', 'error_message', 'reason']) {
+    const value = record[key]
+    const direct = typeof value === 'string' ? stringValue(value) : null
+    if (direct) return direct.slice(0, 240)
+    const nested = providerMessage(value)
+    if (nested) return nested
+  }
+  for (const value of Object.values(record)) {
+    const nested = providerMessage(value)
+    if (nested) return nested
+  }
+  return null
+}
 const numberOrNull = (value: unknown) => {
   const number = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(number) ? number : null
@@ -128,8 +155,8 @@ export class DelhiveryAdapter {
     const contentType = response.headers.get('content-type') ?? ''
     const payload = contentType.includes('json') ? await response.json().catch(() => ({})) : await response.text().catch(() => '')
     if (!response.ok) {
-      const message = typeof payload === 'object' ? stringValue((payload as any).error ?? (payload as any).message ?? (payload as any).detail) : stringValue(payload)
-      throw new Error(`DELHIVERY_HTTP_${response.status}:${message ?? 'Delhivery request failed'}`)
+      const message = providerMessage(payload)
+      throw new DelhiveryProviderError(response.status, message ?? 'Delhivery rejected the request. Check the pickup location, schedule, and account configuration.')
     }
     return payload as T
   }
@@ -252,7 +279,8 @@ export class DelhiveryAdapter {
   async requestPickup(shipmentId: string, options: PickupRequestOptions = {}) {
     void shipmentId
     const pickupDate = options.pickupDate ?? new Date().toISOString().slice(0, 10)
-    const pickupTime = options.pickupTime ?? process.env.DELHIVERY_PICKUP_TIME ?? '16:00:00'
+    const requestedPickupTime = options.pickupTime ?? process.env.DELHIVERY_PICKUP_TIME ?? '16:00:00'
+    const pickupTime = /^\d{2}:\d{2}$/.test(requestedPickupTime) ? `${requestedPickupTime}:00` : requestedPickupTime
     const packageCount = options.packageCount ?? 1
     const body = new URLSearchParams({ pickup_time: pickupTime, pickup_date: pickupDate, pickup_location: process.env.DELHIVERY_PICKUP_LOCATION ?? '', expected_package_count: String(packageCount) })
     return this.request<ProviderPayload>('/fm/request/new/', { method: 'POST', body, headers: { 'content-type': 'application/x-www-form-urlencoded' } })
