@@ -1,4 +1,4 @@
-import { Bell, CheckCircle2, CircleDollarSign, ClipboardList, Home, LoaderCircle, LogOut, MapPin, MailCheck, PackageCheck, Pencil, Plus, ShieldCheck, Trash2, UserRound, WalletCards } from 'lucide-react'
+import { CheckCircle2, CircleDollarSign, ClipboardList, Home, LoaderCircle, LogOut, MapPin, MailCheck, PackageCheck, Pencil, Plus, ShieldCheck, Trash2, UserRound, WalletCards } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { formatPrice, products } from '../data/products'
 import { deleteStorefront, getStorefront, patchStorefront, postStorefront } from '../lib/storefrontApi'
@@ -320,8 +320,6 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
             <button type="button" className={activeSection === 'profile' ? 'is-active' : ''} aria-current={activeSection === 'profile' ? 'page' : undefined} onClick={() => setActiveSection('profile')}><UserRound size={17} /><span>My profile</span></button>
             <button type="button" className={activeSection === 'orders' ? 'is-active' : ''} aria-current={activeSection === 'orders' ? 'page' : undefined} onClick={() => setActiveSection('orders')}><ClipboardList size={17} /><span>My orders</span><b>{orders.length}</b></button>
             <div className="account-sidebar__group"><span>Account settings</span><button type="button" className={activeSection === 'addresses' ? 'is-active' : ''} aria-current={activeSection === 'addresses' ? 'page' : undefined} onClick={() => setActiveSection('addresses')}><Home size={17} /><span>Saved addresses</span><b>{addresses.length}</b></button></div>
-            <div className="account-sidebar__group"><span>Rewards & payments</span><button type="button" className={activeSection === 'supercoin' ? 'is-active' : ''} aria-current={activeSection === 'supercoin' ? 'page' : undefined} onClick={() => setActiveSection('supercoin')}><CircleDollarSign size={17} /><span>Supercoin</span></button><button type="button" className={activeSection === 'wallet' ? 'is-active' : ''} aria-current={activeSection === 'wallet' ? 'page' : undefined} onClick={() => setActiveSection('wallet')}><WalletCards size={17} /><span>Saved cards & wallet</span></button></div>
-            <div className="account-sidebar__group"><span>My stuff</span><button type="button" className={activeSection === 'notifications' ? 'is-active' : ''} aria-current={activeSection === 'notifications' ? 'page' : undefined} onClick={() => setActiveSection('notifications')}><Bell size={17} /><span>Notifications</span>{notifications.some((item) => !item.readAt) && <b>{notifications.filter((item) => !item.readAt).length}</b>}</button></div>
           </nav>
           <button className="account-sidebar__logout" type="button" onClick={() => void logout()} disabled={busy}><LogOut size={16} /> Logout</button>
         </aside>

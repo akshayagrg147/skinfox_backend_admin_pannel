@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { Bell, ChevronDown, ClipboardList, CircleDollarSign, LogOut, MapPin, Menu, Search, ShoppingBag, Sparkles, UserRound, WalletCards, X } from 'lucide-react'
+import { ChevronDown, ClipboardList, LogOut, MapPin, Menu, Search, ShoppingBag, Sparkles, UserRound, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { BrandMark } from './BrandMark'
 import type { AccountSection } from './CustomerAccount'
@@ -155,10 +155,7 @@ function AccountMenu({ onAccount, onLogout }: { onAccount: (section: AccountSect
   const items: Array<{ section: AccountSection; label: string; icon: typeof UserRound }> = [
     { section: 'profile', label: 'My Profile', icon: UserRound },
     { section: 'orders', label: 'Orders', icon: ClipboardList },
-    { section: 'supercoin', label: 'Supercoin', icon: CircleDollarSign },
-    { section: 'wallet', label: 'Saved Cards & Wallet', icon: WalletCards },
     { section: 'addresses', label: 'Saved Addresses', icon: MapPin },
-    { section: 'notifications', label: 'Notifications', icon: Bell },
   ]
   return <div className="account-popover" role="menu" aria-label="Your account">
     <div className="account-popover__heading"><span>Your Account</span><small>Manage your SkinFox space</small></div>

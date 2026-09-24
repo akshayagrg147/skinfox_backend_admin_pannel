@@ -51,9 +51,12 @@ describe('Header mobile menu', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /open account for vishal/i }))
     const menu = screen.getByRole('menu', { name: 'Your account' })
-    for (const label of ['My Profile', 'Orders', 'Supercoin', 'Saved Cards & Wallet', 'Saved Addresses', 'Notifications', 'Logout']) {
+    for (const label of ['My Profile', 'Orders', 'Saved Addresses', 'Logout']) {
       expect(within(menu).getByRole('menuitem', { name: label })).toBeInTheDocument()
     }
+    expect(within(menu).queryByRole('menuitem', { name: 'Supercoin' })).not.toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Saved Cards & Wallet' })).not.toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Notifications' })).not.toBeInTheDocument()
 
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Saved Addresses' }))
     expect(props.onAccount).toHaveBeenCalledWith('addresses')
