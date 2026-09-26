@@ -3,7 +3,7 @@ import { aboutPage, categoryPages, defaultFaqs, productSeoContent, type Category
 
 export const SITE_URL = 'https://skinfox.in'
 export const HOME_TITLE = 'SkinFox – Skin Care & Hair Care Products Online in India'
-export const HOME_DESCRIPTION = 'Shop SkinFox SPF 50 sunscreen, acne-prone face wash, dry-skin lotions, onion hair oil & onion shampoo. Launching soon – join the waitlist for 50% off.'
+export const HOME_DESCRIPTION = 'Shop SkinFox SPF 50 sunscreen, acne-prone face wash, dry-skin lotions, onion hair oil & onion shampoo. Launching soon – enjoy 40% off on the first 500 orders.'
 export type FaqEntry = { question: string; answer: string }
 export type SeoPage = { title: string; description: string; path: string; image?: string; imageAlt?: string; ogType?: 'website' | 'product'; noindex?: boolean; structuredData?: Record<string, unknown>[] }
 

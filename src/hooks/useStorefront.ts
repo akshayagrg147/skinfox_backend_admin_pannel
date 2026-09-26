@@ -81,7 +81,7 @@ export function useStorefront() {
   const [faqs, setFaqs] = useState<Array<{ question: string; answer: string }>>([])
   const [home, setHome] = useState<HomeApi | null>(null)
   const [careFinder, setCareFinder] = useState<CareFinderApi | null>(null)
-  const [promotion, setPromotion] = useState<LaunchPromotion>({ id: 'skinfox-launch-50', enabled: true, discountPercent: 50, maximumOrders: 500, successfulOrders: 0, remainingOrders: 500, status: 'active', message: 'Exclusive launch access — enjoy 50% off for the first 500 orders.' })
+  const [promotion, setPromotion] = useState<LaunchPromotion>({ id: 'skinfox-launch-40', enabled: true, discountPercent: 40, maximumOrders: 500, successfulOrders: 0, remainingOrders: 500, status: 'active', message: 'Exclusive launch access — enjoy 40% off for the first 500 orders.' })
   const [enabledPaymentMethods, setEnabledPaymentMethods] = useState<PaymentMethod[]>(['razorpay'])
   const [loading, setLoading] = useState(!isTest && !isServer)
   const [error, setError] = useState('')

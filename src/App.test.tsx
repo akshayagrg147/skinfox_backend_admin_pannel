@@ -25,7 +25,7 @@ describe('SkinFox storefront', () => {
   it('keeps the launch promotion banner hidden while every product is still coming soon', () => {
     render(<App />)
 
-    expect(screen.queryByRole('link', { name: /exclusive launch access.*50% off.*first 500 orders/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /exclusive launch access.*40% off.*first 500 orders/i })).not.toBeInTheDocument()
   })
 
   it('keeps the footer concise and presents contact and affiliate actions', () => {

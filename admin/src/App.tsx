@@ -781,7 +781,7 @@ function LaunchPromotionPanel() {
   const query = useQuery({ queryKey: ['launch-promotion'], queryFn: () => get<LaunchPromotionSettings>('/admin/launch-promotion') })
   const queryClientForPromotion = useQueryClient()
   const [enabled, setEnabled] = useState(true)
-  const [discountPercent, setDiscountPercent] = useState('50')
+  const [discountPercent, setDiscountPercent] = useState('40')
   const [maximumOrders, setMaximumOrders] = useState('500')
   const [startsAt, setStartsAt] = useState('')
   const [endsAt, setEndsAt] = useState('')

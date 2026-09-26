@@ -1,9 +1,9 @@
 import { z } from 'zod'
 
 export const launchPromotionSchema = z.object({
-  id: z.string().min(1).default('skinfox-launch-50'),
+  id: z.string().min(1).default('skinfox-launch-40'),
   enabled: z.boolean().default(true),
-  discountPercent: z.number().int().min(0).max(100).default(50),
+  discountPercent: z.number().int().min(0).max(100).default(40),
   maximumOrders: z.number().int().min(1).max(1_000_000).default(500),
   startsAt: z.string().datetime().default(() => new Date(0).toISOString()),
   endsAt: z.string().datetime().nullable().default(null),
@@ -21,9 +21,9 @@ export type LaunchPromotionPriceLine = {
 }
 
 export const defaultLaunchPromotion = (): LaunchPromotion => launchPromotionSchema.parse({
-  id: process.env.LAUNCH_PROMOTION_ID ?? 'skinfox-launch-50',
+  id: process.env.LAUNCH_PROMOTION_ID ?? 'skinfox-launch-40',
   enabled: process.env.LAUNCH_PROMOTION_ENABLED !== 'false',
-  discountPercent: Number(process.env.LAUNCH_PROMOTION_PERCENT ?? 50),
+  discountPercent: Number(process.env.LAUNCH_PROMOTION_PERCENT ?? 40),
   maximumOrders: Number(process.env.LAUNCH_PROMOTION_MAX_ORDERS ?? 500),
   startsAt: process.env.LAUNCH_PROMOTION_STARTS_AT || new Date(0).toISOString(),
   endsAt: process.env.LAUNCH_PROMOTION_ENDS_AT || null,

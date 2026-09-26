@@ -32,6 +32,8 @@ import { GuidePage } from './seo/GuidePage'
 import { ShopPage } from './seo/ShopPage'
 import type { CategorySlug } from './seo/content'
 import { LegalPage, type LegalPageKind } from './components/LegalPage'
+import { LaunchOfferPopup } from './components/LaunchOfferPopup'
+import { LaunchProgress } from './components/LaunchProgress'
 import { ProductCard } from './components/ProductCard'
 import { RoutineQuiz } from './components/RoutineQuiz'
 import { ScrollProductStory } from './components/ScrollProductStory'
@@ -209,6 +211,7 @@ export default function App({ productSlug, pageSlug }: { productSlug?: string; p
   const customFaqs = storefront.faqs.filter((item) => !legacyFaqQuestions.has(item.question))
   const visibleFaqs = (customFaqs.length ? customFaqs : defaultFaqs).map((item) => [item.question, item.answer] as [string, string])
   const showAnnouncement = collectionProducts.some((product) => product.price !== null) && storefront.promotion.enabled
+  const showLaunchProgress = showAnnouncement && storefront.promotion.status === 'active' && storefront.promotion.remainingOrders > 0 && storefront.promotion.maximumOrders > 0
 
   const applyCartResponse = (response: any) => {
     setCart(mapCartLines(response.lines ?? []))
@@ -352,15 +355,13 @@ export default function App({ productSlug, pageSlug }: { productSlug?: string; p
       {!productSlug && !pageSlug && <SiteSeo faqs={visibleFaqs.map(([question, answer]) => ({ question, answer }))} />}
       <a className="skip-link" href="#main-content">Skip to content</a>
       <motion.div className="scroll-progress" style={{ scaleX: progress }} />
-      {showAnnouncement && <a className="announcement" href="/shop" aria-label={storefront.promotion.message}>
+      {showAnnouncement && <a className="announcement" href="/shop" aria-label={storefront.promotion.status === 'active' ? `${storefront.promotion.discountPercent}% launch offer. ${storefront.promotion.remainingOrders} orders left. Shop now.` : storefront.promotion.message}>
         <div className="announcement__viewport">
           <div className="announcement__track" aria-hidden="true">
             {[0, 1].map((copy) => <div className="announcement__group" key={copy}>
               <strong>{storefront.promotion.status === 'completed' || storefront.promotion.status === 'ended' ? 'SkinFox launch offer ended' : `Launch offer · ${storefront.promotion.discountPercent}% off`}</strong>
               <i>•</i>
-              <b>{storefront.promotion.status === 'completed' || storefront.promotion.status === 'ended' ? 'Explore the collection' : `For the first ${storefront.promotion.maximumOrders} completed orders`}</b>
-              <i>•</i>
-              <em>{storefront.promotion.message}</em>
+              {showLaunchProgress ? <LaunchProgress promotion={storefront.promotion} /> : <b>Explore the collection</b>}
               <i>•</i>
               <span>{storefront.promotion.status === 'completed' || storefront.promotion.status === 'ended' ? 'Explore now' : 'Shop now'} <ArrowRight size={14} /></span>
             </div>)}
@@ -560,6 +561,7 @@ export default function App({ productSlug, pageSlug }: { productSlug?: string; p
       <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} catalogue={collectionProducts} apiMode={storefront.apiMode} />
       <CheckoutModal open={checkoutOpen} lines={cart} cartToken={cartToken} appliedCoupon={appliedCoupon} onCartResponse={applyCartResponse} apiAvailable={storefront.apiMode} enabledPaymentMethods={storefront.enabledPaymentMethods} onCustomerChange={setCustomer} onClose={() => setCheckoutOpen(false)} onComplete={() => { setCart([]); setAppliedCoupon(null); if (cartToken) browserStorage()?.removeItem('skinfox-cart-token'); setCartToken('') }} />
       <CustomerAccount open={accountOpen} onClose={() => setAccountOpen(false)} apiAvailable={storefront.apiMode} onCustomerChange={setCustomer} initialSection={accountSection} />
+      {!productSlug && !pageSlug && <LaunchOfferPopup promotion={storefront.promotion} eligible={!storefront.loading && showLaunchProgress} />}
 
       <AnimatePresence>
         {toast && <motion.div className="toast" role="status" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }}><Check size={16} /> {toast}</motion.div>}
