@@ -218,7 +218,14 @@ input:focus, select:focus, textarea:focus { border-color: #8c78ad; box-shadow: 0
 .launch-promotion-summary span { color: #8992a3; font-size: 10px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
 .launch-promotion-summary strong { color: #18243b; font-size: 17px; }
 .launch-promotion-form { display: grid; gap: 16px; }
+.promotion-preview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(190px, 260px); gap: 16px; align-items: end; padding: 15px; border: 1px dashed #b89bc6; border-radius: 13px; background: #fbf5fd; }
+.promotion-preview > div { display: grid; gap: 5px; }
+.promotion-preview > div strong { color: #3c2050; font-size: 17px; }
+.promotion-preview > div small { color: #765b84; font-size: 12px; }
+.promotion-preview > label { display: grid; gap: 6px; color: #5f6471; font-size: 12px; font-weight: 700; }
+.promotion-preview > label input { min-width: 0; }
 @media (max-width: 760px) { .launch-promotion-summary { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .promotion-preview { grid-template-columns: 1fr; } }
 
 .coupon-workspace, .coupon-editor { display: grid; gap: 0; }
 .coupon-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 0 0 22px; }
