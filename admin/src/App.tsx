@@ -797,11 +797,12 @@ function LaunchPromotionPanel() {
   const previewValue = previewRemaining.trim() === '' || !Number.isFinite(parsedPreviewRemaining)
     ? query.data?.remainingOrders ?? previewCapacity
     : Math.min(previewCapacity, Math.max(0, Math.trunc(parsedPreviewRemaining)))
+  const visibleRemaining = previewMode ? previewValue : query.data?.remainingOrders ?? 0
   if (query.isLoading) return <section className="panel"><TableSkeleton /></section>
   if (query.isError) return <section className="panel"><ErrorPanel onRetry={() => void query.refetch()} /></section>
   return <section className="panel launch-promotion-panel">
     <div className="panel-heading"><div><span className="kicker">Storefront launch offer</span><h3>First-order promotion</h3><p className="panel-subtitle">A server-controlled offer for new paid orders. Existing orders and historical records are unchanged.</p></div><Sparkles size={19} /></div>
-    <div className="launch-promotion-summary"><div><span>Status</span><strong className={`status-chip status-chip--${query.data?.status ?? 'active'}`}>{humanize(query.data?.status ?? 'active')}</strong></div><div><span>Completed orders</span><strong>{query.data?.successfulOrders ?? 0} / {query.data?.maximumOrders ?? maximumOrders}</strong></div><div><span>Remaining</span><strong>{query.data?.remainingOrders ?? 0}</strong></div></div>
+    <div className="launch-promotion-summary"><div><span>Status</span><strong className={`status-chip status-chip--${query.data?.status ?? 'active'}`}>{humanize(query.data?.status ?? 'active')}</strong></div><div><span>Completed orders</span><strong>{query.data?.successfulOrders ?? 0} / {query.data?.maximumOrders ?? maximumOrders}</strong></div><div><span>{previewMode ? 'Preview remaining' : 'Remaining'}</span><strong>{visibleRemaining}</strong></div></div>
     <form className="launch-promotion-form" onSubmit={(event) => { event.preventDefault(); if (valid) mutation.mutate() }}>
       <label className="promotion-toggle"><span><strong>Enable promotion</strong><small>Applied at checkout while capacity remains.</small></span><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /><i aria-hidden="true" /></label>
       <label className="promotion-toggle"><span><strong>Local preview mode</strong><small>Use a temporary count to test the admin presentation. This is never saved, used at checkout, or shown to customers.</small></span><input type="checkbox" checked={previewMode} onChange={(event) => setPreviewMode(event.target.checked)} /><i aria-hidden="true" /></label>
