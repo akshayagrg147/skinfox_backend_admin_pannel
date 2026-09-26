@@ -58,7 +58,7 @@ export function LaunchOfferPopup({ promotion, eligible }: LaunchOfferPopupProps)
         <h2>A little more care,<br /><em>for a little less.</em></h2>
         <p>Enjoy <strong>{promotion.discountPercent}% off</strong> SkinFox essentials while the launch allocation lasts.</p>
 
-        <div className="launch-offer-modal__availability" aria-label={`${formatter.format(remainingOrders)} of ${formatter.format(maximumOrders)} launch orders remain`}>
+        <div className="launch-offer-modal__availability" aria-label={`${formatter.format(remainingOrders)} of ${formatter.format(maximumOrders)} launch reservations remain`}>
           <div>
             <motion.strong
               initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.94 }}
@@ -67,9 +67,9 @@ export function LaunchOfferPopup({ promotion, eligible }: LaunchOfferPopupProps)
             >
               {formatter.format(remainingOrders)}
             </motion.strong>
-            <span>orders left</span>
+            <span>reservations left</span>
           </div>
-          <small>of the first {formatter.format(maximumOrders)} completed orders</small>
+          <small>of the first {formatter.format(maximumOrders)} launch reservations</small>
           <span className="launch-offer-modal__progress" aria-hidden="true">
             <motion.i
               initial={{ scaleX: 0 }}
@@ -88,4 +88,3 @@ export function LaunchOfferPopup({ promotion, eligible }: LaunchOfferPopupProps)
     </ModalShell>
   )
 }
-

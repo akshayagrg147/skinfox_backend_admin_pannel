@@ -23,7 +23,7 @@ export type CareFinderApi = {
   }>
 }
 export type HomeApi = { sections?: Array<Record<string, unknown>>; campaignSlides?: CampaignApiSlide[]; faqs?: Array<{ question: string; answer: string }>; careMoments?: Array<Record<string, unknown>>; announcement?: string | null }
-export type LaunchPromotion = { id: string; enabled: boolean; discountPercent: number; maximumOrders: number; successfulOrders: number; remainingOrders: number; status: 'active' | 'paused' | 'scheduled' | 'completed' | 'ended'; message: string }
+export type LaunchPromotion = { id: string; enabled: boolean; discountPercent: number; maximumOrders: number; successfulOrders: number; offlineReservations: number; committedReservations?: number; remainingOrders: number; status: 'active' | 'paused' | 'scheduled' | 'completed' | 'ended'; message: string }
 export type PaymentMethod = 'razorpay'
 
 const fixedProductBySlug = new Map(seedProducts.map((product) => [product.id, product]))
@@ -81,7 +81,7 @@ export function useStorefront() {
   const [faqs, setFaqs] = useState<Array<{ question: string; answer: string }>>([])
   const [home, setHome] = useState<HomeApi | null>(null)
   const [careFinder, setCareFinder] = useState<CareFinderApi | null>(null)
-  const [promotion, setPromotion] = useState<LaunchPromotion>({ id: 'skinfox-launch-40', enabled: true, discountPercent: 40, maximumOrders: 500, successfulOrders: 0, remainingOrders: 500, status: 'active', message: 'Exclusive launch access — enjoy 40% off for the first 500 orders.' })
+  const [promotion, setPromotion] = useState<LaunchPromotion>({ id: 'skinfox-launch-40', enabled: true, discountPercent: 40, maximumOrders: 500, successfulOrders: 0, offlineReservations: 0, committedReservations: 0, remainingOrders: 500, status: 'active', message: 'Exclusive launch access — enjoy 40% off for the first 500 reservations.' })
   const [enabledPaymentMethods, setEnabledPaymentMethods] = useState<PaymentMethod[]>(['razorpay'])
   const [loading, setLoading] = useState(!isTest && !isServer)
   const [error, setError] = useState('')

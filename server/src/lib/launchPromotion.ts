@@ -5,6 +5,7 @@ export const launchPromotionSchema = z.object({
   enabled: z.boolean().default(true),
   discountPercent: z.number().int().min(0).max(100).default(40),
   maximumOrders: z.number().int().min(1).max(1_000_000).default(500),
+  offlineReservations: z.number().int().min(0).max(1_000_000).default(0),
   startsAt: z.string().datetime().default(() => new Date(0).toISOString()),
   endsAt: z.string().datetime().nullable().default(null),
   eligibleProductIds: z.array(z.string()).default([]),
@@ -33,6 +34,15 @@ export const parseLaunchPromotion = (value: unknown, fallback = defaultLaunchPro
   const parsed = launchPromotionSchema.safeParse(value)
   return parsed.success ? parsed.data : fallback
 }
+
+/**
+ * Reservations captured outside the online checkout still consume launch
+ * capacity. Keep the paid online order count separate for reporting, while
+ * using this committed total for eligibility and capacity checks.
+ */
+export const launchPromotionCommittedReservations = (promotion: LaunchPromotion, successfulOrders: number) => (
+  Math.max(0, Math.trunc(successfulOrders)) + promotion.offlineReservations
+)
 
 export const launchPromotionStatus = (promotion: LaunchPromotion, successfulOrders: number, now = new Date()): LaunchPromotionStatus => {
   if (successfulOrders >= promotion.maximumOrders) return 'completed'

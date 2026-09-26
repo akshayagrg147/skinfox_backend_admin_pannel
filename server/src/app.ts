@@ -28,7 +28,7 @@ import { productImageSourceSchema, productMediaInputSchema } from './lib/product
 import { calculateWaitlistDepositPaise, createWaitlistId, parseStoredWaitlistSettings, waitlistDefaultsFromEnv, waitlistResetConfirmationSchema, waitlistSettingsSchema, type WaitlistSettings } from './lib/waitlistConfig.js'
 import { calculateWaitlistOrderPricing, type WaitlistPricingMode } from './lib/waitlistOrders.js'
 import { adjustInventory, inventoryHistory, inventoryWorkspace } from './lib/inventoryWorkspace.js'
-import { defaultLaunchPromotion, launchPromotionDiscount, launchPromotionEligibleSubtotal, launchPromotionStatus, parseLaunchPromotion, launchPromotionSchema, type LaunchPromotion } from './lib/launchPromotion.js'
+import { defaultLaunchPromotion, launchPromotionCommittedReservations, launchPromotionDiscount, launchPromotionEligibleSubtotal, launchPromotionStatus, parseLaunchPromotion, launchPromotionSchema, type LaunchPromotion } from './lib/launchPromotion.js'
 import { lookupPincode } from './lib/pincode.js'
 
 const secureCookies = () => process.env.COOKIE_SECURE === undefined ? process.env.NODE_ENV === 'production' : process.env.COOKIE_SECURE === 'true'
@@ -274,8 +274,10 @@ export function buildApp(): FastifyInstance {
   }
   const launchPromotionResponse = async (client: any = prisma) => {
     const successfulOrders = await launchPromotionOrderCount(client)
-    const status = launchPromotionStatus(activeLaunchPromotion, successfulOrders)
-    return { ...activeLaunchPromotion, successfulOrders, remainingOrders: Math.max(0, activeLaunchPromotion.maximumOrders - successfulOrders), status, message: status === 'completed' || status === 'ended' ? 'The SkinFox launch offer has ended.' : `Exclusive launch access — enjoy ${activeLaunchPromotion.discountPercent}% off for the first ${activeLaunchPromotion.maximumOrders} orders.` }
+    const offlineReservations = activeLaunchPromotion.offlineReservations
+    const committedReservations = launchPromotionCommittedReservations(activeLaunchPromotion, successfulOrders)
+    const status = launchPromotionStatus(activeLaunchPromotion, committedReservations)
+    return { ...activeLaunchPromotion, successfulOrders, offlineReservations, committedReservations, remainingOrders: Math.max(0, activeLaunchPromotion.maximumOrders - committedReservations), status, message: status === 'completed' || status === 'ended' ? 'The SkinFox launch offer has ended.' : `Exclusive launch access — enjoy ${activeLaunchPromotion.discountPercent}% off for the first ${activeLaunchPromotion.maximumOrders} reservations.` }
   }
   const assertMediaAssets = async (media: Array<{ mediaAssetId?: string; src?: string }>) => {
     const ids = [...new Set(media.map((item) => item.mediaAssetId).filter((id): id is string => Boolean(id)))]
@@ -466,12 +468,13 @@ export function buildApp(): FastifyInstance {
     const eligibleByProduct = (!activeLaunchPromotion.eligibleProductIds.length && !activeLaunchPromotion.eligibleCategories.length) || lines.every((line: any) => (!activeLaunchPromotion.eligibleProductIds.length || activeLaunchPromotion.eligibleProductIds.includes(line.productId)) && (!activeLaunchPromotion.eligibleCategories.length || activeLaunchPromotion.eligibleCategories.includes(line.product.category)))
     const customerEligible = !customer || !(await customerHasLaunchPromotionOrder(customer.id))
     const successfulOrders = !cart.coupon && eligibleByProduct && customerEligible ? await launchPromotionOrderCount() : activeLaunchPromotion.maximumOrders
+    const committedReservations = !cart.coupon && eligibleByProduct && customerEligible ? launchPromotionCommittedReservations(activeLaunchPromotion, successfulOrders) : activeLaunchPromotion.maximumOrders
     // A product's catalogue `pricePaise` is already the customer-facing price.
     // Do not apply the launch percentage again to lines that are already below
     // MRP; only full-price lines can receive the additional launch promotion.
     // This keeps the Razorpay amount aligned with the prices shown in the bag.
     const promotionBasePaise = launchPromotionEligibleSubtotal(lines.map((line: any) => ({ quantity: line.quantity, unitPricePaise: line.unitPricePaise, mrpPaise: line.product.mrpPaise })))
-    const promotionDiscountPaise = !cart.coupon && eligibleByProduct && customerEligible ? launchPromotionDiscount(promotionBasePaise, activeLaunchPromotion, successfulOrders) : 0
+    const promotionDiscountPaise = !cart.coupon && eligibleByProduct && customerEligible ? launchPromotionDiscount(promotionBasePaise, activeLaunchPromotion, committedReservations) : 0
     const couponDiscountPaise = couponStatus.valid ? quote.discountPaise : 0
     const combinedDiscount = Math.min(subtotalPaise, couponDiscountPaise + promotionDiscountPaise)
     const productTotalPaise = Math.max(0, subtotalPaise - combinedDiscount)
@@ -479,7 +482,7 @@ export function buildApp(): FastifyInstance {
     const shippingPaise = !serviceable ? 0 : productTotalPaise >= FREE_SHIPPING_THRESHOLD_PAISE ? 0 : (productTotalPaise > 0 ? STANDARD_SHIPPING_PAISE : 0)
     const codPaise = cod && productTotalPaise > 0 ? 4900 : 0
     const totalPaise = productTotalPaise + shippingPaise + codPaise
-    return { cartId: cart.publicToken ?? cart.id, lines, ...quote, discountPaise: combinedDiscount, couponDiscountPaise, launchDiscountPaise: promotionDiscountPaise, productTotalPaise, taxBasePaise: taxBreakdown.basePaise, taxPaise: taxBreakdown.taxPaise, shippingPaise, codPaise, totalPaise, promotion: promotionDiscountPaise > 0 ? { id: activeLaunchPromotion.id, discountPercent: activeLaunchPromotion.discountPercent, discountPaise: promotionDiscountPaise, successfulOrders, remainingOrders: Math.max(0, activeLaunchPromotion.maximumOrders - successfulOrders) } : null, appliedCoupon: publicCoupon(cart.coupon, couponStatus), currency: cart.currency, expiresAt: cart.expiresAt, priceHidden: false }
+    return { cartId: cart.publicToken ?? cart.id, lines, ...quote, discountPaise: combinedDiscount, couponDiscountPaise, launchDiscountPaise: promotionDiscountPaise, productTotalPaise, taxBasePaise: taxBreakdown.basePaise, taxPaise: taxBreakdown.taxPaise, shippingPaise, codPaise, totalPaise, promotion: promotionDiscountPaise > 0 ? { id: activeLaunchPromotion.id, discountPercent: activeLaunchPromotion.discountPercent, discountPaise: promotionDiscountPaise, successfulOrders, offlineReservations: activeLaunchPromotion.offlineReservations, committedReservations, remainingOrders: Math.max(0, activeLaunchPromotion.maximumOrders - committedReservations) } : null, appliedCoupon: publicCoupon(cart.coupon, couponStatus), currency: cart.currency, expiresAt: cart.expiresAt, priceHidden: false }
   }
   const idemReplay = async (request: any, scope: string) => { const key = request.headers['idempotency-key']; if (!key) return null; const record = await prisma.idempotencyRecord.findUnique({ where: { key_scope: { key: String(key), scope } } }); if (!record?.responseBody) return null; if (record.requestHash !== sha256Json(request.body ?? {})) throw new ApiError(409, 'IDEMPOTENCY_KEY_REUSED', 'This idempotency key was already used with a different request.'); return { status: record.responseStatus ?? 200, body: record.responseBody } }
   const idemStore = async (request: any, scope: string, status: number, responseBody: unknown) => { const key = request.headers['idempotency-key']; if (!key) return; await prisma.idempotencyRecord.create({ data: { key: String(key), scope, requestHash: sha256Json(request.body ?? {}), responseStatus: status, responseBody: responseBody as Prisma.InputJsonValue, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) } }).catch(() => undefined) }
@@ -1348,7 +1351,7 @@ export function buildApp(): FastifyInstance {
     if (session.paymentMethod !== 'razorpay' || session.status !== 'open') throw validationError('This checkout session cannot be paid online.')
     const prefill = checkoutPaymentPrefill(customer, session.order.shippingAddress)
     const promotionSnapshot = (session.order.conversionSnapshot as any)?.promotion
-    if (promotionSnapshot?.id === activeLaunchPromotion.id && await launchPromotionOrderCount() >= activeLaunchPromotion.maximumOrders) throw new ApiError(409, 'PROMOTION_COMPLETED', 'The SkinFox launch offer has ended. Please restart checkout to continue at the current price.')
+    if (promotionSnapshot?.id === activeLaunchPromotion.id && launchPromotionCommittedReservations(activeLaunchPromotion, await launchPromotionOrderCount()) >= activeLaunchPromotion.maximumOrders) throw new ApiError(409, 'PROMOTION_COMPLETED', 'The SkinFox launch offer has ended. Please restart checkout to continue at the current price.')
     if (session.order.totalPaise <= 0) throw validationError('This order has no amount due. Contact SkinFox support to complete a fully discounted order.')
     const existing = await prisma.payment.findFirst({ where: { orderId: session.order.id, provider: 'razorpay', status: PaymentStatus.pending, providerOrderId: { not: null } } })
     if (existing?.providerOrderId) {
@@ -1400,7 +1403,7 @@ export function buildApp(): FastifyInstance {
     const result = await prisma.$transaction(async (tx) => {
       if (promotionSnapshot?.id === activeLaunchPromotion.id) {
         await tx.$queryRaw`SELECT "id" FROM "StoreSetting" WHERE "key" = 'launch-promotion' FOR UPDATE`
-        if (await launchPromotionOrderCount(tx) >= activeLaunchPromotion.maximumOrders) return { limited: true as const, couponRejected: null }
+        if (launchPromotionCommittedReservations(activeLaunchPromotion, await launchPromotionOrderCount(tx)) >= activeLaunchPromotion.maximumOrders) return { limited: true as const, couponRejected: null }
       }
       let couponToRedeem: any = null
       if (couponSnapshot?.couponId) {
@@ -1901,6 +1904,7 @@ export function buildApp(): FastifyInstance {
     const before = activeLaunchPromotion
     const input = launchPromotionSchema.partial().parse(request.body)
     const next = launchPromotionSchema.parse({ ...before, ...input })
+    if (next.offlineReservations > next.maximumOrders) throw validationError('Offline confirmed reservations cannot exceed the maximum launch reservations.')
     await prisma.storeSetting.upsert({ where: { key: 'launch-promotion' }, update: { value: next as any }, create: { key: 'launch-promotion', value: next as any } })
     activeLaunchPromotion = next
     await audit(user, request, 'update', 'LaunchPromotion', next.id, before, next, 'Launch promotion settings updated')

@@ -10,11 +10,12 @@ describe('LaunchProgress', () => {
       discountPercent: 40,
       maximumOrders: 500,
       successfulOrders: 180,
+      offlineReservations: 0,
       remainingOrders: 320,
       status: 'active',
       message: 'Launch access',
     }} />)
 
-    expect(screen.getByLabelText('320 of 500 launch orders remain')).toHaveTextContent('320orders left')
+    expect(screen.getByLabelText('320 of 500 launch reservations remain')).toHaveTextContent('320reservations left')
   })
 })

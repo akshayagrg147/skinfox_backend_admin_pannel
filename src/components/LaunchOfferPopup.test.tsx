@@ -8,6 +8,7 @@ const promotion = {
   discountPercent: 40,
   maximumOrders: 500,
   successfulOrders: 180,
+  offlineReservations: 0,
   remainingOrders: 320,
   status: 'active' as const,
   message: 'Launch offer',
@@ -28,7 +29,7 @@ describe('LaunchOfferPopup', () => {
     act(() => vi.advanceTimersByTime(900))
 
     expect(screen.getByRole('dialog', { name: 'SkinFox launch offer' })).toBeInTheDocument()
-    expect(screen.getByLabelText('320 of 500 launch orders remain')).toHaveTextContent('320orders left')
+    expect(screen.getByLabelText('320 of 500 launch reservations remain')).toHaveTextContent('320reservations left')
     expect(screen.getByRole('link', { name: /shop the offer/i })).toHaveAttribute('href', '#shop')
 
     fireEvent.click(screen.getByRole('button', { name: /maybe later/i }))
