@@ -784,3 +784,144 @@ svg { flex-shrink: 0; }
 @media (min-width: 961px) {
   .site-footer__top { row-gap: 24px; }
 }
+
+/* Premium mobile composition. Keep the editorial feel, but make the first
+   screen, catalogue cards, and touch controls feel deliberate on narrow
+   devices. This sits last so it can harmonise the older responsive layers
+   above without changing any product or checkout behaviour. */
+@media (max-width: 680px) {
+  :root { --mobile-gutter: 14px; }
+
+  .shell { width: min(calc(100% - (var(--mobile-gutter) * 2)), 1280px); }
+
+  .announcement {
+    height: 36px;
+    min-height: 36px;
+    font-size: .62rem;
+    letter-spacing: .035em;
+  }
+
+  .announcement__group { gap: 14px; padding-right: 36px; }
+  .announcement__remaining { padding-inline: 17px 8px !important; }
+
+  .site-header { top: 43px; }
+  .site-header--scrolled { top: 40px; }
+  .site-header__inner {
+    width: calc(100% - 20px);
+    min-height: 62px;
+    padding: 5px 6px;
+    border-radius: 16px;
+    box-shadow: 0 8px 24px rgba(48, 29, 56, .07);
+  }
+  .brand-mark__image { width: 104px; }
+  .header-actions { gap: 1px; }
+  .header-quiz { display: none; }
+  .mobile-menu-button,
+  .header-actions .icon-button { width: 44px; height: 44px; }
+  .site-header .header-account-wrap { min-width: 44px; max-width: 44px; }
+  .site-header .header-account--signed-in { width: 44px; max-width: 44px; padding: 0; }
+  .site-header .header-account--signed-in svg:first-child { width: 20px; height: 20px; }
+  .site-header .header-account__chevron { display: none; }
+
+  .hero {
+    min-height: 0;
+    padding: 116px var(--mobile-gutter) 38px;
+    gap: 28px;
+  }
+  .hero__copy { min-width: 0; }
+  .hero h1 { max-width: 14ch; font-size: clamp(2.25rem, 10.5vw, 3.25rem); }
+  .hero__actions { max-width: 440px; }
+  .hero__actions > * { min-height: 48px; }
+  .hero .hero__visual--collection { padding-bottom: 25px; }
+  .hero .hero-collection__grid,
+  .hero .hero-collection__grid.is-expanded { gap: 10px; }
+  .hero-collection__card > a { padding: 6px; border-radius: 15px; }
+  .hero-collection__card figcaption { min-height: 70px; padding: 9px 2px 3px; }
+  .hero-collection__card figcaption strong { font-size: .75rem; }
+
+  .section-pad { padding-block: 62px; }
+  .section-heading,
+  .range-section__intro { min-width: 0; }
+  .section-heading h2,
+  .range-section__intro h2 { font-size: clamp(2rem, 9vw, 2.55rem); }
+  .filter-row {
+    margin-right: calc(var(--mobile-gutter) * -1);
+    padding-right: var(--mobile-gutter);
+    gap: 7px;
+    scroll-padding-inline: var(--mobile-gutter);
+  }
+  .filter-row button { min-height: 46px; padding-inline: 14px; }
+
+  .campaign-slideshow__stage { padding-block: 38px; }
+  .campaign-slideshow__intro { grid-template-columns: 1fr; gap: 12px; }
+  .campaign-slideshow__intro h2 { font-size: clamp(2.2rem, 10vw, 3rem); }
+  .campaign-slideshow__intro-copy p { max-width: 34ch; font-size: .8rem; line-height: 1.7; }
+  .campaign-slideshow__canvas { min-width: 0; }
+  .campaign-slideshow__media figcaption { right: 16px; bottom: 58px; left: 16px; }
+  .campaign-slideshow__media figcaption strong { max-width: 12ch; font-size: clamp(1.45rem, 7vw, 2rem); }
+  .campaign-slideshow__controls { right: 12px; bottom: 14px; left: 12px; justify-content: flex-end; }
+  .campaign-slideshow__controls button { width: 42px; height: 42px; }
+  .campaign-slideshow__selectors {
+    display: flex;
+    overflow-x: auto;
+    margin-inline: calc(var(--mobile-gutter) * -1);
+    padding: 0 var(--mobile-gutter) 6px;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+  .campaign-slideshow__selectors::-webkit-scrollbar { display: none; }
+  .campaign-slideshow__selectors button { flex: 0 0 min(78vw, 300px); scroll-snap-align: start; }
+
+  .proof-strip__inner { width: min(calc(100% - 28px), 1280px); }
+  .quiz-invite__panel { border-radius: 18px; }
+  .quiz-invite__art { max-height: 250px; }
+
+  .site-footer { overflow: hidden; }
+  .site-footer__top { padding-bottom: 32px; }
+  .site-footer__brand-intro { max-width: 32ch; font-size: .86rem; }
+  .site-footer__top > div:not(.site-footer__brand):not(.site-footer__affiliate) > a,
+  .site-footer__top > div:not(.site-footer__brand):not(.site-footer__affiliate) > button { min-height: 44px; }
+}
+
+/* Two compact catalogue cards work well once there is enough room for a
+   readable product name. Very narrow phones keep the more comfortable single
+   column instead of creating cramped, hard-to-scan cards. */
+@media (min-width: 390px) and (max-width: 680px) {
+  .product-grid,
+  .collection-loading { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .product-card { border-radius: 16px; }
+  .product-card__visual { border-radius: 11px; }
+  .product-card__content { padding: 14px; }
+  .product-card__meta { font-size: .59rem; }
+  .product-card__title { margin-top: 9px; }
+  .product-card__title h3 { font-size: 1.08rem; line-height: 1.2; }
+  .product-card__title > span { min-height: 2.8em; font-size: .69rem; line-height: 1.4; }
+  .product-card__content > p {
+    display: -webkit-box;
+    overflow: hidden;
+    margin: 10px 0 14px;
+    font-size: .7rem;
+    line-height: 1.55;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .product-card__price { margin-top: 10px; padding-top: 10px; min-height: 38px; font-size: .72rem; }
+  .product-card__price > strong { font-size: 1.06rem; }
+  .product-card__price .product-price__label { font-size: .54rem; }
+  .product-card__price .product-price__mrp { font-size: .62rem; }
+  .product-card__price .product-price__saving { padding: 3px 6px; font-size: .56rem; }
+  .quick-add { min-height: 44px; margin-top: 13px; padding: 9px 10px; border-radius: 10px; font-size: .7rem; }
+}
+
+@media (max-width: 389px) {
+  .product-grid,
+  .collection-loading { grid-template-columns: 1fr; }
+  .product-card__content { padding: 18px; }
+}
+
+@media (max-width: 360px) {
+  .site-header__inner { width: calc(100% - 12px); }
+  .brand-mark__image { width: 98px; }
+  .hero { padding-inline: 12px; }
+  .hero__actions > * { width: 100%; }
+}

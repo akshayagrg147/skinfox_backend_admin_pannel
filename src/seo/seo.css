@@ -232,3 +232,43 @@
   .seo-faq summary { grid-template-columns: 32px 1fr; font-size: 21px; }
   .seo-faq details p { margin-left: 44px; }
 }
+
+/* Product detail mobile finish. Keep the buy box prominent while preventing
+   long names, prices, or the quantity stepper from competing for one line. */
+@media (max-width: 680px) {
+  .product-page { padding: 112px 0 52px; }
+  .product-page__breadcrumbs { padding-inline: 2px; }
+  .product-page__grid { gap: 20px; }
+  .product-page__image { border-radius: 20px; }
+  .product-page__information { padding: 20px 16px; border-radius: 20px; }
+  .product-page h1 { max-width: 12ch; font-size: clamp(2.05rem, 10vw, 2.65rem); }
+  .product-page__subtitle { font-size: .92rem; }
+  .product-page__benefit { font-size: .88rem; line-height: 1.7; }
+  .product-page__attributes { margin-block: 18px 16px; }
+  .product-page__attributes span { padding: 6px 11px; font-size: .72rem; }
+  .product-offer { padding: 17px 16px 18px; border-radius: 17px; }
+  .product-offer strong { font-size: clamp(2.15rem, 11vw, 2.65rem); }
+  .product-offer__label { max-width: 15ch; font-size: .68rem; }
+  .product-page__purchase .button { min-height: 52px; font-size: .92rem; }
+  .product-page__purchase .quantity-control { min-height: 52px; flex-basis: 104px; }
+  .product-trust { padding: 12px 13px; }
+  .product-page__details { padding-block: 32px; margin-top: 34px; }
+  .product-page__details p,
+  .product-page__details li { font-size: .87rem; }
+  .product-page__related-grid { gap: 10px; }
+  .product-page__related-grid > a { min-width: 0; padding: 7px 7px 15px; }
+  .product-page__related-grid h3 { overflow-wrap: anywhere; font-size: 1rem; }
+  .product-page__related-grid span { margin: 12px 4px 6px; font-size: .58rem; }
+}
+
+@media (max-width: 390px) {
+  .product-page__purchase { flex-wrap: wrap; }
+  .product-page__purchase .quantity-control { flex: 0 0 104px; }
+  .product-page__purchase .button { flex: 1 1 calc(100% - 116px); min-width: 0; }
+  .product-page__purchase .button span { overflow: hidden; text-overflow: ellipsis; }
+}
+
+@media (max-width: 350px) {
+  .product-page__purchase .quantity-control,
+  .product-page__purchase .button { flex-basis: 100%; }
+}

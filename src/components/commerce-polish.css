@@ -1511,3 +1511,79 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Mobile dialog finish: use a calm bottom-sheet edge, preserve the summary,
+   and keep every important action inside a comfortable thumb zone. */
+@media (max-width: 680px) {
+  .modal-backdrop:has(.sf-dialog) {
+    padding: 8px 8px 0;
+    align-items: end;
+  }
+
+  .sf-dialog.modal-panel {
+    width: 100%;
+    max-height: calc(100svh - 8px);
+    border-radius: 24px 24px 0 0;
+  }
+
+  .sf-dialog .modal-close {
+    top: 12px;
+    right: 12px;
+  }
+
+  .sf-dialog.checkout-modal {
+    max-height: calc(100svh - 8px);
+  }
+
+  .sf-dialog .checkout-grid {
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sf-dialog .checkout-form-content {
+    padding: 58px 18px 28px;
+  }
+
+  .sf-dialog .checkout-steps {
+    gap: 8px 14px;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+  }
+
+  .sf-dialog.checkout-modal h2 {
+    max-width: 14ch;
+    font-size: clamp(1.95rem, 9vw, 2.45rem);
+  }
+
+  .sf-dialog .checkout-intro { font-size: .82rem; line-height: 1.65; }
+  .sf-dialog .field-grid { gap: 14px 0; }
+  .sf-dialog .field-grid label > span { font-size: .78rem; }
+  .sf-dialog :is(.field-grid input, .saved-address select) { min-height: 52px; }
+  .sf-dialog .checkout-submit { width: 100%; min-height: 52px; margin-top: 5px; }
+
+  .sf-dialog .checkout-summary {
+    padding: 24px 18px calc(24px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--commerce-line);
+    border-left: 0;
+  }
+
+  .sf-dialog .checkout-summary h3 { margin-bottom: 18px; font-size: 1.45rem; }
+  .sf-dialog .checkout-summary > div { min-height: 44px; gap: 14px; font-size: .8rem; }
+  .sf-dialog .checkout-summary > div > strong { text-align: right; }
+  .sf-dialog .checkout-total { margin-top: 6px; padding-top: 14px; }
+  .sf-dialog .checkout-total strong { font-size: 1.12rem; }
+  .sf-dialog .checkout-coupon { margin-top: 14px; }
+  .sf-dialog .checkout-coupon__entry input,
+  .sf-dialog .checkout-coupon__entry button { min-height: 44px; }
+  .sf-dialog .checkout-summary__note { font-size: .7rem; line-height: 1.55; }
+
+  .sf-dialog .account-auth__main { padding: 58px 18px 28px; }
+  .sf-dialog .account-dashboard__main { padding: 24px 16px calc(28px + env(safe-area-inset-bottom)); }
+  .sf-dialog .account-hero h2 { max-width: 12ch; font-size: 1.85rem; }
+}
+
+@media (max-width: 380px) {
+  .sf-dialog .checkout-form-content { padding-inline: 15px; }
+  .sf-dialog .checkout-summary { padding-inline: 15px; }
+  .sf-dialog .checkout-steps { font-size: .65rem; }
+}

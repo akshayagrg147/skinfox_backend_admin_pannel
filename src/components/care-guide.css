@@ -1023,6 +1023,57 @@
   .care-finder-primary-button { transition: none; }
 }
 
+/* Keep the care flow airy on phones without turning the result into a long,
+   narrow desktop panel. The cards stay scannable and the routine remains
+   usable with one hand. */
+@media (max-width: 720px) {
+  .care-finder-modal {
+    width: 100%;
+    max-height: calc(100svh - 8px);
+    border-radius: 24px 24px 0 0;
+  }
+
+  .care-finder-content { padding: 26px 20px 24px; }
+  .care-finder-mobile-guide { padding-right: 36px; margin-bottom: 22px; }
+  .care-finder-question h2 { max-width: 15ch; font-size: clamp(1.9rem, 8vw, 2.35rem); }
+  .care-finder-options button { min-height: 78px; padding: 16px; border-radius: 14px; }
+  .care-finder-option__copy strong { font-size: .9rem; line-height: 1.3; }
+  .care-finder-option__copy small { font-size: .72rem; line-height: 1.45; }
+  .care-finder-navigation { align-items: stretch; flex-wrap: wrap; gap: 12px; }
+  .care-finder-primary-button { min-height: 48px; }
+  .care-finder-navigation__note { width: 100%; order: 3; }
+
+  .care-finder-result { padding: 26px 16px 22px; }
+  .care-finder-result__header h2 { max-width: 14ch; font-size: clamp(1.95rem, 8vw, 2.5rem); }
+  .care-finder-result__guide { margin-right: 26px; }
+  .care-finder-tags { gap: 6px; }
+  .care-finder-tags > span { padding: 6px 9px; font-size: .64rem; }
+  .care-edit { border-radius: 16px; }
+  .care-edit__header { padding: 20px 16px; }
+  .care-edit__header h3 { font-size: 1.35rem; }
+  .care-edit-item { grid-template-columns: 62px minmax(0, 1fr); gap: 12px; padding: 18px 16px; }
+  .care-edit-item__visual { height: 78px; border-radius: 11px; }
+  .care-edit-item__copy h4 { font-size: 1.05rem; line-height: 1.25; }
+  .care-edit-item__copy p { font-size: .75rem; line-height: 1.55; }
+  .care-edit-item__guidance { gap: 5px; }
+  .care-edit-item__guidance span { font-size: .65rem; }
+  .care-edit-item__price { grid-column: 1 / -1; margin-top: 2px; padding-top: 10px; border-top: 1px solid #eee5ef; }
+  .care-edit-item__price button { min-height: 44px; }
+  .care-edit__actions { padding: 18px 16px; }
+  .care-edit__actions > .care-finder-primary-button { width: 100%; }
+
+  .care-routine-overview { padding: 20px 16px; }
+  .care-routine-overview__header h3 { font-size: 1.4rem; }
+  .care-routine-card { padding: 14px; border-radius: 13px; }
+  .care-routine-card > strong { font-size: .9rem; }
+  .care-week { border-radius: 16px; }
+  .care-week__heading { padding: 20px 16px 16px; }
+  .care-week__heading h3 { font-size: 1.35rem; }
+  .care-week__grid { grid-template-columns: 1fr; padding: 0 16px 16px; }
+  .care-week-day { padding: 14px; }
+  .care-week__note { margin: 0 16px 16px; }
+}
+
 /* Photo step — an optional on-device reference photo taken before the questions.
    The image never leaves the browser, so nothing here uploads or persists it. */
 .care-photo {
