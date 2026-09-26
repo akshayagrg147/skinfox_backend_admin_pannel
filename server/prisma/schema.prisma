@@ -104,10 +104,49 @@ enum AffiliateWalletEntryType {
   redemption_reversal
 }
 
+enum AffiliateCommissionStatus {
+  pending
+  approved
+  available
+  withdrawal_requested
+  processing
+  paid
+  cancelled
+  rejected
+  reversed
+  refunded
+}
+
+enum AffiliateCommissionRuleType {
+  percentage
+  fixed
+}
+
+enum AffiliateCommissionRuleScope {
+  global
+  affiliate
+  product
+  category
+  campaign
+}
+
+enum AffiliateCampaignStatus {
+  draft
+  scheduled
+  active
+  paused
+  expired
+  archived
+}
+
 enum AffiliateRedemptionStatus {
   requested
+  approved
+  processing
   paid
   rejected
+  failed
+  cancelled
 }
 
 enum ClaimReviewStatus {
@@ -328,6 +367,8 @@ model Product {
   revisions     ProductRevision[]
   cartItems     CartItem[]
   orderItems    OrderItem[]
+  affiliateLinks AffiliateLink[]
+  affiliateCommissionRules AffiliateCommissionRule[]
   relatedFrom   RelatedProduct[]    @relation("relatedFrom")
   relatedTo     RelatedProduct[]    @relation("relatedTo")
   careRules     CareFinderRule[]
@@ -388,6 +429,7 @@ model Category {
   slug      String    @unique
   sortOrder Int       @default(0)
   products  Product[]
+  affiliateCommissionRules AffiliateCommissionRule[]
 }
 
 model Concern {
@@ -805,14 +847,28 @@ model Order {
 model Affiliate {
   id                 String                       @id @default(cuid())
   fullName           String
+  publicId           String                       @unique
   email              String?                      @unique
   phone              String                       @unique
   panEncrypted       String
   panLast4           String
   whatsappNumber     String?
+  instagramHandle    String?
+  youtubeChannel     String?
+  websiteUrl         String?
+  otherSocialProfiles Json?
+  audienceSize       Int?
+  promotionMethod    String?
   city               String?
   state              String?
+  country            String?                      @default("India")
+  address            Json?
   payoutUpiId        String?
+  bankDetailsEncrypted String?
+  bankAccountLast4   String?
+  bankIfscLast4      String?
+  termsVersion       String?
+  termsAcceptedAt    DateTime?
   status             AffiliateStatus              @default(pending)
   referralCode       String                       @unique
   approvedAt         DateTime?
@@ -828,8 +884,81 @@ model Affiliate {
   attributions       AffiliateAttribution[]
   walletEntries      AffiliateWalletEntry[]
   redemptionRequests AffiliateRedemptionRequest[]
+  links              AffiliateLink[]
+  commissionRules    AffiliateCommissionRule[]
 
   @@index([status, createdAt])
+}
+
+model AffiliateSequence {
+  id        String   @id
+  nextValue Int      @default(1)
+  updatedAt DateTime @updatedAt
+}
+
+model AffiliateLink {
+  id          String    @id @default(cuid())
+  affiliateId String
+  code        String    @unique
+  label       String?
+  targetPath  String
+  productId   String?
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  product     Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([affiliateId, active, createdAt])
+  @@index([productId])
+}
+
+model AffiliateCampaign {
+  id              String                   @id @default(cuid())
+  name            String
+  description     String?
+  status          AffiliateCampaignStatus  @default(draft)
+  startsAt        DateTime
+  endsAt          DateTime
+  productIds      String[]
+  categoryIds     String[]
+  affiliateIds    String[]
+  couponId        String?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+  commissionRules AffiliateCommissionRule[]
+
+  @@index([status, startsAt, endsAt])
+}
+
+model AffiliateCommissionRule {
+  id               String                       @id @default(cuid())
+  name             String
+  scope            AffiliateCommissionRuleScope
+  type             AffiliateCommissionRuleType
+  rateBps          Int?
+  fixedAmountPaise Int?
+  eligibleBasis    String                       @default("discounted_product_subtotal")
+  priority         Int                          @default(0)
+  active           Boolean                      @default(true)
+  startsAt         DateTime
+  endsAt           DateTime?
+  affiliateId      String?
+  productId        String?
+  categoryId       String?
+  campaignId       String?
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+  affiliate        Affiliate?                   @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  product          Product?                     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  category         Category?                    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  campaign         AffiliateCampaign?           @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([scope, active, startsAt, endsAt])
+  @@index([affiliateId, active])
+  @@index([productId, active])
+  @@index([categoryId, active])
+  @@index([campaignId, active])
 }
 
 model AffiliateSession {
@@ -868,26 +997,71 @@ model AffiliateReferralClick {
   cartId       String?
   referralCode String
   visitorHash  String?
+  sessionId    String?
+  landingUrl   String?
   landingPath  String?
+  productSlug  String?
+  utmSource    String?
+  utmMedium    String?
+  utmCampaign  String?
+  utmTerm      String?
+  utmContent   String?
+  metadata     Json?
   createdAt    DateTime  @default(now())
   affiliate    Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  attribution  AffiliateAttribution?
 
   @@index([affiliateId, createdAt])
   @@index([cartId, createdAt])
+  @@index([visitorHash, createdAt])
 }
 
 model AffiliateAttribution {
-  id              String                @id @default(cuid())
-  affiliateId     String
-  orderId         String                @unique
-  referralCode    String
-  commissionPaise Int
-  createdAt       DateTime              @default(now())
-  affiliate       Affiliate             @relation(fields: [affiliateId], references: [id], onDelete: Restrict)
-  order           Order                 @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  walletEntry     AffiliateWalletEntry?
+  id                    String                       @id @default(cuid())
+  affiliateId           String
+  orderId               String                       @unique
+  referralCode          String
+  commissionPaise       Int
+  status                AffiliateCommissionStatus   @default(available)
+  eligibleAmountPaise   Int?
+  commissionType        AffiliateCommissionRuleType @default(percentage)
+  commissionRateBps     Int?
+  ruleSnapshot          Json?
+  holdUntil             DateTime?
+  approvedAt            DateTime?
+  availableAt           DateTime?
+  reversedAt            DateTime?
+  clickId               String?                      @unique
+  attributionExpiresAt  DateTime?
+  metadata              Json?
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
+  affiliate             Affiliate                    @relation(fields: [affiliateId], references: [id], onDelete: Restrict)
+  order                 Order                        @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  click                AffiliateReferralClick?      @relation(fields: [clickId], references: [id], onDelete: SetNull)
+  walletEntry          AffiliateWalletEntry?
+  commissionItems      AffiliateCommissionItem[]
 
   @@index([affiliateId, createdAt])
+  @@index([status, holdUntil])
+}
+
+model AffiliateCommissionItem {
+  id                  String                    @id @default(cuid())
+  attributionId       String
+  orderItemId         String
+  eligibleAmountPaise Int
+  commissionPaise     Int
+  refundedAmountPaise Int                       @default(0)
+  status              AffiliateCommissionStatus @default(available)
+  ruleSnapshot        Json?
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+  attribution         AffiliateAttribution      @relation(fields: [attributionId], references: [id], onDelete: Cascade)
+  orderItem           OrderItem                 @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+
+  @@unique([attributionId, orderItemId])
+  @@index([status, createdAt])
 }
 
 model AffiliateWalletEntry {
@@ -915,6 +1089,9 @@ model AffiliateRedemptionRequest {
   reviewedAt    DateTime?
   reviewedById  String?
   note          String?
+  transactionId String?
+  paidAt        DateTime?
+  failureReason String?
   createdAt     DateTime                  @default(now())
   updatedAt     DateTime                  @updatedAt
   affiliate     Affiliate                 @relation(fields: [affiliateId], references: [id], onDelete: Restrict)
@@ -944,6 +1121,7 @@ model OrderItem {
   order                 Order           @relation(fields: [orderId], references: [id], onDelete: Restrict)
   product               Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
   variant               ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  commissionItems       AffiliateCommissionItem[]
 }
 
 model OrderStatusEvent {
