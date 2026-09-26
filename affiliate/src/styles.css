@@ -24,6 +24,8 @@ p { color: #675568; line-height: 1.6; }
 .tabs { display: grid; grid-template-columns: 1fr 1fr; padding: .25rem; border-radius: .7rem; background: #f2eaf0; margin-bottom: 1.5rem; }
 .tabs button { border: 0; background: transparent; padding: .65rem; border-radius: .5rem; color: #6d596f; }
 .tabs button.active { background: #fff; color: #351b42; font-weight: 700; }
+.auth-methods { margin: 0; }
+.auth-methods button { font-size: .78rem; padding: .55rem .4rem; }
 .stack { display: grid; gap: 1rem; }
 .stack label { display: grid; gap: .42rem; color: #4c3a50; font-size: .84rem; font-weight: 700; }
 input { width: 100%; border: 1px solid #ddceda; background: #fffefa; padding: .82rem .9rem; border-radius: .55rem; color: #25172c; outline-color: #7b3e86; }

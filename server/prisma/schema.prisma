@@ -849,6 +849,7 @@ model Affiliate {
   fullName           String
   publicId           String                       @unique
   email              String?                      @unique
+  passwordHash       String?
   phone              String                       @unique
   panEncrypted       String
   panLast4           String
