@@ -32,9 +32,14 @@ export default function App() {
 
 function ApplicantPortal({ onAuthenticated }: { onAuthenticated: (affiliate: Affiliate, dashboard: Dashboard) => void }) {
   const [mode, setMode] = useState<'login' | 'apply'>('login')
+  const [authView, setAuthView] = useState<'login' | 'forgot' | 'reset'>(() => new URLSearchParams(window.location.search).get('reset') ? 'reset' : 'login')
   const [loginMethod, setLoginMethod] = useState<'password' | 'otp'>('password')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [resetToken, setResetToken] = useState(() => new URLSearchParams(window.location.search).get('reset') ?? '')
+  const [resetPassword, setResetPassword] = useState('')
+  const [resetPasswordConfirmation, setResetPasswordConfirmation] = useState('')
   const [phone, setPhone] = useState('')
   const [challengeId, setChallengeId] = useState('')
   const [otp, setOtp] = useState('')
@@ -75,7 +80,45 @@ function ApplicantPortal({ onAuthenticated }: { onAuthenticated: (affiliate: Aff
     setOtp('')
     setTestCode('')
   }
-  return <main className="portal"><header><AffiliateBrand /></header><section className="hero"><div><span className="eyebrow"><HandCoins size={15} /> Affiliate programme</span><h1>Share care.<br /><em>Earn fairly.</em></h1><p>Give your community a SkinFox link. Approved partners receive 10% of the discounted product selling value from confirmed referral orders.</p><div className="promise"><ShieldCheck size={18} /><span>Applications are reviewed before referral links are activated. PAN is encrypted and only its last four characters are shown back to you.</span></div></div><div className="auth-card"><div className="tabs"><button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => { setMode('login'); setError('') }}>Sign in</button><button type="button" className={mode === 'apply' ? 'active' : ''} onClick={() => { setMode('apply'); setError('') }}>Join programme</button></div>{mode === 'login' ? <form className="stack" onSubmit={submitLogin}><h2>Partner sign in</h2><p>Use the email and password you created in your application.</p><div className="tabs auth-methods"><button type="button" className={loginMethod === 'password' ? 'active' : ''} onClick={() => chooseLoginMethod('password')}>Email &amp; password</button><button type="button" className={loginMethod === 'otp' ? 'active' : ''} onClick={() => chooseLoginMethod('otp')}>Mobile OTP</button></div>{loginMethod === 'password' ? <><label>Email address<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" placeholder="you@example.com" /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" placeholder="Your application password" /></label><p className="muted">Mobile OTP remains available as a fallback when it is enabled by SkinFox.</p></> : <><label>Mobile number<input value={phone} onChange={(event) => setPhone(event.target.value)} required inputMode="tel" placeholder="10-digit mobile number" disabled={Boolean(challengeId)} /></label>{challengeId && <label>Six-digit OTP<input value={otp} onChange={(event) => setOtp(event.target.value)} required inputMode="numeric" pattern="\d{6}" maxLength={6} placeholder="123456" /></label>}{testCode && <div className="test-note">Local test OTP: <strong>{testCode}</strong></div>}{!challengeId && <p className="muted">Mobile OTP is only available when the SkinFox OTP provider is configured.</p>}</>}{notice && <div className="notice">{notice}</div>}{error && <div className="error">{error}</div>}<button className="primary" disabled={busy}>{busy ? 'Please wait…' : loginMethod === 'password' ? 'Sign in securely' : challengeId ? 'Verify and open dashboard' : 'Send OTP'}</button>{challengeId && <button type="button" className="link-button" onClick={() => { setChallengeId(''); setOtp(''); setTestCode('') }}>Use another number</button>}</form> : <ApplicationForm onComplete={(message) => { setMode('login'); setLoginMethod('password'); setNotice(message); setChallengeId(''); setOtp('') }} />}</div></section></main>
+  const submitForgotPassword = async (event: FormEvent) => {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const response = await post<{ accepted: boolean; resetToken?: string }>('/affiliate/auth/forgot-password', { email: forgotEmail })
+      if (response.resetToken) {
+        setResetToken(response.resetToken)
+        setAuthView('reset')
+        setNotice('Local reset link ready. Create a new password below.')
+      } else {
+        setNotice('If an affiliate account uses that email, a password reset link has been sent.')
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to request a password reset.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const submitResetPassword = async (event: FormEvent) => {
+    event.preventDefault()
+    setError('')
+    if (resetPassword !== resetPasswordConfirmation) { setError('Passwords do not match.'); return }
+    setBusy(true)
+    try {
+      await post('/affiliate/auth/reset-password', { token: resetToken, password: resetPassword })
+      setResetPassword('')
+      setResetPasswordConfirmation('')
+      setAuthView('login')
+      setNotice('Password updated. Sign in with your new password.')
+      window.history.replaceState({}, '', window.location.pathname)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to reset your password.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return <main className="portal"><header><AffiliateBrand /></header><section className="hero"><div><span className="eyebrow"><HandCoins size={15} /> Affiliate programme</span><h1>Share care.<br /><em>Earn fairly.</em></h1><p>Give your community a SkinFox link. Approved partners receive 10% of the discounted product selling value from confirmed referral orders.</p><div className="promise"><ShieldCheck size={18} /><span>Applications are reviewed before referral links are activated. PAN is encrypted and only its last four characters are shown back to you.</span></div></div><div className="auth-card"><div className="tabs"><button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => { setMode('login'); setAuthView('login'); setError('') }}>Sign in</button><button type="button" className={mode === 'apply' ? 'active' : ''} onClick={() => { setMode('apply'); setError('') }}>Join programme</button></div>{mode === 'apply' ? <ApplicationForm onComplete={(message) => { setMode('login'); setAuthView('login'); setLoginMethod('password'); setNotice(message); setChallengeId(''); setOtp('') }} /> : authView === 'forgot' ? <form className="stack" onSubmit={submitForgotPassword}><h2>Reset your password</h2><p>Enter the email used for your affiliate application. If it matches an account, we will send a secure reset link.</p><label>Email address<input type="email" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} required autoComplete="email" placeholder="you@example.com" /></label>{notice && <div className="notice">{notice}</div>}{error && <div className="error">{error}</div>}<button className="primary" disabled={busy}>{busy ? 'Sending…' : 'Email reset link'}</button><button type="button" className="link-button" onClick={() => { setAuthView('login'); setError(''); setNotice('') }}>Back to sign in</button></form> : authView === 'reset' ? <form className="stack" onSubmit={submitResetPassword}><h2>Create a new password</h2><p>Choose a new password with at least 12 characters. This reset link can only be used once.</p><label>New password<input type="password" value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} required minLength={12} autoComplete="new-password" placeholder="At least 12 characters" /></label><label>Confirm new password<input type="password" value={resetPasswordConfirmation} onChange={(event) => setResetPasswordConfirmation(event.target.value)} required minLength={12} autoComplete="new-password" placeholder="Repeat your password" /></label>{notice && <div className="notice">{notice}</div>}{error && <div className="error">{error}</div>}<button className="primary" disabled={busy}>{busy ? 'Updating…' : 'Update password'}</button><button type="button" className="link-button" onClick={() => { setAuthView('login'); setError(''); setNotice('') }}>Back to sign in</button></form> : <form className="stack" onSubmit={submitLogin}><h2>Partner sign in</h2><p>Use the email and password you created in your application.</p><div className="tabs auth-methods"><button type="button" className={loginMethod === 'password' ? 'active' : ''} onClick={() => chooseLoginMethod('password')}>Email &amp; password</button><button type="button" className={loginMethod === 'otp' ? 'active' : ''} onClick={() => chooseLoginMethod('otp')}>Mobile OTP</button></div>{loginMethod === 'password' ? <><label>Email address<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" placeholder="you@example.com" /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" placeholder="Your application password" /></label><button type="button" className="link-button" onClick={() => { setForgotEmail(email); setAuthView('forgot'); setError(''); setNotice('') }}>Forgot password?</button><p className="muted">Mobile OTP remains available as a fallback when it is enabled by SkinFox.</p></> : <><label>Mobile number<input value={phone} onChange={(event) => setPhone(event.target.value)} required inputMode="tel" placeholder="10-digit mobile number" disabled={Boolean(challengeId)} /></label>{challengeId && <label>Six-digit OTP<input value={otp} onChange={(event) => setOtp(event.target.value)} required inputMode="numeric" pattern="\d{6}" maxLength={6} placeholder="123456" /></label>}{testCode && <div className="test-note">Local test OTP: <strong>{testCode}</strong></div>}{!challengeId && <p className="muted">Mobile OTP is only available when the SkinFox OTP provider is configured.</p>}</>}{notice && <div className="notice">{notice}</div>}{error && <div className="error">{error}</div>}<button className="primary" disabled={busy}>{busy ? 'Please wait…' : loginMethod === 'password' ? 'Sign in securely' : challengeId ? 'Verify and open dashboard' : 'Send OTP'}</button>{challengeId && <button type="button" className="link-button" onClick={() => { setChallengeId(''); setOtp(''); setTestCode('') }}>Use another number</button>}</form>}</div></section></main>
 }
 
 function ApplicationForm({ onComplete }: { onComplete: (message: string) => void }) {

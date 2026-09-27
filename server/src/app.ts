@@ -175,7 +175,7 @@ const documentPath = (path: string, methods: string[], summary: string) => {
   ['/care-finder', ['get'], 'Get care finder'], ['/care-finder/recommendations', ['post'], 'Get care recommendations'], ['/care-finder/events', ['post'], 'Record care finder event'], ['/care-finder/photo-analysis', ['get', 'post'], 'Care finder photo quota or analysis'],
   ['/carts', ['post'], 'Create cart'], ['/carts/{cartId}', ['get', 'delete'], 'Get or delete cart'], ['/carts/{cartId}/items', ['post'], 'Add cart item'], ['/carts/{cartId}/items/{itemId}', ['patch', 'delete'], 'Update or remove cart item'], ['/carts/{cartId}/apply-coupon', ['post'], 'Apply coupon'], ['/carts/{cartId}/coupon', ['delete'], 'Remove coupon'],
   ['/customer/auth/firebase', ['post'], 'Exchange Firebase customer identity'], ['/customer/auth/me', ['get'], 'Get current customer'], ['/customer/auth/profile', ['patch'], 'Update customer profile'], ['/customer/auth/logout', ['post'], 'Log out customer'], ['/customer/addresses', ['get', 'post'], 'List or save customer addresses'], ['/customer/addresses/{id}', ['patch', 'delete'], 'Update or delete customer address'], ['/customer/orders', ['get'], 'List customer orders'], ['/customer/orders/{publicToken}', ['get'], 'Get customer order'],
-  ['/affiliate/applications', ['post'], 'Submit affiliate application'], ['/affiliate/auth/password-login', ['post'], 'Sign in affiliate with email and password'], ['/affiliate/auth/request-otp', ['post'], 'Request affiliate OTP'], ['/affiliate/auth/verify-otp', ['post'], 'Verify affiliate OTP'], ['/affiliate/auth/me', ['get'], 'Get current affiliate'], ['/affiliate/auth/logout', ['post'], 'Log out affiliate'], ['/affiliate/referrals/track', ['post'], 'Track affiliate referral'], ['/affiliate/dashboard', ['get'], 'Get affiliate dashboard'], ['/affiliate/wallet/redemptions', ['post'], 'Request affiliate wallet redemption'],
+  ['/affiliate/applications', ['post'], 'Submit affiliate application'], ['/affiliate/auth/password-login', ['post'], 'Sign in affiliate with email and password'], ['/affiliate/auth/forgot-password', ['post'], 'Request affiliate password reset'], ['/affiliate/auth/reset-password', ['post'], 'Reset affiliate password'], ['/affiliate/auth/request-otp', ['post'], 'Request affiliate OTP'], ['/affiliate/auth/verify-otp', ['post'], 'Verify affiliate OTP'], ['/affiliate/auth/me', ['get'], 'Get current affiliate'], ['/affiliate/auth/logout', ['post'], 'Log out affiliate'], ['/affiliate/referrals/track', ['post'], 'Track affiliate referral'], ['/affiliate/dashboard', ['get'], 'Get affiliate dashboard'], ['/affiliate/wallet/redemptions', ['post'], 'Request affiliate wallet redemption'],
   ['/shipping/pincode/{pincode}', ['get'], 'Look up pincode location'], ['/shipping/serviceability', ['get'], 'Check shipping serviceability'], ['/shipping/webhook', ['post'], 'Receive Delhivery shipment webhook'], ['/checkout/quote', ['post'], 'Calculate checkout quote'], ['/checkout/sessions', ['post'], 'Create checkout session'], ['/checkout/sessions/{id}', ['get'], 'Get checkout session'], ['/checkout/sessions/{id}/payment-order', ['post'], 'Create payment order'], ['/checkout/sessions/{id}/confirm-cod', ['post'], 'Confirm cash on delivery'],
   ['/payments/razorpay/verify', ['post'], 'Verify Razorpay payment'], ['/webhooks/payments/razorpay', ['post'], 'Receive Razorpay webhook'], ['/payments/{publicToken}/status', ['get'], 'Get payment status'], ['/orders/{publicToken}', ['get'], 'Get public order'], ['/orders/{publicToken}/tracking', ['get'], 'Get order tracking'], ['/orders/{publicToken}/cancel-request', ['post'], 'Request order cancellation'], ['/orders/{publicToken}/return-request', ['post'], 'Request return'],
   ['/newsletter/subscriptions', ['post'], 'Subscribe to newsletter'], ['/newsletter/confirm', ['post'], 'Confirm newsletter subscription'], ['/newsletter/subscriptions/{token}', ['delete'], 'Unsubscribe from newsletter'], ['/contact', ['post'], 'Submit contact form'], ['/events', ['post'], 'Record analytics event'], ['/events/batch', ['post'], 'Record analytics events'],
@@ -720,6 +720,36 @@ export function buildApp(): FastifyInstance {
     const session = await prisma.affiliateSession.create({ data: { tokenHash: hashToken(token), affiliateId: affiliate.id, expiresAt: new Date(Date.now() + config.sessionTtlDays * 86400000), ip: request.ip, userAgent: request.headers['user-agent'] } })
     reply.setCookie('sf_affiliate_session', token, { httpOnly: true, sameSite: 'lax', secure: secureCookies(), maxAge: config.sessionTtlDays * 86400, path: '/' }).setCookie('sf_affiliate_csrf', csrf, { httpOnly: false, sameSite: 'lax', secure: secureCookies(), maxAge: config.sessionTtlDays * 86400, path: '/' })
     return data(reply, { affiliate: publicAffiliate(affiliate), sessionExpiresAt: session.expiresAt })
+  })
+  routes.post('/api/v1/affiliate/auth/forgot-password', { config: { rateLimit: { max: 5, timeWindow: '15 minutes' } } }, async (request, reply) => {
+    const emailAddress = z.string().trim().email().parse(request.body?.email).toLowerCase()
+    const affiliate = await prisma.affiliate.findUnique({ where: { email: emailAddress } })
+    if (affiliate?.email) {
+      const token = randomToken(32)
+      const now = new Date()
+      await prisma.$transaction(async (tx) => {
+        await tx.affiliatePasswordResetToken.updateMany({ where: { affiliateId: affiliate.id, usedAt: null }, data: { usedAt: now } })
+        await tx.affiliatePasswordResetToken.create({ data: { affiliateId: affiliate.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 30 * 60 * 1000) } })
+      })
+      const origin = (process.env.AFFILIATE_ORIGIN ?? process.env.STOREFRONT_ORIGIN ?? 'http://localhost:4175').replace(/\/+$/, '')
+      const resetUrl = `${origin}/affiliate/?reset=${encodeURIComponent(token)}`
+      await email.send({ to: affiliate.email, subject: 'Reset your SkinFox affiliate password', html: `<p>We received a request to reset your SkinFox affiliate password.</p><p><a href="${resetUrl}">Create a new password</a> (this link expires in 30 minutes and can be used once).</p><p>If you did not request this, you can ignore this email.</p>` })
+      return data(reply, { accepted: true, resetToken: process.env.NODE_ENV === 'production' ? undefined : token })
+    }
+    return data(reply, { accepted: true })
+  })
+  routes.post('/api/v1/affiliate/auth/reset-password', { config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } }, async (request, reply) => {
+    const input = z.object({ token: z.string().min(20).max(200), password: z.string().min(12, 'Password must be at least 12 characters.').max(128) }).parse(request.body)
+    const reset = await prisma.affiliatePasswordResetToken.findUnique({ where: { tokenHash: hashToken(input.token) } })
+    if (!reset || reset.usedAt || reset.expiresAt < new Date()) throw validationError('This password reset link is invalid or expired. Request a new one.')
+    const passwordHash = await hashPassword(input.password)
+    await prisma.$transaction(async (tx) => {
+      const claimed = await tx.affiliatePasswordResetToken.updateMany({ where: { id: reset.id, usedAt: null, expiresAt: { gt: new Date() } }, data: { usedAt: new Date() } })
+      if (claimed.count !== 1) throw validationError('This password reset link is invalid or expired. Request a new one.')
+      await tx.affiliate.update({ where: { id: reset.affiliateId }, data: { passwordHash } })
+      await tx.affiliateSession.updateMany({ where: { affiliateId: reset.affiliateId, revokedAt: null }, data: { revokedAt: new Date() } })
+    })
+    return data(reply, { reset: true })
   })
   routes.post('/api/v1/affiliate/auth/request-otp', { config: { rateLimit: { max: 5, timeWindow: '15 minutes' } } }, async (request, reply) => {
     const phone = normalizeIndianPhone(z.object({ phone: z.string().min(1) }).parse(request.body).phone)

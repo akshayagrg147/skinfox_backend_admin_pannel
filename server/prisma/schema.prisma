@@ -881,6 +881,7 @@ model Affiliate {
   carts              Cart[]
   sessions           AffiliateSession[]
   otpChallenges      AffiliateOtpChallenge[]
+  passwordResetTokens AffiliatePasswordResetToken[]
   clicks             AffiliateReferralClick[]
   attributions       AffiliateAttribution[]
   walletEntries      AffiliateWalletEntry[]
@@ -990,6 +991,19 @@ model AffiliateOtpChallenge {
 
   @@index([phone, createdAt])
   @@index([expiresAt, verifiedAt])
+}
+
+model AffiliatePasswordResetToken {
+  id          String    @id @default(cuid())
+  affiliateId String
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+  affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  @@index([affiliateId, expiresAt])
+  @@index([expiresAt, usedAt])
 }
 
 model AffiliateReferralClick {
