@@ -14,8 +14,9 @@ type SavedAddress = { id: string; label: string; fullName: string; phone: string
 type AddressDraft = Omit<SavedAddress, 'id'>
 type CustomerOrderItem = { id: string; productId?: string | null; sku?: string | null; productName: string; size?: string | null; quantity: number; primaryImage?: string | null; unitSellingPricePaise?: number | null; mrpPaise?: number | null; discountPaise?: number | null; finalLineTotalPaise: number }
 type CustomerShipment = { id: string; provider?: string | null; status?: string | null; providerStatus?: string | null; courierName?: string | null; trackingNumber?: string | null; trackingUrl?: string | null; estimatedDeliveryFrom?: string | null; estimatedDeliveryTo?: string | null; events?: Array<{ id: string; status: string; createdAt?: string }> }
+type CustomerRefund = { amountPaise: number; status: string; reason?: string; createdAt: string }
 type CustomerNotification = { id: string; type: string; title: string; body: string; readAt?: string | null; createdAt: string; orderId?: string | null; shipmentId?: string | null }
-type CustomerOrder = { publicToken: string; orderNumber: string; status: string; subtotalPaise?: number; discountPaise?: number; taxPaise?: number; shippingPaise?: number; codPaise?: number; totalPaise: number; createdAt: string; mrpSubtotalPaise?: number | null; estimatedDeliveryFrom?: string | null; estimatedDeliveryTo?: string | null; payments?: Array<{ provider: string; status: string }>; items: CustomerOrderItem[]; shipments?: CustomerShipment[]; shippingAddress?: { fullName?: string; addressLine1?: string; addressLine2?: string | null; city?: string; state?: string; pincode?: string } | null }
+type CustomerOrder = { publicToken: string; orderNumber: string; status: string; subtotalPaise?: number; discountPaise?: number; taxPaise?: number; shippingPaise?: number; codPaise?: number; totalPaise: number; createdAt: string; mrpSubtotalPaise?: number | null; estimatedDeliveryFrom?: string | null; estimatedDeliveryTo?: string | null; payments?: Array<{ provider: string; status: string }>; refunds?: CustomerRefund[]; items: CustomerOrderItem[]; shipments?: CustomerShipment[]; shippingAddress?: { fullName?: string; addressLine1?: string; addressLine2?: string | null; city?: string; state?: string; pincode?: string } | null }
 
 const customerCsrfHeaders = (): Record<string, string> => {
   const csrf = document.cookie.split('; ').find((entry) => entry.startsWith('sf_customer_csrf='))?.split('=').slice(1).join('=')
@@ -97,6 +98,7 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
+  const [cancellingOrderToken, setCancellingOrderToken] = useState<string | null>(null)
   const [linkEmail, setLinkEmail] = useState('')
   const [linkPassword, setLinkPassword] = useState('')
   const [showLinkForm, setShowLinkForm] = useState(false)
@@ -219,6 +221,31 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
       await signOutFirebase()
       setCustomer(null); setOrders([]); setNotifications([]); setAddresses([]); setLinkPassword(''); setProfileEditing(false); setAddressFormOpen(false); onCustomerChange(null); setStage('auth')
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to sign out. Please try again.') } finally { setBusy(false) }
+  }
+
+  const requestOrderCancellation = async (order: CustomerOrder) => {
+    const shipped = order.status === 'shipped'
+    const message = shipped
+      ? `Request cancellation of ${order.orderNumber}? We will ask Delhivery to stop or recall it. If it is already out for delivery, cancellation may not be possible.`
+      : `Cancel ${order.orderNumber}? Any captured payment will be refunded to the original payment method.`
+    if (!window.confirm(message)) return
+    setCancellingOrderToken(order.publicToken)
+    setError('')
+    setNotice('')
+    try {
+      await postStorefront(`/orders/${encodeURIComponent(order.publicToken)}/cancel-request`, { reason: 'Customer cancellation request' }, customerCsrfHeaders())
+      const [nextOrders, nextNotifications] = await Promise.all([
+        getStorefront<CustomerOrder[]>('/customer/orders'),
+        getStorefront<CustomerNotification[]>('/customer/notifications'),
+      ])
+      setOrders(nextOrders)
+      setNotifications(Array.isArray(nextNotifications) ? nextNotifications : [])
+      setNotice('Your order status has been updated. Refund details are shown on the order card.')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'We could not cancel this order. Please contact SkinFox support.')
+    } finally {
+      setCancellingOrderToken(null)
+    }
   }
 
   const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
@@ -395,8 +422,10 @@ export function CustomerAccount({ open, onClose, apiAvailable, onCustomerChange,
                   </li>
                 })}</ul>
                 <div className="order-card__breakdown"><div className="order-card__formula"><span>Payment summary</span><strong>{balanceFormula}</strong></div>{mrpValue !== null ? <span><span>Total MRP value</span><b>{displayPaise(mrpValue)}</b></span> : <span><span>Total MRP value</span><b>Not available</b></span>}{orderDiscount > 0 && <span><span>Order discount</span><b>−{displayPaise(orderDiscount)}</b></span>}<span><span>Products after discount (incl. GST)</span><b>{displayPaise(productTotal)}</b></span>{tax > 0 && <><span><span>Base price (excl. GST)</span><b>{displayPaise(Math.max(0, productTotal - tax))}</b></span><span><span>GST included (18%)</span><b>{displayPaise(tax)}</b></span></>}{shipping > 0 && <span><span>Shipping</span><b>+{displayPaise(shipping)}</b></span>}{codFee > 0 && <span><span>COD fee</span><b>+{displayPaise(codFee)}</b></span>}<span className="order-card__balance"><span>Order total</span><b>{displayPaise(summaryTotal)}</b></span></div>
-                {(() => { const shipment = order.shipments?.find((entry) => entry.status !== 'cancelled') ?? order.shipments?.[0]; const formatDate = (value?: string | null) => { if (!value) return null; const parsed = new Date(value); return Number.isNaN(parsed.valueOf()) ? null : new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(parsed) }; const from = formatDate(shipment?.estimatedDeliveryFrom ?? order.estimatedDeliveryFrom); const to = formatDate(shipment?.estimatedDeliveryTo ?? order.estimatedDeliveryTo); return <div className="order-card__shipment" aria-label="Shipment tracking"><div><PackageCheck size={16} aria-hidden="true" /><span><strong>{shipment ? (shipment.courierName ?? 'Shipment booked') : order.status === 'confirmed' || order.status === 'processing' || order.status === 'packed' ? 'Preparing your shipment' : 'Delivery updates'}</strong><small>{shipment?.trackingNumber ? `AWB ${shipment.trackingNumber}` : 'Tracking will appear here once the courier is booked.'}</small></span></div>{shipment?.trackingUrl && shipment.trackingNumber ? <a href={shipment.trackingUrl} target="_blank" rel="noreferrer">Track shipment</a> : <span className="order-card__shipment-eta">{from ? `Estimated ${from}${to && to !== from ? ` – ${to}` : ''}` : 'ETA pending'}</span>}</div> })()}
+                {(() => { const shipment = order.shipments?.find((entry) => entry.status !== 'cancelled') ?? order.shipments?.[0]; const recallRequested = order.status === 'cancelled' && String(shipment?.status ?? '').toLowerCase() === 'cancellation_requested'; const formatDate = (value?: string | null) => { if (!value) return null; const parsed = new Date(value); return Number.isNaN(parsed.valueOf()) ? null : new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(parsed) }; const from = formatDate(shipment?.estimatedDeliveryFrom ?? order.estimatedDeliveryFrom); const to = formatDate(shipment?.estimatedDeliveryTo ?? order.estimatedDeliveryTo); return <div className="order-card__shipment" aria-label="Shipment tracking"><div><PackageCheck size={16} aria-hidden="true" /><span><strong>{recallRequested ? 'Delhivery cancellation requested' : shipment ? (shipment.courierName ?? 'Shipment booked') : order.status === 'confirmed' || order.status === 'processing' || order.status === 'packed' ? 'Preparing your shipment' : 'Delivery updates'}</strong><small>{recallRequested ? `${shipment?.trackingNumber ? `AWB ${shipment.trackingNumber} · ` : ''}Courier return scan may take time to appear.` : shipment?.trackingNumber ? `AWB ${shipment.trackingNumber}` : 'Tracking will appear here once the courier is booked.'}</small></span></div>{shipment?.trackingUrl && shipment.trackingNumber ? <a href={shipment.trackingUrl} target="_blank" rel="noreferrer">{recallRequested ? 'Track parcel' : 'Track shipment'}</a> : <span className="order-card__shipment-eta">{recallRequested ? 'Recall requested' : from ? `Estimated ${from}${to && to !== from ? ` – ${to}` : ''}` : 'ETA pending'}</span>}</div> })()}
                 <div className="order-card__bottom"><span><MapPin size={14} /> {order.shippingAddress?.city ?? 'Delivery address saved'}{order.shippingAddress?.pincode ? ` · ${order.shippingAddress.pincode}` : ''}</span><strong>{displayPaise(summaryTotal)}</strong></div>
+                {order.status === 'cancelled' && (() => { const refunds = order.refunds ?? []; const refundedPaise = refunds.filter((refund) => ['processed', 'succeeded'].includes(refund.status.toLowerCase())).reduce((sum, refund) => sum + refund.amountPaise, 0); const pendingPaise = refunds.filter((refund) => !['processed', 'succeeded', 'failed'].includes(refund.status.toLowerCase())).reduce((sum, refund) => sum + refund.amountPaise, 0); const failedPaise = refunds.filter((refund) => refund.status.toLowerCase() === 'failed').reduce((sum, refund) => sum + refund.amountPaise, 0); const updates = [refundedPaise > 0 ? `Payment provider processed a refund of ${displayPaise(refundedPaise)}. Your bank may take time to reflect it.` : '', pendingPaise > 0 ? `Refund of ${displayPaise(pendingPaise)} is being processed.` : '', failedPaise > 0 ? `Refund of ${displayPaise(failedPaise)} needs support. Contact contact@skinfox.in.` : ''].filter(Boolean); return <div className={`order-card__refund${failedPaise ? ' is-pending' : ''}`} role="status"><strong>Order cancelled</strong>{updates.length ? updates.map((update) => <span key={update}>{update}</span>) : <span>No captured payment was due for refund.</span>}</div> })()}
+                {['pending_payment', 'payment_failed', 'confirmed', 'processing', 'packed', 'shipped'].includes(order.status) && <button className="order-card__cancel" type="button" onClick={() => void requestOrderCancellation(order)} disabled={cancellingOrderToken === order.publicToken}>{cancellingOrderToken === order.publicToken ? 'Cancelling…' : 'Cancel order'}</button>}
               </article>
             })}</div> : <div className="account-empty"><PackageCheck size={24} /><h3>Your next routine starts here.</h3><p>Once you place an order, its items and latest status will appear in this space.</p><button className="button button--copper" type="button" onClick={onClose}>Explore the collection</button></div>}
           </section> : activeSection === 'addresses' ? <section id="account-section-panel" className="account-section" role="tabpanel" aria-labelledby="account-addresses-tab">

@@ -7904,6 +7904,13 @@ blockquote {
 .order-card__pending span { display: grid; gap: 3px; }
 .order-card__pending strong { color: var(--ink); font-size: .66rem; }
 .order-card__pending small { color: #73756f; line-height: 1.45; }
+.order-card__refund { display: grid; gap: 4px; margin-top: 12px; padding: 11px 13px; border: 1px solid #cfe8da; border-radius: 10px; background: #f3faf6; color: #26744f; font-size: .66rem; line-height: 1.45; }
+.order-card__refund strong { color: #205f41; font-size: .7rem; }
+.order-card__refund.is-pending { border-color: #f0d7aa; background: #fff9ef; color: #8b5c14; }
+.order-card__refund.is-pending strong { color: #754a0a; }
+.order-card__cancel { display: inline-flex; justify-content: center; align-items: center; min-height: 37px; margin-top: 12px; padding: 0 14px; border: 1px solid #e5d8e8; border-radius: 999px; background: #fff; color: #654070; font: inherit; font-size: .66rem; font-weight: 700; cursor: pointer; transition: background .18s ease, border-color .18s ease; }
+.order-card__cancel:hover:not(:disabled) { border-color: #b99ac4; background: #faf5fc; }
+.order-card__cancel:disabled { opacity: .65; cursor: wait; }
 
 .address-card {
   padding: 18px 20px;

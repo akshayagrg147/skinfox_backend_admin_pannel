@@ -32,6 +32,7 @@ import { defaultLaunchPromotion, launchPromotionCommittedReservations, launchPro
 import { lookupPincode } from './lib/pincode.js'
 
 const secureCookies = () => process.env.COOKIE_SECURE === undefined ? process.env.NODE_ENV === 'production' : process.env.COOKIE_SECURE === 'true'
+const orderCancellationRefundKey = (orderId: string, paymentId: string) => `oc-${createHash('sha256').update(`${orderId}:${paymentId}`).digest('hex').slice(0, 32)}`
 const defaultWaitlistSettings = waitlistDefaultsFromEnv()
 let activeWaitlistSettings: WaitlistSettings = defaultWaitlistSettings
 const defaultLaunchPromotionSettings = defaultLaunchPromotion()
@@ -79,6 +80,26 @@ const deliveryEstimateWindow = (serviceable: boolean, courier?: any) => {
   const fromDays = Number.isFinite(providerDays) && providerDays > 0 ? providerDays : minDays
   const toDays = Number.isFinite(providerDays) && providerDays > 0 ? providerDays + 2 : maxDays
   return { estimatedDeliveryFrom: new Date(Date.now() + fromDays * 86400000).toISOString(), estimatedDeliveryTo: new Date(Date.now() + toDays * 86400000).toISOString() }
+}
+const delhiveryCancellationResult = (payload: unknown): { accepted: boolean; status: string; message: string | null } => {
+  const entries = Array.isArray(payload) ? payload : [payload]
+  const records = entries.flatMap((entry: any) => [entry, entry?.data, entry?.response, entry?.data?.response].filter((value) => value && typeof value === 'object')) as Array<Record<string, any>>
+  for (const record of records) {
+    if (record.success === false || record.status === false || record.status_code >= 400) {
+      return { accepted: false, status: String(record.status ?? 'rejected'), message: String(record.message ?? record.remark ?? record.rmk ?? record.error ?? 'Delhivery rejected the cancellation request.') }
+    }
+    const status = String(record.status ?? record.status_text ?? record.state ?? '').trim()
+    const message = String(record.message ?? record.remark ?? record.rmk ?? record.remarks ?? record.error ?? '').trim()
+    const combined = `${status} ${message}`.toLowerCase()
+    if (/already\s+(cancelled|canceled)|cancel(l)?ation\s+(request\s+)?accepted|\b(success|successful|accepted|cancelled|canceled|returned)\b/.test(combined) && !/not\s+(cancelled|canceled|accepted)|fail|reject|error/.test(combined)) {
+      return { accepted: true, status: status || 'cancellation_accepted', message: message || null }
+    }
+    if (record.success === true || record.status === true) return { accepted: true, status: status || 'cancellation_accepted', message: message || null }
+    if (record.error || record.errors || /fail|reject|error|not\s+allowed|cannot/.test(combined)) {
+      return { accepted: false, status: status || 'rejected', message: message || String(record.error ?? 'Delhivery rejected the cancellation request.') }
+    }
+  }
+  return { accepted: false, status: 'unconfirmed', message: 'Delhivery did not confirm that the shipment was cancelled. The order and payment were left unchanged.' }
 }
 const addressSchema = z.object({ label: z.string().trim().min(2).max(30).default('Home'), fullName: z.string().trim().min(2).max(120), phone: deliveryPhoneSchema, addressLine1: z.string().trim().min(5).max(200), addressLine2: z.string().trim().max(200).optional(), landmark: z.string().trim().max(120).optional(), city: z.string().trim().min(2).max(80), state: z.string().trim().min(2).max(80), pincode: z.string().regex(/^[1-9]\d{5}$/), isDefault: z.boolean().default(false) })
 const customerProfileSchema = z.object({ fullName: z.string().trim().min(2).max(120), phone: deliveryPhoneSchema.nullable().optional() })
@@ -184,7 +205,7 @@ const documentPath = (path: string, methods: string[], summary: string) => {
   ...['submit-review', 'approve', 'schedule', 'archive'].map((action) => [`/admin/products/{id}/${action}`, ['post'], `Product ${action}`]), ['/admin/products/{id}/revisions/{revisionId}/restore', ['post'], 'Restore product revision snapshot'],
   ['/admin/products/{productId}/variants', ['get', 'post'], 'Manage product variants'], ['/admin/products/{productId}/variants/{variantId}', ['patch', 'delete'], 'Update or delete variant'], ['/admin/products/{productId}/media', ['get', 'post'], 'Manage product media'], ['/admin/products/{productId}/media/{mediaId}', ['patch', 'delete'], 'Update or delete product media'], ['/admin/products/{productId}/media/reorder', ['post'], 'Reorder product media'],
   ['/admin/inventory', ['get'], 'List inventory'], ['/admin/inventory/low-stock', ['get'], 'List low stock inventory'], ['/admin/inventory/{variantId}', ['get'], 'Get variant inventory'], ['/admin/inventory/adjustments', ['post'], 'Adjust inventory'], ['/admin/inventory/bulk-adjustments', ['post'], 'Bulk adjust inventory'], ['/admin/inventory/history', ['get'], 'Inventory movement history'], ['/admin/inventory/import', ['post'], 'Import inventory'], ['/admin/inventory/export', ['get'], 'Export inventory'],
-  ['/admin/shipping/status', ['get'], 'Get Delhivery shipping status'], ['/admin/shipping/serviceability', ['post'], 'Test Delhivery serviceability'], ['/admin/orders', ['get'], 'List admin orders'], ['/admin/orders/{id}', ['get', 'patch'], 'Admin order detail'], ['/admin/orders/{id}/shipment/quote', ['post'], 'Get Delhivery quote'], ['/admin/orders/{id}/shipment/book', ['post'], 'Book Delhivery shipment'], ['/admin/orders/{id}/shipment/pickup', ['post'], 'Request Delhivery pickup'], ['/admin/orders/{id}/shipment/label', ['post'], 'Generate Delhivery packing slip'], ['/admin/orders/{id}/shipment/cancel', ['post'], 'Cancel Delhivery shipment'], ['/admin/orders/{id}/shipment/refresh', ['post'], 'Refresh Delhivery tracking'], ...['confirm', 'process', 'pack', 'fulfill', 'ship', 'deliver', 'cancel'].map((action) => [`/admin/orders/{id}/${action}`, ['post'], `Order ${action}`]), ['/admin/orders/{id}/{action}', ['post'], 'Transition order'], ['/admin/orders/{id}/refund', ['post'], 'Refund order'], ['/admin/orders/{id}/notes', ['post'], 'Add order note'], ['/admin/orders/{id}/resend-confirmation', ['post'], 'Resend order confirmation'], ['/admin/orders/{id}/invoice', ['get'], 'Get order invoice'], ['/admin/orders/export', ['get'], 'Export orders'],
+  ['/admin/shipping/status', ['get'], 'Get Delhivery shipping status'], ['/admin/shipping/serviceability', ['post'], 'Test Delhivery serviceability'], ['/admin/orders', ['get'], 'List admin orders'], ['/admin/orders/{id}', ['get', 'patch'], 'Admin order detail'], ['/admin/orders/{id}/shipment/quote', ['post'], 'Get Delhivery quote'], ['/admin/orders/{id}/shipment/book', ['post'], 'Book Delhivery shipment'], ['/admin/orders/{id}/shipment/pickup', ['post'], 'Request Delhivery pickup'], ['/admin/orders/{id}/shipment/label', ['post'], 'Generate Delhivery packing slip'], ['/admin/orders/{id}/shipment/cancel', ['post'], 'Cancel order and refund after Delhivery accepts the recall'], ['/admin/orders/{id}/shipment/refresh', ['post'], 'Refresh Delhivery tracking'], ...['confirm', 'process', 'pack', 'fulfill', 'ship', 'deliver', 'cancel'].map((action) => [`/admin/orders/{id}/${action}`, ['post'], `Order ${action}`]), ['/admin/orders/{id}/{action}', ['post'], 'Transition order'], ['/admin/orders/{id}/refund', ['post'], 'Refund order'], ['/admin/orders/{id}/notes', ['post'], 'Add order note'], ['/admin/orders/{id}/resend-confirmation', ['post'], 'Resend order confirmation'], ['/admin/orders/{id}/invoice', ['get'], 'Get order invoice'], ['/admin/orders/export', ['get'], 'Export orders'],
   ['/admin/customers', ['get'], 'List customers'], ['/admin/customers/{id}', ['get', 'patch'], 'Customer detail'], ['/admin/customers/{id}/orders', ['get'], 'Customer orders'], ['/admin/customers/{id}/notes', ['post'], 'Add customer note'], ['/admin/customers/{id}/anonymize', ['post'], 'Anonymize customer'], ['/admin/customers/{id}/export-data', ['post'], 'Export customer data'], ['/admin/customers/{id}/consent', ['patch'], 'Update customer consent'],
   ['/admin/care-finder', ['get'], 'Get care finder configuration'], ['/admin/care-finder/{id}', ['patch'], 'Update care finder configuration'],
   ['/admin/affiliates', ['get'], 'List affiliate applications'], ['/admin/affiliates/{id}/status', ['post'], 'Review affiliate application'], ['/admin/affiliate-redemptions', ['get'], 'List affiliate redemptions'], ['/admin/affiliate-redemptions/{id}/review', ['post'], 'Review affiliate redemption'],
@@ -857,8 +878,8 @@ export function buildApp(): FastifyInstance {
   })
   routes.get('/api/v1/customer/notifications', async (request, reply) => { const customer = await requireCustomer(request); return data(reply, await prisma.customerNotification.findMany({ where: { customerId: customer.id }, orderBy: { createdAt: 'desc' }, take: 50 })) })
   routes.patch('/api/v1/customer/notifications/:id/read', async (request, reply) => { const customer = await requireCustomer(request, true); const updated = await prisma.customerNotification.updateMany({ where: { id: request.params.id, customerId: customer.id, readAt: null }, data: { readAt: new Date() } }); if (!updated.count) throw notFound('Notification not found.'); return data(reply, { read: true }) })
-  routes.get('/api/v1/customer/orders', async (request, reply) => { const customer = await requireCustomer(request); const orders = await prisma.order.findMany({ where: { customerId: customer.id }, orderBy: { createdAt: 'desc' }, include: { items: true, payments: true, shipments: { include: { events: { orderBy: { createdAt: 'asc' } } } }, checkoutSession: { include: { shippingQuotes: { orderBy: { createdAt: 'desc' }, take: 1 } } } } }); return data(reply, orders.map(({ checkoutSession, ...order }) => { const shipment = order.shipments.find((entry) => entry.status !== 'cancelled') ?? order.shipments[0]; const quote = checkoutSession?.shippingQuotes[0]; return { ...order, estimatedDeliveryFrom: shipment?.estimatedDeliveryFrom ?? quote?.estimatedFrom ?? null, estimatedDeliveryTo: shipment?.estimatedDeliveryTo ?? quote?.estimatedTo ?? null } })) })
-  routes.get('/api/v1/customer/orders/:publicToken', async (request, reply) => { const customer = await requireCustomer(request); const order = await prisma.order.findFirst({ where: { publicToken: request.params.publicToken, customerId: customer.id }, include: { items: true, payments: true, shipments: { include: { events: { orderBy: { createdAt: 'asc' } } } }, statusEvents: { orderBy: { createdAt: 'asc' } } } }); if (!order) throw notFound('Order not found.'); return data(reply, order) })
+  routes.get('/api/v1/customer/orders', async (request, reply) => { const customer = await requireCustomer(request); const orders = await prisma.order.findMany({ where: { customerId: customer.id }, orderBy: { createdAt: 'desc' }, include: { items: true, payments: true, refunds: { select: { amountPaise: true, status: true, reason: true, createdAt: true } }, shipments: { include: { events: { orderBy: { createdAt: 'asc' } } } }, checkoutSession: { include: { shippingQuotes: { orderBy: { createdAt: 'desc' }, take: 1 } } } } }); return data(reply, orders.map(({ checkoutSession, ...order }) => { const shipment = order.shipments.find((entry) => entry.status !== 'cancelled') ?? order.shipments[0]; const quote = checkoutSession?.shippingQuotes[0]; return { ...order, estimatedDeliveryFrom: shipment?.estimatedDeliveryFrom ?? quote?.estimatedFrom ?? null, estimatedDeliveryTo: shipment?.estimatedDeliveryTo ?? quote?.estimatedTo ?? null } })) })
+  routes.get('/api/v1/customer/orders/:publicToken', async (request, reply) => { const customer = await requireCustomer(request); const order = await prisma.order.findFirst({ where: { publicToken: request.params.publicToken, customerId: customer.id }, include: { items: true, payments: true, refunds: { select: { amountPaise: true, status: true, reason: true, createdAt: true } }, shipments: { include: { events: { orderBy: { createdAt: 'asc' } } } }, statusEvents: { orderBy: { createdAt: 'asc' } } } }); if (!order) throw notFound('Order not found.'); return data(reply, order) })
   const convertedOrderForCustomer = async (request: any, mutate = false) => {
     const customer = await requireCustomer(request, mutate)
     const order = await prisma.order.findFirst({ where: { publicToken: request.params.publicToken, customerId: customer.id, source: 'waitlist' }, include: { items: true, payments: true } })
@@ -1448,6 +1469,29 @@ export function buildApp(): FastifyInstance {
       await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
       return data(reply, response)
     }
+    if (paymentRecord.order.status === OrderStatus.cancelled) {
+      const refundRecord = await prisma.$transaction(async (tx) => {
+        await tx.payment.update({ where: { id: paymentRecord.id }, data: { providerPaymentId: providerPayment.providerPaymentId, status: PaymentStatus.captured, capturedPaise: providerPayment.amountPaise } })
+        await tx.paymentEvent.upsert({ where: { paymentId_externalId: { paymentId: paymentRecord.id, externalId: providerPayment.providerPaymentId } }, update: { type: 'payment.captured_after_cancellation', payload: providerPayment as any }, create: { paymentId: paymentRecord.id, externalId: providerPayment.providerPaymentId, type: 'payment.captured_after_cancellation', payload: providerPayment as any } })
+        return tx.refund.upsert({ where: { idempotencyKey: orderCancellationRefundKey(paymentRecord.order.id, paymentRecord.id) }, update: { amountPaise: providerPayment.amountPaise }, create: { orderId: paymentRecord.order.id, paymentId: paymentRecord.id, amountPaise: providerPayment.amountPaise, reason: 'Payment captured after the order was cancelled', idempotencyKey: orderCancellationRefundKey(paymentRecord.order.id, paymentRecord.id), status: 'pending' } })
+      })
+      let refundPending = true
+      try {
+        const providerRefund = await payment.refund({ paymentId: providerPayment.providerPaymentId, amountPaise: providerPayment.amountPaise, idempotencyKey: refundRecord.idempotencyKey })
+        await prisma.$transaction([
+          prisma.refund.updateMany({ where: { id: refundRecord.id, status: { in: ['pending', 'failed'] } }, data: { status: providerRefund.status } }),
+          prisma.paymentEvent.upsert({ where: { paymentId_externalId: { paymentId: paymentRecord.id, externalId: `refund:${providerRefund.providerRefundId}` } }, update: { type: 'refund.initiated', payload: providerRefund as any }, create: { paymentId: paymentRecord.id, externalId: `refund:${providerRefund.providerRefundId}`, type: 'refund.initiated', payload: providerRefund as any } }),
+        ])
+        refundPending = !['processed', 'succeeded'].includes(providerRefund.status.toLowerCase())
+        if (!refundPending) await prisma.payment.update({ where: { id: paymentRecord.id }, data: { status: PaymentStatus.refunded } })
+      } catch (cause) {
+        request.log.error({ err: cause, orderId: paymentRecord.order.id, paymentId: providerPayment.providerPaymentId }, 'late payment refund for cancelled order is pending')
+      }
+      if (paymentRecord.order.customerId) await prisma.customerNotification.create({ data: { customerId: paymentRecord.order.customerId, orderId: paymentRecord.order.id, type: 'order_cancelled', title: `Order ${paymentRecord.order.orderNumber} cancelled`, body: `A late payment of ₹${(providerPayment.amountPaise / 100).toFixed(2)} was received after cancellation. ${refundPending ? 'Its refund is pending with the payment provider.' : 'The refund has been processed by the payment provider; your bank may take time to reflect it.'}` } }).catch(() => undefined)
+      const response = { confirmed: false, cancelled: true, refundPending, orderPublicToken: paymentRecord.order.publicToken, orderNumber: paymentRecord.order.orderNumber, status: OrderStatus.cancelled, message: 'Your order was cancelled. Any payment received afterward is being returned to your original payment method.' }
+      await idemStore(request, idempotencyScope, 200, { data: response, meta: { requestId: request.id } })
+      return data(reply, response)
+    }
     const promotionSnapshot = (paymentRecord.order.conversionSnapshot as any)?.promotion
     const couponSnapshot = (paymentRecord.order.conversionSnapshot as any)?.coupon
     const result = await prisma.$transaction(async (tx) => {
@@ -1525,7 +1569,10 @@ export function buildApp(): FastifyInstance {
       const applyUpdate = statusRank(nextStatus) >= statusRank(String(shipment.status ?? '')) || statusRank(nextStatus) >= 5
       await prisma.$transaction(async (tx) => {
         await tx.shipment.update({ where: { id: shipment.id }, data: { ...(applyUpdate ? { status: nextStatus, providerStatus: nextStatusRaw } : {}), ...(awb ? { trackingNumber: awb } : {}), lastSyncedAt: new Date(), events: { create: { status: nextStatus, externalId, payload } } } })
-        if (applyUpdate && orderStatus && shipment.orderId) await tx.order.update({ where: { id: shipment.orderId }, data: { status: orderStatus } })
+        if (applyUpdate && orderStatus && shipment.orderId) {
+          const currentOrder = await tx.order.findUnique({ where: { id: shipment.orderId }, select: { status: true } })
+          if (currentOrder && currentOrder.status !== OrderStatus.cancelled) await tx.order.update({ where: { id: shipment.orderId }, data: { status: orderStatus } })
+        }
         await tx.webhookEvent.update({ where: { id: event.id }, data: { processedAt: new Date() } })
       })
     } else await prisma.webhookEvent.update({ where: { id: event.id }, data: { processedAt: new Date() } })
@@ -1550,10 +1597,29 @@ export function buildApp(): FastifyInstance {
         const capturedPaise = Number(paymentEntity.amount ?? paymentRecord.amountPaise)
         const isStorefrontOrder = paymentRecord.provider === 'razorpay'
 
+        if (captured && isStorefrontOrder && paymentRecord.order.status === OrderStatus.cancelled) {
+          const refundRecord = await prisma.$transaction(async (tx) => {
+            await tx.payment.update({ where: { id: paymentRecord.id }, data: { providerPaymentId: String(paymentEntity.id), status: PaymentStatus.captured, capturedPaise } })
+            await tx.paymentEvent.upsert({ where: { paymentId_externalId: { paymentId: paymentRecord.id, externalId: eventId } }, update: { type: 'payment.captured_after_cancellation', payload }, create: { paymentId: paymentRecord.id, externalId: eventId, type: 'payment.captured_after_cancellation', payload } })
+            return tx.refund.upsert({ where: { idempotencyKey: orderCancellationRefundKey(paymentRecord.order.id, paymentRecord.id) }, update: { amountPaise: capturedPaise }, create: { orderId: paymentRecord.order.id, paymentId: paymentRecord.id, amountPaise: capturedPaise, reason: 'Payment captured after the order was cancelled', idempotencyKey: orderCancellationRefundKey(paymentRecord.order.id, paymentRecord.id), status: 'pending' } })
+          })
+          let refundPending = true
+          try {
+            const providerRefund = await payment.refund({ paymentId: String(paymentEntity.id), amountPaise: capturedPaise, idempotencyKey: refundRecord.idempotencyKey })
+            await prisma.$transaction([
+              prisma.refund.updateMany({ where: { id: refundRecord.id, status: { in: ['pending', 'failed'] } }, data: { status: providerRefund.status } }),
+              prisma.paymentEvent.upsert({ where: { paymentId_externalId: { paymentId: paymentRecord.id, externalId: `refund:${providerRefund.providerRefundId}` } }, update: { type: 'refund.initiated', payload: providerRefund as any }, create: { paymentId: paymentRecord.id, externalId: `refund:${providerRefund.providerRefundId}`, type: 'refund.initiated', payload: providerRefund as any } }),
+            ])
+            refundPending = !['processed', 'succeeded'].includes(providerRefund.status.toLowerCase())
+            if (!refundPending) await prisma.payment.update({ where: { id: paymentRecord.id }, data: { status: PaymentStatus.refunded } })
+          } catch (cause) {
+            request.log.error({ err: cause, orderId: paymentRecord.order.id, paymentId: paymentEntity.id }, 'late captured payment refund for cancelled order is pending')
+          }
+          if (paymentRecord.order.customerId) await prisma.customerNotification.create({ data: { customerId: paymentRecord.order.customerId, orderId: paymentRecord.order.id, type: 'order_cancelled', title: `Order ${paymentRecord.order.orderNumber} cancelled`, body: `A late payment of ₹${(capturedPaise / 100).toFixed(2)} was received after cancellation. ${refundPending ? 'Its refund is pending with the payment provider.' : 'The refund has been processed by the payment provider; your bank may take time to reflect it.'}` } }).catch(() => undefined)
         // A webhook can reach us before the browser's verification request. Apply
         // the same coupon-capacity check here so a captured payment never bypasses
         // a campaign's total or per-customer redemption limits.
-        if (captured && isStorefrontOrder && paymentRecord.status !== PaymentStatus.refunded) {
+        } else if (captured && isStorefrontOrder && paymentRecord.status !== PaymentStatus.refunded) {
           const couponSnapshot = (paymentRecord.order.conversionSnapshot as any)?.coupon
           const result = await prisma.$transaction(async (tx) => {
             let couponToRedeem: any = null
@@ -1591,11 +1657,14 @@ export function buildApp(): FastifyInstance {
             ])
           }
         } else if (paymentRecord.status !== PaymentStatus.refunded) {
-          await prisma.$transaction([
-            prisma.payment.update({ where: { id: paymentRecord.id }, data: { providerPaymentId: paymentEntity.id, status: captured ? PaymentStatus.captured : payload.event === 'payment.failed' ? PaymentStatus.failed : PaymentStatus.authorised, capturedPaise: captured ? paymentEntity.amount ?? paymentRecord.capturedPaise : paymentRecord.capturedPaise } }),
-            prisma.paymentEvent.upsert({ where: { paymentId_externalId: { paymentId: paymentRecord.id, externalId: eventId } }, update: { type: String(payload.event ?? 'unknown'), payload }, create: { paymentId: paymentRecord.id, externalId: eventId, type: String(payload.event ?? 'unknown'), payload } }),
-            prisma.order.update({ where: { id: paymentRecord.orderId }, data: paymentRecord.provider === 'razorpay_waitlist_balance' && captured ? { status: OrderStatus.confirmed, balancePaidAt: new Date(), remainingBalancePaise: 0, totalPaise: 0 } : { status: captured ? OrderStatus.confirmed : payload.event === 'payment.failed' ? OrderStatus.payment_failed : OrderStatus.pending_payment } }),
-          ])
+          await prisma.$transaction(async (tx) => {
+            await tx.payment.update({ where: { id: paymentRecord.id }, data: { providerPaymentId: paymentEntity.id, status: captured ? PaymentStatus.captured : payload.event === 'payment.failed' ? PaymentStatus.failed : PaymentStatus.authorised, capturedPaise: captured ? paymentEntity.amount ?? paymentRecord.capturedPaise : paymentRecord.capturedPaise } })
+            await tx.paymentEvent.upsert({ where: { paymentId_externalId: { paymentId: paymentRecord.id, externalId: eventId } }, update: { type: String(payload.event ?? 'unknown'), payload }, create: { paymentId: paymentRecord.id, externalId: eventId, type: String(payload.event ?? 'unknown'), payload } })
+            const latestOrder = await tx.order.findUnique({ where: { id: paymentRecord.orderId }, select: { status: true } })
+            if (latestOrder && latestOrder.status !== OrderStatus.cancelled) {
+              await tx.order.update({ where: { id: paymentRecord.orderId }, data: paymentRecord.provider === 'razorpay_waitlist_balance' && captured ? { status: OrderStatus.confirmed, balancePaidAt: new Date(), remainingBalancePaise: 0, totalPaise: 0 } : { status: captured ? OrderStatus.confirmed : payload.event === 'payment.failed' ? OrderStatus.payment_failed : OrderStatus.pending_payment } })
+            }
+          })
         }
       }
       const waitlist = await prisma.waitlistReservation.findUnique({ where: { providerOrderId } })
@@ -1622,6 +1691,30 @@ export function buildApp(): FastifyInstance {
         const processed = payload.event === 'refund.processed' || refundEntity.status === 'processed'
         await prisma.waitlistReservation.update({ where: { id: waitlist.id }, data: { providerRefundId: String(refundEntity.id), refundPaise: Number(refundEntity.amount), refundStatus: String(refundEntity.status ?? payload.event), status: processed ? WaitlistStatus.refunded : WaitlistStatus.refund_pending, refundedAt: processed ? new Date() : null } })
       }
+      const paymentRecord = await prisma.payment.findFirst({ where: { providerPaymentId: String(refundEntity.payment_id) }, include: { refunds: true, order: true } })
+      if (paymentRecord) {
+        const cancellationRefund = paymentRecord.refunds.find((refund) => refund.idempotencyKey.startsWith('oc-') && refund.amountPaise === Number(refundEntity.amount) && !['processed', 'succeeded'].includes(refund.status.toLowerCase()))
+        if (cancellationRefund) {
+          const processed = payload.event === 'refund.processed' || refundEntity.status === 'processed'
+          const failed = payload.event === 'refund.failed' || refundEntity.status === 'failed'
+          const nextStatus = processed ? 'processed' : failed ? 'failed' : String(refundEntity.status ?? payload.event)
+          await prisma.$transaction(async (tx) => {
+            await tx.refund.update({ where: { id: cancellationRefund.id }, data: { status: nextStatus } })
+            await tx.paymentEvent.upsert({ where: { paymentId_externalId: { paymentId: paymentRecord.id, externalId: `refund:${String(refundEntity.id)}` } }, update: { type: String(payload.event ?? 'refund.updated'), payload }, create: { paymentId: paymentRecord.id, externalId: `refund:${String(refundEntity.id)}`, type: String(payload.event ?? 'refund.updated'), payload } })
+            const totalProcessed = paymentRecord.refunds.filter((refund) => refund.id !== cancellationRefund.id && ['processed', 'succeeded'].includes(refund.status.toLowerCase())).reduce((sum, refund) => sum + refund.amountPaise, 0) + (processed ? cancellationRefund.amountPaise : 0)
+            if (totalProcessed > 0) await tx.payment.update({ where: { id: paymentRecord.id }, data: { status: totalProcessed >= paymentRecord.capturedPaise ? PaymentStatus.refunded : PaymentStatus.partially_refunded } })
+          })
+          if (paymentRecord.order.customerId) {
+            const latestCancellationRefunds = await prisma.refund.findMany({ where: { orderId: paymentRecord.order.id, idempotencyKey: { startsWith: 'oc-' } } })
+            const amount = latestCancellationRefunds.reduce((sum, refund) => sum + refund.amountPaise, 0)
+            const unsettled = latestCancellationRefunds.some((refund) => !['processed', 'succeeded'].includes(refund.status.toLowerCase()))
+            const body = unsettled
+              ? `Your order was cancelled. Refund of ₹${(amount / 100).toFixed(2)} is still being processed. Contact contact@skinfox.in if it does not update.`
+              : `Your order was cancelled. A refund of ₹${(amount / 100).toFixed(2)} has been processed by the payment provider; your bank may take time to reflect it.`
+            await prisma.customerNotification.updateMany({ where: { customerId: paymentRecord.order.customerId, orderId: paymentRecord.order.id, type: 'order_cancelled' }, data: { body } })
+          }
+        }
+      }
     }
     await prisma.webhookEvent.update({ where: { id: event.id }, data: { processedAt: new Date() } })
     return data(reply, { accepted: true })
@@ -1629,7 +1722,110 @@ export function buildApp(): FastifyInstance {
   routes.get('/api/v1/payments/:publicToken/status', async (request, reply) => { const order = await prisma.order.findUnique({ where: { publicToken: request.params.publicToken }, include: { payments: true } }); if (!order) throw notFound('Payment status not found.'); return data(reply, { orderStatus: order.status, payments: order.payments.map((p) => ({ provider: p.provider, status: p.status, amountPaise: p.amountPaise })) }) })
   routes.get('/api/v1/orders/:publicToken', async (request, reply) => { const order = await prisma.order.findUnique({ where: { publicToken: request.params.publicToken }, include: { items: true, payments: true, shipments: true, statusEvents: { orderBy: { createdAt: 'asc' } } } }); if (!order) throw notFound('Order not found.'); return data(reply, order) })
   routes.get('/api/v1/orders/:publicToken/tracking', async (request, reply) => { const order = await prisma.order.findUnique({ where: { publicToken: request.params.publicToken }, include: { shipments: { include: { events: { orderBy: { createdAt: 'asc' } } } } } }); if (!order) throw notFound('Order not found.'); return data(reply, { status: order.status, shipments: order.shipments }) })
-  routes.post('/api/v1/orders/:publicToken/cancel-request', async (request, reply) => { const order = await prisma.order.findUnique({ where: { publicToken: request.params.publicToken } }); if (!order) throw notFound('Order not found.'); if (![OrderStatus.pending_payment, OrderStatus.confirmed].includes(order.status)) throw validationError('This order can no longer be cancelled.'); return data(reply, await prisma.$transaction(async (tx) => { const updated = await tx.order.update({ where: { id: order.id }, data: { status: OrderStatus.cancelled, statusEvents: { create: { fromStatus: order.status, toStatus: OrderStatus.cancelled, reason: String(request.body?.reason ?? 'Customer request') } } } }); if (order.checkoutSessionId) { const holds = await tx.inventoryReservation.findMany({ where: { checkoutSessionId: order.checkoutSessionId, releasedAt: null } }); for (const hold of holds) { const claimed = await tx.inventoryReservation.updateMany({ where: { id: hold.id, releasedAt: null }, data: { releasedAt: new Date() } }); if (!claimed.count) continue; await tx.inventoryItem.update({ where: { variantId_locationId: { variantId: hold.variantId, locationId: hold.locationId } }, data: { reservedQty: { decrement: hold.quantity } } }); await tx.inventoryMovement.create({ data: { variantId: hold.variantId, locationId: hold.locationId, type: 'reservation_release', quantity: hold.quantity, orderId: order.id, reason: 'Customer cancellation' } }) } } return updated })) })
+  const cancelOrderAndRefund = async (orderId: string, reason: string, actorId: string | null, requestId: string) => {
+    let order = await prisma.order.findUnique({ where: { id: orderId }, include: { customer: true, payments: true, refunds: true, shipments: { include: { events: { orderBy: { createdAt: 'desc' } } }, orderBy: { createdAt: 'desc' } } } })
+    if (!order) throw notFound('Order not found.')
+    const cancellable = [OrderStatus.pending_payment, OrderStatus.payment_failed, OrderStatus.confirmed, OrderStatus.processing, OrderStatus.packed, OrderStatus.shipped, OrderStatus.cancelled]
+    if (!cancellable.includes(order.status)) throw validationError('This order can no longer be cancelled. Delivered orders must use the return process.')
+
+    const shipment = order.shipments[0]
+    const shipmentState = `${shipment?.status ?? ''} ${shipment?.providerStatus ?? ''}`.toLowerCase().replaceAll('_', ' ')
+    const cancellationAlreadyRequested = /cancellation requested|cancelled|canceled|returned/.test(shipmentState) || Boolean(shipment?.events.some((event) => /cancellation requested|cancelled|canceled|returned/.test(String(event.status ?? '').toLowerCase().replaceAll('_', ' '))))
+    if (order.status === OrderStatus.shipped && !shipment) throw new ApiError(409, 'SHIPMENT_NOT_FOUND', 'This order is marked shipped but has no shipment record. Confirm the courier has stopped delivery before cancelling or refunding it.')
+    if (shipment && !cancellationAlreadyRequested) {
+      if (/out for delivery|delivered|consignee/.test(shipmentState)) throw new ApiError(409, 'SHIPMENT_TOO_LATE_TO_CANCEL', 'The parcel is already out for delivery or delivered. Ask the customer to refuse delivery or request a return after delivery; do not refund it as a cancellation yet.')
+      if (shipment.provider !== 'delhivery' || shipping !== delhivery) throw new ApiError(409, 'COURIER_CANCELLATION_UNAVAILABLE', 'This order has an active shipment that is not connected to the Delhivery integration. Stop or recall it with the courier before cancelling or refunding it.')
+      if (!delhivery.configured()) throw new ApiError(503, 'SHIPPING_PROVIDER_NOT_READY', 'Delhivery credentials are not configured, so the shipped parcel cannot be cancelled automatically.')
+      if (!shipment.trackingNumber) throw new ApiError(409, 'DELHIVERY_WAYBILL_REQUIRED', 'This Delhivery shipment has no AWB yet, so it cannot be cancelled automatically.')
+      let cancellation: unknown
+      try {
+        cancellation = await delhivery.cancelOrder([shipment.trackingNumber])
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : 'Delhivery could not cancel this shipment.'
+        throw new ApiError(502, 'DELHIVERY_CANCEL_FAILED', `Delhivery could not cancel the shipment: ${message}`)
+      }
+      const result = delhiveryCancellationResult(cancellation)
+      if (!result.accepted) throw new ApiError(409, 'DELHIVERY_CANCEL_REJECTED', result.message ?? 'Delhivery did not confirm the cancellation. The order and payment were left unchanged.')
+      const providerStatusValue = String((cancellation as any)?.status ?? (cancellation as any)?.data?.status ?? result.status)
+      await prisma.shipment.update({ where: { id: shipment.id }, data: { status: 'cancellation_requested', providerStatus: providerStatusValue, events: { create: { status: 'cancellation_requested', externalId: `cancel-order-${requestId}`, payload: cancellation as any } } } })
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const fresh = await tx.order.findUnique({ where: { id: orderId }, include: { payments: true, refunds: true } })
+      if (!fresh) throw notFound('Order not found.')
+      if (fresh.status !== OrderStatus.cancelled) {
+        await tx.order.update({ where: { id: orderId }, data: { status: OrderStatus.cancelled } })
+        await tx.orderStatusEvent.create({ data: { orderId, fromStatus: fresh.status, toStatus: OrderStatus.cancelled, reason, actorId } })
+      }
+      for (const paymentRecord of fresh.payments) {
+        const alreadyCommitted = fresh.refunds.filter((refund) => refund.paymentId === paymentRecord.id && refund.status.toLowerCase() !== 'failed').reduce((sum, refund) => sum + refund.amountPaise, 0)
+        const refundablePaise = Math.max(0, paymentRecord.capturedPaise - alreadyCommitted)
+        if (refundablePaise <= 0) continue
+        await tx.refund.upsert({
+          where: { idempotencyKey: orderCancellationRefundKey(orderId, paymentRecord.id) },
+          update: {},
+          create: { orderId, paymentId: paymentRecord.id, amountPaise: refundablePaise, reason, idempotencyKey: orderCancellationRefundKey(orderId, paymentRecord.id), status: 'pending', actorId },
+        })
+      }
+      if (fresh.status !== OrderStatus.cancelled && fresh.status !== OrderStatus.shipped && fresh.checkoutSessionId) {
+        const holds = await tx.inventoryReservation.findMany({ where: { checkoutSessionId: fresh.checkoutSessionId, releasedAt: null } })
+        for (const hold of holds) {
+          const claimed = await tx.inventoryReservation.updateMany({ where: { id: hold.id, releasedAt: null }, data: { releasedAt: new Date() } })
+          if (!claimed.count) continue
+          await tx.inventoryItem.update({ where: { variantId_locationId: { variantId: hold.variantId, locationId: hold.locationId } }, data: { reservedQty: { decrement: hold.quantity } } })
+          await tx.inventoryMovement.create({ data: { variantId: hold.variantId, locationId: hold.locationId, type: 'reservation_release', quantity: hold.quantity, orderId, actorId: actorId ?? undefined, reason: 'Order cancellation' } })
+        }
+      }
+      if (fresh.checkoutSessionId) await tx.checkoutSession.update({ where: { id: fresh.checkoutSessionId }, data: { status: 'cancelled' } })
+      if (fresh.customerId && fresh.status !== OrderStatus.cancelled) {
+        const refundablePaise = fresh.payments.reduce((sum, paymentRecord) => sum + paymentRecord.capturedPaise, 0) - fresh.refunds.reduce((sum, refund) => sum + refund.amountPaise, 0)
+        await tx.customerNotification.create({ data: { customerId: fresh.customerId, orderId, type: 'order_cancelled', title: `Order ${fresh.orderNumber} cancelled`, body: refundablePaise > 0 ? `Your order was cancelled. A refund of ₹${(refundablePaise / 100).toFixed(2)} is being processed to your original payment method.` : 'Your order was cancelled. No captured payment is due for refund.' } })
+      }
+    })
+
+    let refundRequestErrors = 0
+    const pendingRefunds = await prisma.refund.findMany({ where: { orderId, idempotencyKey: { startsWith: 'oc-' }, status: { in: ['pending', 'failed'] } }, include: { payment: true } })
+    for (const refundRecord of pendingRefunds) {
+      const paymentRecord = refundRecord.payment
+      if (!paymentRecord.providerPaymentId || !paymentRecord.provider.toLowerCase().includes('razorpay')) { refundRequestErrors++; continue }
+      try {
+        const providerRefund = await payment.refund({ paymentId: paymentRecord.providerPaymentId, amountPaise: refundRecord.amountPaise, idempotencyKey: refundRecord.idempotencyKey })
+        await prisma.$transaction([
+          prisma.refund.updateMany({ where: { id: refundRecord.id, status: { in: ['pending', 'failed'] } }, data: { status: providerRefund.status } }),
+          prisma.paymentEvent.upsert({ where: { paymentId_externalId: { paymentId: paymentRecord.id, externalId: `refund:${providerRefund.providerRefundId}` } }, update: { type: 'refund.initiated', payload: providerRefund as any }, create: { paymentId: paymentRecord.id, externalId: `refund:${providerRefund.providerRefundId}`, type: 'refund.initiated', payload: providerRefund as any } }),
+        ])
+      } catch (cause) {
+        refundRequestErrors++
+        app.log.error({ err: cause, orderId, paymentId: paymentRecord.id }, 'automatic cancellation refund is pending')
+      }
+    }
+    const cancellationsRefunds = await prisma.refund.findMany({ where: { orderId, idempotencyKey: { startsWith: 'oc-' } }, orderBy: { createdAt: 'asc' } })
+    for (const paymentRecord of order.payments) {
+      const paymentRefunds = cancellationsRefunds.filter((refund) => refund.paymentId === paymentRecord.id)
+      const processed = paymentRefunds.filter((refund) => ['processed', 'succeeded'].includes(refund.status.toLowerCase())).reduce((sum, refund) => sum + refund.amountPaise, 0)
+      if (processed > 0) await prisma.payment.update({ where: { id: paymentRecord.id }, data: { status: processed >= paymentRecord.capturedPaise ? PaymentStatus.refunded : PaymentStatus.partially_refunded } })
+    }
+    if (order.customerId) {
+      const totalRefundPaise = cancellationsRefunds.reduce((sum, refund) => sum + refund.amountPaise, 0)
+      const pendingRefundPaise = cancellationsRefunds.filter((refund) => !['processed', 'succeeded'].includes(refund.status.toLowerCase())).reduce((sum, refund) => sum + refund.amountPaise, 0)
+      const body = !totalRefundPaise
+        ? 'Your order was cancelled. No captured payment is due for refund.'
+        : refundRequestErrors || pendingRefundPaise > 0
+          ? `Your order was cancelled. Refund of ₹${(totalRefundPaise / 100).toFixed(2)} is pending with the payment provider. Contact contact@skinfox.in if it does not update.`
+          : `Your order was cancelled. A refund of ₹${(totalRefundPaise / 100).toFixed(2)} has been processed by the payment provider; your bank may take time to reflect it.`
+      await prisma.customerNotification.updateMany({ where: { customerId: order.customerId, orderId, type: 'order_cancelled' }, data: { body } })
+    }
+    order = await prisma.order.findUnique({ where: { id: orderId }, include: { payments: true, refunds: true, shipments: { orderBy: { createdAt: 'desc' } } } })
+    return { order, refunds: cancellationsRefunds, refundPending: refundRequestErrors > 0 || cancellationsRefunds.some((refund) => !['processed', 'succeeded'].includes(refund.status.toLowerCase())) }
+  }
+
+  routes.post('/api/v1/orders/:publicToken/cancel-request', async (request, reply) => {
+    const customer = await requireCustomer(request, true)
+    const order = await prisma.order.findFirst({ where: { publicToken: request.params.publicToken, customerId: customer.id } })
+    if (!order) throw notFound('Order not found.')
+    const result = await cancelOrderAndRefund(order.id, 'Customer cancellation request', null, String(request.id))
+    return data(reply, result)
+  })
   routes.post('/api/v1/orders/:publicToken/return-request', async (request, reply) => { const order = await prisma.order.findUnique({ where: { publicToken: request.params.publicToken } }); if (!order) throw notFound('Order not found.'); if (order.status !== OrderStatus.delivered) throw validationError('Returns are available after delivery.'); return data(reply, await prisma.returnRequest.create({ data: { orderId: order.id, reason: String(request.body?.reason ?? 'Customer request') } })) })
   routes.post('/api/v1/launch-interest', async () => { throw waitlistDisabledError() })
   routes.post('/api/v1/newsletter/subscriptions', async (request, reply) => { const emailValue = z.string().email().parse(request.body?.email); const token = randomToken(24); const result = await prisma.newsletterSubscription.upsert({ where: { email: emailValue.toLowerCase() }, update: { tokenHash: hashToken(token), consentAt: new Date(), unsubscribedAt: null }, create: { email: emailValue.toLowerCase(), tokenHash: hashToken(token), consentAt: new Date() } }); await email.send({ to: result.email, subject: 'Confirm your SkinFox subscription', html: `<p>Confirm with token ${token}</p>` }); return reply.status(201).send({ data: { accepted: true, confirmationToken: process.env.NODE_ENV === 'production' ? undefined : token }, meta: { requestId: request.id } }) })
@@ -1900,7 +2096,7 @@ export function buildApp(): FastifyInstance {
     return data(reply, result.rows, { total: result.total, page: result.page, limit: result.limit, hasNextPage: result.page * result.limit < result.total })
   })
 
-  const transition: Record<string, OrderStatus> = { confirm: OrderStatus.confirmed, process: OrderStatus.processing, pack: OrderStatus.packed, fulfill: OrderStatus.processing, ship: OrderStatus.shipped, deliver: OrderStatus.delivered, cancel: OrderStatus.cancelled }
+  const transition: Record<string, OrderStatus> = { confirm: OrderStatus.confirmed, process: OrderStatus.processing, pack: OrderStatus.packed, fulfill: OrderStatus.processing, ship: OrderStatus.shipped, deliver: OrderStatus.delivered }
   routes.get('/api/v1/admin/orders', async (request, reply) => {
     await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT])(request)
     const params = pageParams(request)
@@ -2217,9 +2413,14 @@ export function buildApp(): FastifyInstance {
   })
   const shipmentAction = async (request: any, reply: any, action: 'pickup' | 'label' | 'cancel' | 'refresh') => {
     const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER])(request)
-    requireDelhivery()
     const shipment = await prisma.shipment.findFirst({ where: { orderId: request.params.id, provider: 'delhivery', status: { not: 'cancelled' } }, include: { order: { include: { customer: true } } }, orderBy: { createdAt: 'desc' } })
     if (!shipment) throw notFound('No active Delhivery shipment is attached to this order.')
+    if (action === 'cancel') {
+      const result = await cancelOrderAndRefund(shipment.orderId, 'Admin requested shipment cancellation', user.id, String(request.id))
+      await audit(user, request, 'order_cancel_and_refund', 'Order', shipment.orderId, shipment.order, result, 'Admin requested shipment cancellation')
+      return data(reply, result)
+    }
+    requireDelhivery()
     if (action === 'pickup') {
       if (shipment.pickupId) return data(reply, shipment)
       if (!shipment.providerShipmentId) throw validationError('Shipment ID is not available yet.')
@@ -2241,14 +2442,6 @@ export function buildApp(): FastifyInstance {
       await audit(user, request, `shipment_${action}`, 'Shipment', shipment.id, shipment, updated)
       return data(reply, updated)
     }
-    if (action === 'cancel') {
-      const ids = [shipment.providerOrderId, shipment.providerShipmentId].filter(Boolean) as string[]
-      if (!ids.length) throw validationError('Provider shipment identifiers are unavailable.')
-      const result = await delhivery.cancelOrder(ids)
-      const updated = await prisma.shipment.update({ where: { id: shipment.id }, data: { status: 'cancelled', providerStatus: providerStatus(result) || 'cancelled', events: { create: { status: 'cancelled', externalId: `cancel-${request.id}`, payload: result as any } } } })
-      await audit(user, request, 'shipment_cancel', 'Shipment', shipment.id, shipment, updated)
-      return data(reply, updated)
-    }
     if (!shipment.trackingNumber) throw validationError('An AWB is required before tracking can be refreshed.')
     const result = await delhivery.trackAwb(shipment.trackingNumber)
     const nextStatus = providerStatus(result) || providerValue(result, ['data.track_status', 'track_status']) || 'tracking_updated'
@@ -2266,7 +2459,21 @@ export function buildApp(): FastifyInstance {
   }
   for (const action of ['pickup', 'label', 'cancel', 'refresh'] as const) routes.post(`/api/v1/admin/orders/:id/shipment/${action}`, (request, reply) => shipmentAction(request, reply, action))
   routes.get('/api/v1/admin/orders/:id', async (request, reply) => { await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT])(request); const order = await prisma.order.findUnique({ where: { id: request.params.id }, include: { customer: true, items: true, payments: true, refunds: true, shipments: { include: { events: true } }, statusEvents: true, notes: true } }); if (!order) throw notFound('Order not found.'); return data(reply, order) })
-  for (const [action, target] of Object.entries(transition)) app.post(`/api/v1/admin/orders/:id/${action}`, async (request, reply) => { const scope = `order-transition:${request.params.id}:${action}`; const replay = await idemReplay(request, scope); if (replay) return reply.status(replay.status).send(replay.body); const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER])(request); const reason = z.string().min(3).parse(request.body?.reason); const order = await prisma.order.findUnique({ where: { id: request.params.id } }); if (!order) throw notFound('Order not found.'); const allowed: Record<OrderStatus, OrderStatus[]> = { pending_payment: [OrderStatus.confirmed, OrderStatus.cancelled], payment_failed: [OrderStatus.confirmed, OrderStatus.cancelled], confirmed: [OrderStatus.processing, OrderStatus.cancelled], processing: [OrderStatus.packed, OrderStatus.cancelled], packed: [OrderStatus.shipped], shipped: [OrderStatus.delivered], delivered: [], cancelled: [], partially_refunded: [], refunded: [], return_requested: [], returned: [] }; if (!allowed[order.status].includes(target)) throw validationError(`Cannot transition ${order.status} to ${target}.`); if (target === OrderStatus.shipped && shipping === delhivery && !(await prisma.shipment.findFirst({ where: { orderId: order.id, provider: 'delhivery', status: { not: 'cancelled' } } }))) throw validationError('Book a Delhivery shipment before marking this order as shipped.'); const updated = await prisma.$transaction(async (tx) => { const next = await tx.order.update({ where: { id: order.id }, data: { status: target } }); await tx.orderStatusEvent.create({ data: { orderId: order.id, fromStatus: order.status, toStatus: target, reason, actorId: user.id } }); if ((target === OrderStatus.cancelled || target === OrderStatus.shipped) && order.checkoutSessionId) { const holds = await tx.inventoryReservation.findMany({ where: { checkoutSessionId: order.checkoutSessionId, releasedAt: null } }); for (const hold of holds) { const claimed = await tx.inventoryReservation.updateMany({ where: { id: hold.id, releasedAt: null }, data: { releasedAt: new Date() } }); if (!claimed.count) continue; await tx.inventoryItem.update({ where: { variantId_locationId: { variantId: hold.variantId, locationId: hold.locationId } }, data: target === OrderStatus.shipped ? { availableQty: { decrement: hold.quantity }, reservedQty: { decrement: hold.quantity } } : { reservedQty: { decrement: hold.quantity } } }); await tx.inventoryMovement.create({ data: { variantId: hold.variantId, locationId: hold.locationId, type: target === OrderStatus.shipped ? 'sale' : 'reservation_release', quantity: hold.quantity, orderId: order.id, actorId: user.id, reason: target === OrderStatus.shipped ? 'Order shipped' : 'Order cancelled' } }) } } return next }); await audit(user, request, `order_${action}`, 'Order', order.id, order, updated, reason); const envelope = { data: updated, meta: { requestId: request.id } }; await idemStore(request, scope, 200, envelope); return reply.send(envelope) })
+  routes.post('/api/v1/admin/orders/:id/cancel', async (request, reply) => {
+    const scope = `order-cancel:${request.params.id}`
+    const replay = await idemReplay(request, scope)
+    if (replay) return reply.status(replay.status).send(replay.body)
+    const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER])(request)
+    const reason = z.string().min(3).parse(request.body?.reason)
+    const before = await prisma.order.findUnique({ where: { id: request.params.id }, include: { payments: true, refunds: true, shipments: true } })
+    if (!before) throw notFound('Order not found.')
+    const result = await cancelOrderAndRefund(before.id, reason, user.id, String(request.id))
+    await audit(user, request, 'order_cancel_and_refund', 'Order', before.id, before, result, reason)
+    const envelope = { data: result, meta: { requestId: request.id } }
+    await idemStore(request, scope, 200, envelope)
+    return reply.send(envelope)
+  })
+  for (const [action, target] of Object.entries(transition)) app.post(`/api/v1/admin/orders/:id/${action}`, async (request, reply) => { const scope = `order-transition:${request.params.id}:${action}`; const replay = await idemReplay(request, scope); if (replay) return reply.status(replay.status).send(replay.body); const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER])(request); const reason = z.string().min(3).parse(request.body?.reason); const order = await prisma.order.findUnique({ where: { id: request.params.id } }); if (!order) throw notFound('Order not found.'); const allowed: Record<OrderStatus, OrderStatus[]> = { pending_payment: [OrderStatus.confirmed], payment_failed: [OrderStatus.confirmed], confirmed: [OrderStatus.processing], processing: [OrderStatus.packed], packed: [OrderStatus.shipped], shipped: [OrderStatus.delivered], delivered: [], cancelled: [], partially_refunded: [], refunded: [], return_requested: [], returned: [] }; if (!allowed[order.status].includes(target)) throw validationError(`Cannot transition ${order.status} to ${target}.`); if (target === OrderStatus.shipped && shipping === delhivery && !(await prisma.shipment.findFirst({ where: { orderId: order.id, provider: 'delhivery', status: { not: 'cancelled' } } }))) throw validationError('Book a Delhivery shipment before marking this order as shipped.'); const updated = await prisma.$transaction(async (tx) => { const next = await tx.order.update({ where: { id: order.id }, data: { status: target } }); await tx.orderStatusEvent.create({ data: { orderId: order.id, fromStatus: order.status, toStatus: target, reason, actorId: user.id } }); if (target === OrderStatus.shipped && order.checkoutSessionId) { const holds = await tx.inventoryReservation.findMany({ where: { checkoutSessionId: order.checkoutSessionId, releasedAt: null } }); for (const hold of holds) { const claimed = await tx.inventoryReservation.updateMany({ where: { id: hold.id, releasedAt: null }, data: { releasedAt: new Date() } }); if (!claimed.count) continue; await tx.inventoryItem.update({ where: { variantId_locationId: { variantId: hold.variantId, locationId: hold.locationId } }, data: { availableQty: { decrement: hold.quantity }, reservedQty: { decrement: hold.quantity } } }); await tx.inventoryMovement.create({ data: { variantId: hold.variantId, locationId: hold.locationId, type: 'sale', quantity: hold.quantity, orderId: order.id, actorId: user.id, reason: 'Order shipped' } }) } } return next }); await audit(user, request, `order_${action}`, 'Order', order.id, order, updated, reason); const envelope = { data: updated, meta: { requestId: request.id } }; await idemStore(request, scope, 200, envelope); return reply.send(envelope) })
   routes.patch('/api/v1/admin/orders/:id', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER])(request); const before = await prisma.order.findUnique({ where: { id: request.params.id } }); if (!before) throw notFound('Order not found.'); const updated = await prisma.order.update({ where: { id: before.id }, data: request.body }); await audit(user, request, 'update', 'Order', before.id, before, updated, String(request.body?.reason ?? 'Order update')); return data(reply, updated) })
   routes.post('/api/v1/admin/orders/:id/refund', async (request, reply) => { const replay = await idemReplay(request, 'refund'); if (replay) return reply.status(replay.status).send(replay.body); const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER])(request); const input = z.object({ amountPaise: z.number().int().positive(), reason: z.string().min(3), confirmed: z.literal(true) }).parse(request.body); const order = await prisma.order.findUnique({ where: { id: request.params.id }, include: { payments: true, refunds: true } }); if (!order) throw notFound('Order not found.'); const captured = order.payments.reduce((sum, p) => sum + p.capturedPaise, 0); const refunded = order.refunds.reduce((sum, r) => sum + r.amountPaise, 0); if (input.amountPaise > captured - refunded) throw validationError('Refund cannot exceed captured payment.'); const paymentRecord = order.payments.find((p) => p.status === PaymentStatus.captured); if (!paymentRecord) throw validationError('No captured payment is available for refund.'); const providerRefund = await payment.refund({ paymentId: paymentRecord.providerPaymentId ?? paymentRecord.id, amountPaise: input.amountPaise }); const result = await prisma.$transaction(async (tx) => { const refund = await tx.refund.create({ data: { orderId: order.id, paymentId: paymentRecord.id, amountPaise: input.amountPaise, reason: input.reason, idempotencyKey: String(request.headers['idempotency-key'] ?? randomToken(12)), status: providerRefund.status, actorId: user.id } }); const nextStatus = input.amountPaise === captured ? OrderStatus.refunded : OrderStatus.partially_refunded; await tx.order.update({ where: { id: order.id }, data: { status: nextStatus } }); await tx.payment.update({ where: { id: paymentRecord.id }, data: { status: nextStatus === OrderStatus.refunded ? PaymentStatus.refunded : PaymentStatus.partially_refunded } }); return refund }); await audit(user, request, 'refund', 'Order', order.id, { captured, refunded }, result, input.reason); const response = { refund: result }; await idemStore(request, 'refund', 200, { data: response, meta: { requestId: request.id } }); return data(reply, response) })
   routes.post('/api/v1/admin/orders/:id/notes', async (request, reply) => { const user = await requireAdmin([AdminRole.SUPER_ADMIN, AdminRole.ORDER_MANAGER, AdminRole.SUPPORT_AGENT])(request); const note = await prisma.orderNote.create({ data: { orderId: request.params.id, body: z.string().min(2).parse(request.body?.body), actorId: user.id } }); await audit(user, request, 'note', 'Order', request.params.id, null, note); return data(reply, note) })
